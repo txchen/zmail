@@ -1,5 +1,6 @@
 import { ImapFlow } from "imapflow";
 import type { ImapFlowOptions } from "imapflow";
+import { logInfo } from "./logger.js";
 import type { ImapMessage, MailboxSyncClient, MessageSyncClient } from "./sync.js";
 
 type ImapFlowClient = {
@@ -54,6 +55,8 @@ export function createGmailImapMailboxSyncClient(
 ): MailboxSyncClient & MessageSyncClient {
   return {
     async listVisibleMailboxes(account) {
+      const startedAt = Date.now();
+      logInfo("gmail.mailboxes.start", { accountId: account.id });
       const client = new ImapFlowClient({
         host: "imap.gmail.com",
         port: 993,
@@ -69,6 +72,13 @@ export function createGmailImapMailboxSyncClient(
 
       try {
         const mailboxes = await client.list({ statusQuery: { unseen: true } });
+        logInfo("gmail.mailboxes.finish", {
+          accountId: account.id,
+          durationMs: Date.now() - startedAt,
+          mailboxCount: mailboxes.length,
+          selectableMailboxCount: mailboxes.filter((mailbox) => !isNonSelectableMailbox(mailbox))
+            .length,
+        });
 
         return mailboxes.map((mailbox) => ({
           id: mailbox.path,
@@ -81,6 +91,14 @@ export function createGmailImapMailboxSyncClient(
       }
     },
     async listRecentMessages({ account, mailboxes: requestedMailboxes }) {
+      const startedAt = Date.now();
+      logInfo("gmail.messages.start", {
+        accountId: account.id,
+        requestedMailboxCount: requestedMailboxes.length,
+        incrementalMailboxCount: requestedMailboxes.filter(
+          (mailbox) => mailbox.afterUid !== undefined,
+        ).length,
+      });
       const client = new ImapFlowClient({
         host: "imap.gmail.com",
         port: 993,
@@ -97,6 +115,7 @@ export function createGmailImapMailboxSyncClient(
       try {
         const mailboxes = await client.list({ statusQuery: { unseen: true } });
         const messagesByIdentity = new Map<string, ImapMessage>();
+        let fetchedMessageCount = 0;
 
         for (const mailbox of mailboxes.filter(
           (candidate) =>
@@ -114,6 +133,11 @@ export function createGmailImapMailboxSyncClient(
           const messageCount = openedMailbox.exists ?? 0;
 
           if (messageCount === 0) {
+            logInfo("gmail.messages.mailbox.skip", {
+              accountId: account.id,
+              mailboxId: mailbox.path,
+              reason: "empty",
+            });
             continue;
           }
 
@@ -121,6 +145,13 @@ export function createGmailImapMailboxSyncClient(
             requestedMailbox?.afterUid !== undefined
               ? `${requestedMailbox.afterUid + 1}:*`
               : `${Math.max(1, messageCount - 9)}:*`;
+          logInfo("gmail.messages.mailbox.fetch", {
+            accountId: account.id,
+            mailboxId: mailbox.path,
+            range,
+            messageCount,
+            mode: requestedMailbox?.afterUid !== undefined ? "incremental" : "backfill",
+          });
           for await (const message of client.fetch(
             range,
             {
@@ -133,6 +164,7 @@ export function createGmailImapMailboxSyncClient(
             },
             { uid: true },
           )) {
+            fetchedMessageCount += 1;
             const id = message.emailId ?? `${mailbox.path}:${message.uid}`;
             const stableIdentity = `gmail:${account.id}:${id}`;
             const existing = messagesByIdentity.get(stableIdentity);
@@ -165,6 +197,12 @@ export function createGmailImapMailboxSyncClient(
           }
         }
 
+        logInfo("gmail.messages.finish", {
+          accountId: account.id,
+          durationMs: Date.now() - startedAt,
+          fetchedMessageCount,
+          returnedMessageCount: messagesByIdentity.size,
+        });
         return [...messagesByIdentity.values()];
       } finally {
         await client.logout();

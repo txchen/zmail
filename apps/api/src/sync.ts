@@ -1,4 +1,5 @@
 import type { ConfiguredMailAccount } from "./config.js";
+import { logError, logInfo } from "./logger.js";
 import type {
   AccountSyncStatus,
   AttachmentMetadata,
@@ -74,6 +75,8 @@ export async function syncMailboxTrees({
 
   for (const account of accounts) {
     const lastSyncStartedAt = new Date().toISOString();
+    const startedAt = Date.now();
+    logInfo("mailbox.sync.start", { accountId: account.id });
 
     try {
       const mailboxes = await client.listVisibleMailboxes(account);
@@ -93,6 +96,11 @@ export async function syncMailboxTrees({
         lastSyncStartedAt,
         lastSyncFinishedAt,
       });
+      logInfo("mailbox.sync.finish", {
+        accountId: account.id,
+        durationMs: Date.now() - startedAt,
+        mailboxCount: mailboxes.length,
+      });
     } catch (error) {
       results.push({
         accountId: account.id,
@@ -100,6 +108,11 @@ export async function syncMailboxTrees({
         lastSyncStartedAt,
         lastSyncFinishedAt: new Date().toISOString(),
         lastError: error instanceof Error ? error.message : String(error),
+      });
+      logError("mailbox.sync.error", {
+        accountId: account.id,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
@@ -149,6 +162,7 @@ export async function syncRecentMessages({
   since.setUTCDate(since.getUTCDate() - syncWindowDays);
 
   for (const account of accounts) {
+    const startedAt = Date.now();
     const mailDatabase = persistence.mailDatabaseFor(account.id);
     const mailboxes = mailDatabase
       .listMailboxes()
@@ -161,7 +175,19 @@ export async function syncRecentMessages({
           ...(syncState ? { afterUid: syncState.highestUid } : { since }),
         };
       });
+    const incrementalMailboxCount = mailboxes.filter((mailbox) => "afterUid" in mailbox).length;
+    const backfillMailboxCount = mailboxes.length - incrementalMailboxCount;
+    logInfo("message.sync.start", {
+      accountId: account.id,
+      mailboxCount: mailboxes.length,
+      backfillMailboxCount,
+      incrementalMailboxCount,
+    });
+
     const messages = await client.listRecentMessages({ account, mailboxes });
+    let storedMessageCount = 0;
+    let storedMailboxEntryCount = 0;
+    let skippedMessageCount = 0;
 
     for (const message of messages) {
       if (
@@ -169,6 +195,7 @@ export async function syncRecentMessages({
           (mailboxId) => !mailboxes.some((mailbox) => mailbox.id === mailboxId),
         )
       ) {
+        skippedMessageCount += 1;
         continue;
       }
 
@@ -179,6 +206,7 @@ export async function syncRecentMessages({
           return mailbox && "since" in mailbox && new Date(message.receivedAt) < mailbox.since;
         })
       ) {
+        skippedMessageCount += 1;
         continue;
       }
 
@@ -205,6 +233,7 @@ export async function syncRecentMessages({
           sizeBytes,
         })),
       });
+      storedMessageCount += 1;
 
       for (const mailboxId of message.mailboxIds) {
         mailDatabase.saveMailboxEntry({
@@ -212,6 +241,7 @@ export async function syncRecentMessages({
           mailboxId,
           messageId: message.id,
         });
+        storedMailboxEntryCount += 1;
 
         if (message.uid !== undefined) {
           mailDatabase.saveMailboxSyncState({
@@ -222,5 +252,13 @@ export async function syncRecentMessages({
         }
       }
     }
+    logInfo("message.sync.finish", {
+      accountId: account.id,
+      durationMs: Date.now() - startedAt,
+      fetchedMessageCount: messages.length,
+      storedMessageCount,
+      storedMailboxEntryCount,
+      skippedMessageCount,
+    });
   }
 }

@@ -2,6 +2,7 @@ import { healthy } from "@zmail/shared";
 import { Hono } from "hono";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { AppConfig, AppLogin } from "./config.js";
+import { logError, logInfo } from "./logger.js";
 import type { MailboxAction } from "./mailbox-actions.js";
 import {
   createFileBackedHybridPersistence,
@@ -184,22 +185,44 @@ export function createApp(config: AppConfig): Hono {
       return c.json({ error: "Mail account not found" }, 404);
     }
 
-    const syncResults = await syncMailboxTrees({
-      accounts: [account],
-      persistence,
-      client: mailboxSyncClient,
-    });
-    if (messageSyncClient) {
-      await syncRecentMessages({
+    const startedAt = Date.now();
+    logInfo("mail.refresh.start", { accountId: account.id });
+
+    try {
+      const syncResults = await syncMailboxTrees({
         accounts: [account],
         persistence,
-        client: messageSyncClient,
-        syncWindowDays: config.sync?.recentMessageWindowDays,
+        client: mailboxSyncClient,
       });
-    }
-    saveSyncStates(syncResults);
+      if (messageSyncClient) {
+        await syncRecentMessages({
+          accounts: [account],
+          persistence,
+          client: messageSyncClient,
+          syncWindowDays: config.sync?.recentMessageWindowDays,
+        });
+      } else {
+        logInfo("mail.refresh.messages.skipped", {
+          accountId: account.id,
+          reason: "message_sync_not_configured",
+        });
+      }
+      saveSyncStates(syncResults);
+      logInfo("mail.refresh.finish", {
+        accountId: account.id,
+        durationMs: Date.now() - startedAt,
+        status: syncStateFor(account.id).syncStatus,
+      });
 
-    return c.json(mailboxTreeResponse());
+      return c.json(mailboxTreeResponse());
+    } catch (error) {
+      logError("mail.refresh.error", {
+        accountId: account.id,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   });
 
   app.get("/api/mail-accounts/:accountId/sync-status", (c) => {
