@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Add browser smoke coverage and fix repo check
 
@@ -12,14 +12,14 @@ Add verification coverage for the real Mail reader UI and resolve the repo-level
 
 ## Acceptance criteria
 
-- [ ] Browser smoke coverage verifies App login and Default reader view routing.
-- [ ] Browser smoke coverage verifies Account unread empty state.
-- [ ] Browser smoke coverage verifies per-account Search route behavior.
-- [ ] Browser smoke coverage verifies Mail account diagnostics success or failure display.
-- [ ] Browser smoke coverage verifies mobile progressive layout at a narrow viewport.
-- [ ] When seeded Message data is available, smoke coverage verifies opening a Message, remote-image blocking, and the MVP Mailbox actions.
-- [ ] `vp run typecheck` passes.
-- [ ] `vp test` passes.
+- [x] Browser smoke coverage verifies App login and Default reader view routing.
+- [x] Browser smoke coverage verifies Account unread empty state.
+- [x] Browser smoke coverage verifies per-account Search route behavior.
+- [x] Browser smoke coverage verifies Mail account diagnostics success or failure display.
+- [x] Browser smoke coverage verifies mobile progressive layout at a narrow viewport.
+- [x] When seeded Message data is available, smoke coverage verifies opening a Message, remote-image blocking, and the MVP Mailbox actions.
+- [x] `vp run typecheck` passes.
+- [x] `vp test` passes.
 - [x] `vp check` runs successfully or has a separate documented issue explaining the formatter-config startup failure.
 
 ## Blocked by

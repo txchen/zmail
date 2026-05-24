@@ -10,7 +10,8 @@
     "dev": "concurrently -n api,web -c cyan,green \"vp run --filter @zmail/api dev\" \"vp run --filter @zmail/web dev\"",
     "test": "vp test",
     "typecheck": "tsc -b",
-    "check": "vp check"
+    "check": "vp check",
+    "smoke:web": "node scripts/smoke-real-web-ui.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",

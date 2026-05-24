@@ -464,6 +464,7 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
             <div class="space-y-3 border-b border-stone-200 bg-white p-3">
               <div class="flex items-center gap-2 lg:hidden">
                 <UButton
+                  aria-label="Account mailbox tree"
                   color="neutral"
                   icon="i-lucide-menu"
                   square
