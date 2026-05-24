@@ -1,5 +1,6 @@
 import { ImapFlow } from "imapflow";
 import type { ImapFlowOptions } from "imapflow";
+import { simpleParser } from "mailparser";
 import { logInfo } from "./logger.js";
 import type { ImapMessage, MailboxSyncClient, MessageSyncClient } from "./sync.js";
 
@@ -22,7 +23,7 @@ type ImapFlowClient = {
       flags: true;
       envelope: true;
       internalDate: true;
-      source: { maxLength: 16384 };
+      source: true;
       threadId: true;
     },
     options: { uid: true },
@@ -161,7 +162,7 @@ export function createGmailImapMailboxSyncClient(
               flags: true,
               envelope: true,
               internalDate: true,
-              source: { maxLength: 16384 },
+              source: true,
               threadId: true,
             },
             { uid: true },
@@ -178,7 +179,7 @@ export function createGmailImapMailboxSyncClient(
               continue;
             }
 
-            const body = readableBodyFromSource(message.source);
+            const body = await readableBodyFromSource(message.source);
             const receivedAt =
               normalizeDate(message.envelope?.date) ?? normalizeDate(message.internalDate);
 
@@ -201,10 +202,12 @@ export function createGmailImapMailboxSyncClient(
               bccRecipients: message.envelope?.bcc?.map(participantFromAddress),
               receivedAt: (receivedAt ?? new Date()).toISOString(),
               unread: !message.flags?.has("\\Seen"),
-              snippet: body.slice(0, 240),
-              readableBody: body,
-              plainTextBody: body,
-              attachments: [],
+              snippet: body.text.slice(0, 240),
+              bodyText: body.text,
+              readableBody: body.html,
+              plainTextBody: body.text,
+              inlineResources: body.inlineResources,
+              attachments: body.attachments,
               mailboxIds: [mailbox.path],
             });
           }
@@ -264,21 +267,64 @@ function normalizeEmailDateString(value: string): string {
     .replace(/\bGMT\b/, "+0000");
 }
 
-function readableBodyFromSource(source: Buffer | undefined): string {
+async function readableBodyFromSource(source: Buffer | undefined) {
   if (!source) {
-    return "";
+    return {
+      html: "",
+      text: "",
+      inlineResources: [],
+      attachments: [],
+    };
   }
 
-  const raw = source.toString("utf8");
-  const body = raw.slice(Math.max(raw.indexOf("\r\n\r\n"), raw.indexOf("\n\n")) + 4).trim();
+  const parsed = await simpleParser(source);
+  const inlineResources = parsed.attachments
+    .filter((attachment) => attachment.contentDisposition === "inline" && attachment.cid)
+    .map((attachment, index) => ({
+      id: `inline-${index}`,
+      contentId: normalizeContentId(attachment.cid ?? ""),
+      mimeType: attachment.contentType,
+      sizeBytes: attachment.size,
+      bytes: attachment.content,
+    }));
+  const attachments = parsed.attachments
+    .filter((attachment) => attachment.contentDisposition !== "inline" || !attachment.cid)
+    .map((attachment, index) => ({
+      id: `attachment-${index}`,
+      filename: attachment.filename ?? "attachment",
+      mimeType: attachment.contentType,
+      sizeBytes: attachment.size,
+    }));
+  const html = typeof parsed.html === "string" ? parsed.html : "";
+  const text = normalizeBodyText(parsed.text || stripHtml(html));
 
-  return decodeQuotedPrintable(body);
+  return {
+    html: html || escapeHtml(text).replaceAll("\n", "<br>"),
+    text,
+    inlineResources,
+    attachments,
+  };
 }
 
-function decodeQuotedPrintable(value: string): string {
+function normalizeContentId(value: string): string {
+  return value.trim().replace(/^</, "").replace(/>$/, "");
+}
+
+function normalizeBodyText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function stripHtml(value: string): string {
   return value
-    .replace(/=\r?\n/g, "")
-    .replace(/=([0-9a-fA-F]{2})/g, (_match, hex: string) =>
-      String.fromCharCode(Number.parseInt(hex, 16)),
-    );
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ");
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }

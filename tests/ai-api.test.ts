@@ -64,6 +64,7 @@ describe("read-only AI API", () => {
         updatedAt: "2026-05-23T10:00:00.000Z",
         readableBody: "<p>Hello AI reader</p>",
         blockedRemoteImageCount: 0,
+        inlineResources: [],
         attachments: [],
       },
     });

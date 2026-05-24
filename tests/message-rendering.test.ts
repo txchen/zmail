@@ -6,27 +6,58 @@ describe("readable Message rendering", () => {
   it("sanitizes unsafe HTML and blocks remote images by default", () => {
     expect(
       renderReadableMessage({
+        accountId: "personal",
+        messageId: "message-1",
         readableBody:
           '<p>Hello</p><script>alert("x")</script><img src="https://tracker.example/open.png"><a href="javascript:alert(1)">bad</a>',
+        inlineResources: [],
         showRemoteImages: false,
       }),
-    ).toEqual({
-      html: '<p>Hello</p><img data-remote-src="https://tracker.example/open.png"><a>bad</a>',
+    ).toMatchObject({
       blockedRemoteImageCount: 1,
     });
+    const rendered = renderReadableMessage({
+      accountId: "personal",
+      messageId: "message-1",
+      readableBody:
+        '<p>Hello</p><script>alert("x")</script><img src="https://tracker.example/open.png"><a href="javascript:alert(1)">bad</a>',
+      inlineResources: [],
+      showRemoteImages: false,
+    });
+    expect(rendered.srcdoc).toContain(
+      '<p>Hello</p><img data-remote-src="https://tracker.example/open.png"><a target="_blank" rel="noopener noreferrer">bad</a>',
+    );
+    expect(rendered.srcdoc).not.toContain("<script>");
   });
 
   it("escapes plain text when HTML is unavailable and can show remote images manually", () => {
-    expect(
-      renderReadableMessage({
-        readableBody: "",
-        plainTextBody: "Hello <reader>\nhttps://example.com/image.png",
-        showRemoteImages: true,
-      }),
-    ).toEqual({
-      html: "Hello &lt;reader&gt;<br>https://example.com/image.png",
+    const rendered = renderReadableMessage({
+      accountId: "personal",
+      messageId: "message-1",
+      readableBody: "",
+      plainTextBody: "Hello <reader>\nhttps://example.com/image.png",
+      inlineResources: [],
+      showRemoteImages: true,
+    });
+
+    expect(rendered).toMatchObject({
       blockedRemoteImageCount: 0,
     });
+    expect(rendered.srcdoc).toContain("Hello &lt;reader&gt;<br>https://example.com/image.png");
+  });
+
+  it("rewrites cid image sources to authenticated inline resource URLs", () => {
+    const rendered = renderReadableMessage({
+      accountId: "personal",
+      messageId: "message-1",
+      readableBody: '<img src="cid:image-1@example.com">',
+      inlineResources: [{ id: "inline-0", contentId: "image-1@example.com" }],
+      showRemoteImages: false,
+    });
+
+    expect(rendered.srcdoc).toContain(
+      '<img src="/api/mail-accounts/personal/messages/message-1/inline-resources/inline-0">',
+    );
   });
 
   it("loads Messages for a selected Mailbox and then loads selected Message content", async () => {

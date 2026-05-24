@@ -29,7 +29,7 @@ A sender or recipient address associated with a **Message**, optionally with a d
 _Avoid_: Contact, user
 
 **Message snippet**:
-A short preview of a **Message** body used in **Message lists** and **Search** results. A **Message snippet** is derived from synced content and is not a separate source of truth.
+A short preview of a **Message** body used in **Message lists** and **Search** results. A **Message snippet** is derived from normalized body text and is not a separate source of truth.
 _Avoid_: Summary, excerpt
 
 **Mailbox entry**:
@@ -37,12 +37,20 @@ The appearance of a **Message** inside one specific **Mailbox**. A single **Mess
 _Avoid_: Message copy, duplicate message
 
 **Full-message sync**:
-A sync mode where Zmail stores each synced **Message**'s readable body and attachment metadata locally so the UI and AI API can read recent mail without waiting on Gmail. Attachment file bytes are not part of the **Local read model** and can be fetched from Gmail on demand.
+A sync mode where Zmail stores each synced **Message**'s **Readable body**, **Inline message resources**, and **Attachment** metadata locally so the UI and AI API can read recent mail without waiting on Gmail. **Attachment** file bytes are not part of the **Local read model** and can be fetched from Gmail on demand.
 _Avoid_: Header-only sync, lazy sync
 
 **Readable body**:
-The sanitized HTML body of a **Message**, with a plain-text fallback when HTML is unavailable. Remote images are blocked by default but can be shown manually for a Message.
+The sanitized HTML body of a **Message**, with a plain-text fallback when HTML is unavailable. A **Readable body** can include **Inline message resources**; remote images are blocked by default but can be shown manually for a **Message**.
 _Avoid_: Raw MIME body, trusted HTML
+
+**Inline message resource**:
+An embedded MIME part of a **Message**, commonly an image referenced from the **Readable body**, that is intended to render as part of the body rather than appear as a separate download.
+_Avoid_: Attachment, remote image
+
+**Attachment**:
+A downloadable file part of a **Message** that is not part of the **Readable body**.
+_Avoid_: Inline image, body resource
 
 **Local read model**:
 Zmail's local database projection of Gmail state, optimized for reading and AI access. Gmail remains the source of truth for mail data; the **Local read model** can be rebuilt from Gmail.
@@ -176,7 +184,7 @@ Domain expert: "No. Zmail should sync Message bodies locally so AI can read the 
 
 Developer: "Does Full-message sync include attachment files?"
 
-Domain expert: "No. It includes readable bodies and attachment metadata, but attachment file bytes can wait because they would make the sync data too large."
+Domain expert: "No. It includes Readable bodies, Inline message resources, and Attachment metadata, but normal Attachment file bytes can wait because they would make the sync data too large."
 
 Developer: "Does Zmail load every image inside an email by default?"
 

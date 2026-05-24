@@ -13,6 +13,8 @@ body {
 }
 
 .message-body {
+  min-height: 70vh;
+  border: 0;
   color: #1f2933;
   line-height: 1.6;
 }

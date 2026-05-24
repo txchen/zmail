@@ -39,10 +39,12 @@ export type StoredMessage = {
   starred: boolean;
   aiProcessed: boolean;
   snippet?: string;
+  bodyText?: string;
   readableBody: string;
   plainTextBody?: string;
   blockedRemoteImageCount?: number;
   updatedAt?: string;
+  inlineResources?: InlineMessageResource[];
   attachments: AttachmentMetadata[];
 };
 
@@ -56,6 +58,17 @@ export type AttachmentMetadata = {
   filename: string;
   mimeType: string;
   sizeBytes: number;
+};
+
+export type InlineMessageResourceMetadata = {
+  id: string;
+  contentId: string;
+  mimeType: string;
+  sizeBytes: number;
+};
+
+export type InlineMessageResource = InlineMessageResourceMetadata & {
+  bytes: Uint8Array;
 };
 
 export type StoredMailboxEntry = {
@@ -126,6 +139,7 @@ export type MessageDetail = MessageSummary & {
   readableBody: string;
   plainTextBody?: string;
   blockedRemoteImageCount: number;
+  inlineResources: InlineMessageResourceMetadata[];
   attachments: AttachmentMetadata[];
 };
 
@@ -200,6 +214,7 @@ export class MailDatabase {
         starred INTEGER NOT NULL DEFAULT 0,
         ai_processed INTEGER NOT NULL,
         snippet TEXT NOT NULL DEFAULT '',
+        body_text TEXT NOT NULL DEFAULT '',
         readable_body TEXT NOT NULL DEFAULT '',
         plain_text_body TEXT,
         blocked_remote_image_count INTEGER NOT NULL DEFAULT 0,
@@ -219,12 +234,27 @@ export class MailDatabase {
         highest_uid INTEGER NOT NULL,
         last_synced_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS inline_message_resources (
+        id TEXT PRIMARY KEY,
+        message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+        content_id TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        bytes BLOB NOT NULL,
+        UNIQUE(message_id, content_id)
+      );
     `);
+    this.ensureMessageTextColumn("body_text", "TEXT NOT NULL DEFAULT ''");
     this.ensureMessageJsonColumn("cc_recipients_json");
     this.ensureMessageJsonColumn("bcc_recipients_json");
   }
 
   private ensureMessageJsonColumn(columnName: string): void {
+    this.ensureMessageTextColumn(columnName, "TEXT NOT NULL DEFAULT '[]'");
+  }
+
+  private ensureMessageTextColumn(columnName: string, definition: string): void {
     const columns = this.database.prepare("PRAGMA table_info(messages)").all() as Array<{
       name: string;
     }>;
@@ -233,7 +263,7 @@ export class MailDatabase {
       return;
     }
 
-    this.database.exec(`ALTER TABLE messages ADD COLUMN ${columnName} TEXT NOT NULL DEFAULT '[]'`);
+    this.database.exec(`ALTER TABLE messages ADD COLUMN ${columnName} ${definition}`);
   }
 
   setMessageUnread(messageId: string, unread: boolean): void {
@@ -321,10 +351,10 @@ export class MailDatabase {
         INSERT INTO messages (
           id, stable_identity, thread_id, subject, sender_json, recipients_json,
           cc_recipients_json, bcc_recipients_json, received_at,
-          unread, starred, ai_processed, snippet, readable_body, plain_text_body,
+          unread, starred, ai_processed, snippet, body_text, readable_body, plain_text_body,
           blocked_remote_image_count, updated_at, attachments_json
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           stable_identity = excluded.stable_identity,
           thread_id = excluded.thread_id,
@@ -338,6 +368,7 @@ export class MailDatabase {
           starred = excluded.starred,
           ai_processed = excluded.ai_processed,
           snippet = excluded.snippet,
+          body_text = excluded.body_text,
           readable_body = excluded.readable_body,
           plain_text_body = excluded.plain_text_body,
           blocked_remote_image_count = excluded.blocked_remote_image_count,
@@ -358,12 +389,36 @@ export class MailDatabase {
         message.starred ? 1 : 0,
         message.aiProcessed ? 1 : 0,
         message.snippet ?? "",
+        message.bodyText ?? message.plainTextBody ?? stripHtml(message.readableBody),
         message.readableBody,
         message.plainTextBody ?? null,
         message.blockedRemoteImageCount ?? 0,
         message.updatedAt ?? message.receivedAt,
         JSON.stringify(message.attachments),
       );
+    this.saveInlineMessageResources(message.id, message.inlineResources ?? []);
+  }
+
+  private saveInlineMessageResources(messageId: string, resources: InlineMessageResource[]): void {
+    this.database
+      .prepare("DELETE FROM inline_message_resources WHERE message_id = ?")
+      .run(messageId);
+
+    const statement = this.database.prepare(`
+      INSERT INTO inline_message_resources (id, message_id, content_id, mime_type, size_bytes, bytes)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const resource of resources) {
+      statement.run(
+        resource.id,
+        messageId,
+        resource.contentId,
+        resource.mimeType,
+        resource.sizeBytes,
+        resource.bytes,
+      );
+    }
   }
 
   saveMailboxEntry(entry: StoredMailboxEntry): void {
@@ -509,6 +564,39 @@ export class MailDatabase {
     }));
   }
 
+  getInlineMessageResource(
+    messageId: string,
+    resourceId: string,
+  ): InlineMessageResource | undefined {
+    const row = this.database
+      .prepare(`
+        SELECT id, content_id, mime_type, size_bytes, bytes
+        FROM inline_message_resources
+        WHERE message_id = ? AND id = ?
+      `)
+      .get(messageId, resourceId) as
+      | {
+          id: string;
+          content_id: string;
+          mime_type: string;
+          size_bytes: number;
+          bytes: Uint8Array;
+        }
+      | undefined;
+
+    if (!row) {
+      return undefined;
+    }
+
+    return {
+      id: row.id,
+      contentId: row.content_id,
+      mimeType: row.mime_type,
+      sizeBytes: row.size_bytes,
+      bytes: row.bytes,
+    };
+  }
+
   listMessagesForMailbox(
     accountId: string,
     mailboxId?: string,
@@ -649,6 +737,7 @@ export class MailDatabase {
       readableBody: row.readable_body,
       ...(row.plain_text_body ? { plainTextBody: row.plain_text_body } : {}),
       blockedRemoteImageCount: row.blocked_remote_image_count,
+      inlineResources: this.listInlineMessageResources(row.id),
       attachments,
     };
   }
@@ -713,7 +802,7 @@ export class MailDatabase {
           cc_recipients_json, bcc_recipients_json, received_at,
           unread, starred, snippet, updated_at, attachments_json
         FROM messages
-        WHERE lower(subject) LIKE ? OR lower(readable_body) LIKE ?
+        WHERE lower(subject) LIKE ? OR lower(body_text) LIKE ?
         ORDER BY received_at DESC, id DESC
       `)
       .all(pattern, pattern)
@@ -818,8 +907,35 @@ export class MailDatabase {
       readableBody: row.readable_body,
       ...(row.plain_text_body ? { plainTextBody: row.plain_text_body } : {}),
       blockedRemoteImageCount: row.blocked_remote_image_count,
+      inlineResources: this.listInlineMessageResources(row.id),
       attachments,
     };
+  }
+
+  private listInlineMessageResources(messageId: string): InlineMessageResourceMetadata[] {
+    return this.database
+      .prepare(`
+        SELECT id, content_id, mime_type, size_bytes
+        FROM inline_message_resources
+        WHERE message_id = ?
+        ORDER BY id
+      `)
+      .all(messageId)
+      .map((row) => {
+        const resource = row as {
+          id: string;
+          content_id: string;
+          mime_type: string;
+          size_bytes: number;
+        };
+
+        return {
+          id: resource.id,
+          contentId: resource.content_id,
+          mimeType: resource.mime_type,
+          sizeBytes: resource.size_bytes,
+        };
+      });
   }
 
   private listMailboxIdsForMessage(messageId: string): string[] {
@@ -864,6 +980,15 @@ function matchesMessageFilters(message: MessageSummary, filters: MessageFilters 
   }
 
   return true;
+}
+
+function stripHtml(value: string): string {
+  return value
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function encodeMessageCursor(receivedAt: string, id: string): string {

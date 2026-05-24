@@ -395,6 +395,36 @@ export function createApp(config: AppConfig): Hono {
     return c.json({ message });
   });
 
+  app.get("/api/mail-accounts/:accountId/messages/:messageId/inline-resources/:resourceId", (c) => {
+    if (!isAuthenticated(c.req.header("cookie"))) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    const accountId = c.req.param("accountId");
+    if (!config.mailAccounts.some((account) => account.id === accountId)) {
+      return c.json({ error: "Mail account not found" }, 404);
+    }
+
+    const messageId = c.req.param("messageId");
+    const resource = persistence
+      .mailDatabaseFor(accountId)
+      .getInlineMessageResource(messageId, c.req.param("resourceId"));
+
+    if (!resource) {
+      return c.json({ error: "Inline message resource not found" }, 404);
+    }
+
+    const body = new ArrayBuffer(resource.bytes.byteLength);
+    new Uint8Array(body).set(resource.bytes);
+
+    return new Response(body, {
+      headers: {
+        "content-type": resource.mimeType,
+        "cache-control": "private, max-age=86400",
+      },
+    });
+  });
+
   app.get(
     "/api/mail-accounts/:accountId/messages/:messageId/attachments/:attachmentId",
     async (c) => {

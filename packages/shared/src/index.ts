@@ -55,6 +55,13 @@ export type AttachmentMetadata = {
   sizeBytes: number;
 };
 
+export type InlineMessageResourceMetadata = {
+  id: string;
+  contentId: string;
+  mimeType: string;
+  sizeBytes: number;
+};
+
 export type MessageParticipant = {
   address: string;
   displayName?: string;
@@ -83,6 +90,7 @@ export type MessageDetail = MailboxMessageSummary & {
   readableBody: string;
   plainTextBody?: string;
   blockedRemoteImageCount: number;
+  inlineResources: InlineMessageResourceMetadata[];
   attachments: AttachmentMetadata[];
 };
 

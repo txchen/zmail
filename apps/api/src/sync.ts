@@ -4,6 +4,7 @@ import type {
   AccountSyncStatus,
   AttachmentMetadata,
   HybridPersistence,
+  InlineMessageResource,
   StoredMailbox,
   SystemMailboxRole,
 } from "./persistence.js";
@@ -41,10 +42,12 @@ export type ImapMessage = {
   receivedAt: string;
   unread: boolean;
   snippet?: string;
+  bodyText?: string;
   readableBody: string;
   plainTextBody?: string;
   blockedRemoteImageCount?: number;
   updatedAt?: string;
+  inlineResources?: InlineMessageResource[];
   attachments: Array<AttachmentMetadata & { bytes?: unknown }>;
   mailboxIds: string[];
 };
@@ -233,10 +236,12 @@ export async function syncRecentMessages({
         starred: false,
         aiProcessed: false,
         snippet: message.snippet,
+        bodyText: message.bodyText,
         readableBody: message.readableBody,
         plainTextBody: message.plainTextBody,
         blockedRemoteImageCount: message.blockedRemoteImageCount,
         updatedAt: message.updatedAt,
+        inlineResources: message.inlineResources,
         attachments: message.attachments.map(({ id, filename, mimeType, sizeBytes }) => ({
           id,
           filename,

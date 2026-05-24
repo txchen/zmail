@@ -338,6 +338,7 @@ describe("recent Message sync", () => {
         readableBody: "<p>Hello</p>",
         plainTextBody: "Hello",
         blockedRemoteImageCount: 2,
+        inlineResources: [],
         attachments: [
           {
             id: "attachment-1",

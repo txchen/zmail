@@ -118,8 +118,11 @@ const renderedMessage = computed(() => {
   }
 
   return renderReadableMessage({
+    accountId: selectedMessage.value.accountId,
+    messageId: selectedMessage.value.id,
     readableBody: selectedMessage.value.readableBody,
     plainTextBody: selectedMessage.value.plainTextBody,
+    inlineResources: selectedMessage.value.inlineResources,
     showRemoteImages: showRemoteImages.value,
   });
 });
@@ -648,7 +651,12 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                     >
                   </template>
                 </UAlert>
-                <div class="message-body mt-6" v-html="renderedMessage.html"></div>
+                <iframe
+                  class="message-body mt-6 block w-full"
+                  sandbox="allow-popups"
+                  :srcdoc="renderedMessage.srcdoc"
+                  title="Message body"
+                ></iframe>
                 <div
                   v-if="selectedMessage.attachments.length"
                   class="mt-6 border-t border-stone-200 pt-4"
