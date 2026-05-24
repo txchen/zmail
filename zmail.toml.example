@@ -3,6 +3,9 @@
 #
 # Keep mail_accounts at the top level, before [app_login].
 
+[storage]
+database_dir = ".data"
+
 [app_login]
 username = "reader"
 password = "change-me"

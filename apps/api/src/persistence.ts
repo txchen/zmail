@@ -1,4 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 export type AccountSyncStatus = "synced" | "syncing" | "stale" | "failing";
 
@@ -134,12 +136,29 @@ export function createHybridPersistence(): HybridPersistence {
   return new HybridPersistence(new DatabaseSync(":memory:"));
 }
 
+export function createFileBackedHybridPersistence(databaseDir: string): HybridPersistence {
+  mkdirSync(join(databaseDir, "mail"), { recursive: true });
+
+  return new HybridPersistence(new DatabaseSync(join(databaseDir, "app.sqlite")), {
+    mailDatabasePath(mailAccountId) {
+      return join(databaseDir, "mail", `${mailAccountId}.sqlite`);
+    },
+  });
+}
+
+type HybridPersistenceOptions = {
+  mailDatabasePath?(mailAccountId: string): string;
+};
+
 export class HybridPersistence {
   readonly app: AppDatabase;
 
   private readonly mailDatabases = new Map<string, MailDatabase>();
 
-  constructor(appDatabase: DatabaseSync) {
+  constructor(
+    appDatabase: DatabaseSync,
+    private readonly options: HybridPersistenceOptions = {},
+  ) {
     this.app = new AppDatabase(appDatabase);
   }
 
@@ -150,7 +169,9 @@ export class HybridPersistence {
       return existing;
     }
 
-    const database = new MailDatabase(new DatabaseSync(":memory:"));
+    const database = new MailDatabase(
+      new DatabaseSync(this.options.mailDatabasePath?.(mailAccountId) ?? ":memory:"),
+    );
     this.mailDatabases.set(mailAccountId, database);
 
     return database;

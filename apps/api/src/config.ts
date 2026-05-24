@@ -17,8 +17,13 @@ export type ConfiguredMailAccount = MailAccountSummary & {
   appPassword: string;
 };
 
+export type StorageConfig = {
+  databaseDir: string;
+};
+
 export type AppConfig = {
   appLogin: AppLogin;
+  storage: StorageConfig;
   mailAccounts: ConfiguredMailAccount[];
   persistence?: HybridPersistence;
   mailboxSyncClient?: MailboxSyncClient;
@@ -41,21 +46,22 @@ export function loadConfig(env: Env = process.env): AppConfig {
 }
 
 export function loadConfigFromFile(path: string): AppConfig {
+  const resolvedPath = resolve(path);
   let parsed: unknown;
 
-  if (!existsSync(path)) {
+  if (!existsSync(resolvedPath)) {
     throw new Error(
-      `Missing App configuration file at ${path}. Copy zmail.toml.example to zmail.toml.`,
+      `Missing App configuration file at ${resolvedPath}. Copy zmail.toml.example to zmail.toml.`,
     );
   }
 
   try {
-    parsed = parseToml(readFileSync(path, "utf8"));
+    parsed = parseToml(readFileSync(resolvedPath, "utf8"));
   } catch (error) {
-    throw new Error(`Invalid App configuration file at ${path}: ${errorMessage(error)}`);
+    throw new Error(`Invalid App configuration file at ${resolvedPath}: ${errorMessage(error)}`);
   }
 
-  return parseConfigFile(parsed);
+  return parseConfigFile(parsed, findWorkspaceRoot(dirname(resolvedPath)));
 }
 
 export function resolveConfigPath(env: Env = process.env, cwd = process.cwd()): string {
@@ -66,12 +72,12 @@ export function resolveConfigPath(env: Env = process.env, cwd = process.cwd()): 
   return join(findWorkspaceRoot(cwd), "zmail.toml");
 }
 
-function parseConfigFile(value: unknown): AppConfig {
+function parseConfigFile(value: unknown, workspaceRoot: string): AppConfig {
   if (!isRecord(value)) {
     throw new Error("Invalid App configuration: expected TOML table");
   }
 
-  assertKnownKeys(value, "App configuration", ["app_login", "mail_accounts"]);
+  assertKnownKeys(value, "App configuration", ["app_login", "storage", "mail_accounts"]);
 
   if (!isRecord(value.app_login)) {
     throw new Error("Invalid App configuration: missing app_login table");
@@ -106,6 +112,18 @@ function parseConfigFile(value: unknown): AppConfig {
     throw new Error("Invalid mail_accounts: expected array");
   }
 
+  const mailAccounts = value.mail_accounts.map(parseMailAccount);
+
+  if (!isRecord(value.storage)) {
+    throw new Error("Invalid App configuration: missing storage table");
+  }
+
+  assertKnownKeys(value.storage, "storage", ["database_dir"]);
+  const databaseDir = resolve(
+    workspaceRoot,
+    requireString(value.storage.database_dir, "storage.database_dir"),
+  );
+
   return {
     appLogin: {
       username,
@@ -113,7 +131,10 @@ function parseConfigFile(value: unknown): AppConfig {
       sessionSecret,
       sessionTtlDays: sessionTtlDays ?? 365,
     },
-    mailAccounts: value.mail_accounts.map(parseMailAccount),
+    storage: {
+      databaseDir,
+    },
+    mailAccounts,
   };
 }
 

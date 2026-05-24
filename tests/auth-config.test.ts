@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createApp } from "../apps/api/src/app";
 import { loadConfig, loadConfigFromFile, resolveConfigPath } from "../apps/api/src/config";
 import { fetchMailAccounts, fetchSession, login, logout } from "../apps/web/src/api";
@@ -78,8 +78,10 @@ describe("App login and configured Mail accounts", () => {
   });
 
   it("loads App login and multiple Configured Mail accounts from a TOML file", () => {
-    const config = loadConfigFromFile(
-      writeConfig(`
+    const configPath = writeConfig(`
+        [storage]
+        database_dir = ".data"
+
         [app_login]
         username = "reader"
         password = "secret"
@@ -94,8 +96,8 @@ describe("App login and configured Mail accounts", () => {
         id = "work"
         email_address = "me@work.example"
         app_password = "work-app-password"
-      `),
-    );
+      `);
+    const config = loadConfigFromFile(configPath);
 
     expect(config).toEqual({
       appLogin: {
@@ -103,6 +105,9 @@ describe("App login and configured Mail accounts", () => {
         password: "secret",
         sessionSecret: "test-session-secret",
         sessionTtlDays: 365,
+      },
+      storage: {
+        databaseDir: join(dirname(configPath), ".data"),
       },
       mailAccounts: [
         {
@@ -120,8 +125,11 @@ describe("App login and configured Mail accounts", () => {
   });
 
   it("loads the config path selected by ZMAIL_CONFIG_PATH", () => {
-    const path = writeConfig(`
+    const configPath = writeConfig(`
       mail_accounts = []
+
+      [storage]
+      database_dir = ".data"
 
       [app_login]
       username = "reader"
@@ -129,12 +137,15 @@ describe("App login and configured Mail accounts", () => {
       session_secret = "test-session-secret"
     `);
 
-    expect(loadConfig({ ZMAIL_CONFIG_PATH: path })).toEqual({
+    expect(loadConfig({ ZMAIL_CONFIG_PATH: configPath })).toEqual({
       appLogin: {
         username: "reader",
         password: "secret",
         sessionSecret: "test-session-secret",
         sessionTtlDays: 365,
+      },
+      storage: {
+        databaseDir: join(dirname(configPath), ".data"),
       },
       mailAccounts: [],
     });
@@ -145,18 +156,21 @@ describe("App login and configured Mail accounts", () => {
   });
 
   it("allows an explicit empty Mail account list", () => {
-    const config = loadConfigFromFile(
-      writeConfig(`
+    const configPath = writeConfig(`
         mail_accounts = []
+
+        [storage]
+        database_dir = ".data"
 
         [app_login]
         username = "reader"
         password = "secret"
         session_secret = "test-session-secret"
-      `),
-    );
+      `);
+    const config = loadConfigFromFile(configPath);
 
     expect(config.mailAccounts).toEqual([]);
+    expect(config.storage.databaseDir).toBe(join(dirname(configPath), ".data"));
   });
 
   it("rejects invalid App login credentials without issuing a session", async () => {

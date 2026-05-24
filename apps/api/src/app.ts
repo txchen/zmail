@@ -3,14 +3,22 @@ import { Hono } from "hono";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { AppConfig, AppLogin } from "./config.js";
 import type { MailboxAction } from "./mailbox-actions.js";
-import { createHybridPersistence, type MailDatabase } from "./persistence.js";
+import {
+  createFileBackedHybridPersistence,
+  createHybridPersistence,
+  type MailDatabase,
+} from "./persistence.js";
 import { syncMailboxTrees } from "./sync.js";
 
 const sessionCookieName = "zmail_session";
 
 export function createApp(config: AppConfig): Hono {
   const app = new Hono();
-  const persistence = config.persistence ?? createHybridPersistence();
+  const persistence =
+    config.persistence ??
+    (config.storage
+      ? createFileBackedHybridPersistence(config.storage.databaseDir)
+      : createHybridPersistence());
   const mailboxSyncClient = config.mailboxSyncClient;
   const mailboxActionClient = config.mailboxActionClient;
   const attachmentDownloadClient = config.attachmentDownloadClient;
@@ -571,7 +579,11 @@ export const app = createApp({
     password: "test",
     sessionSecret: "test-session-secret",
   },
+  storage: {
+    databaseDir: ":memory:",
+  },
   mailAccounts: [],
+  persistence: createHybridPersistence(),
 });
 
 type AppSession = {

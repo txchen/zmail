@@ -4,3 +4,5 @@ dist/
 zmail.toml
 auto-imports.d.ts
 components.d.ts
+.data/*
+!.data/.gitkeep
