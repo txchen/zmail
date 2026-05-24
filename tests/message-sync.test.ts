@@ -660,6 +660,72 @@ describe("recent Message sync", () => {
     expect((await filtered.json()).messages.map((message: { id: string }) => message.id)).toEqual([
       "message-2",
     ]);
+
+    const mailboxTree = await app.request("/api/mailbox-tree", { headers: { cookie } });
+    expect(await mailboxTree.json()).toMatchObject({
+      mailAccounts: [
+        {
+          id: "personal",
+          unreadCount: 2,
+        },
+      ],
+    });
+  });
+
+  it("counts overlapping unread Mailbox entries once at the Mail account level", async () => {
+    const persistence = createHybridPersistence();
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "personal-app-password",
+    };
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    mailDatabase.saveMailbox({ id: "INBOX", name: "INBOX", unreadCount: 2 });
+    mailDatabase.saveMailbox({ id: "INBOX/03赜婧", name: "INBOX/03赜婧", unreadCount: 1 });
+    mailDatabase.saveMailbox({ id: "[Gmail]/All Mail", name: "[Gmail]/All Mail", unreadCount: 2 });
+    mailDatabase.saveMessage({
+      id: "message-1",
+      stableIdentity: "gmail:personal:message-1",
+      subject: "Unread in multiple Mailboxes",
+      receivedAt: "2026-05-23T10:00:00.000Z",
+      unread: true,
+      starred: false,
+      aiProcessed: false,
+      readableBody: "",
+      attachments: [],
+    });
+
+    for (const mailboxId of ["INBOX", "INBOX/03赜婧", "[Gmail]/All Mail"]) {
+      mailDatabase.saveMailboxEntry({
+        id: `message-1:${mailboxId}`,
+        mailboxId,
+        messageId: "message-1",
+      });
+    }
+
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: [account],
+      persistence,
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+    const response = await app.request("/api/mailbox-tree", {
+      headers: { cookie: loginResponse.headers.get("set-cookie") ?? "" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      mailAccounts: [
+        {
+          id: "personal",
+          unreadCount: 1,
+        },
+      ],
+    });
   });
 
   it("searches one Mail account from the Local read model with pagination and filters", async () => {

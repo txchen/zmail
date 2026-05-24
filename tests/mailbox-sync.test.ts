@@ -164,7 +164,7 @@ describe("mailbox tree sync", () => {
           id: "personal",
           emailAddress: "me@example.com",
           syncStatus: "stale",
-          unreadCount: 4,
+          unreadCount: 3,
           mailboxes: [
             {
               id: "inbox",
@@ -203,7 +203,7 @@ describe("mailbox tree sync", () => {
           id: "personal",
           emailAddress: "me@example.com",
           syncStatus: "stale",
-          unreadCount: 4,
+          unreadCount: 3,
           mailboxes: [
             {
               id: "inbox",

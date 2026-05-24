@@ -3,6 +3,7 @@ import type {
   MailAccountMailboxTree,
   MailboxAction,
   MailboxMessageSummary,
+  MailboxSummary,
   MessageDetail,
 } from "@zmail/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
@@ -47,6 +48,8 @@ const mobilePane = ref<"nav" | "list" | "message">("nav");
 const lastListRouteByAccount = ref(new Map<string, string>());
 const searchDraft = ref("");
 const loggedOut = ref(false);
+const collapsedAccounts = ref(new Set<string>());
+const collapsedMailboxGroups = ref(new Set<string>());
 const readerLayoutStorageKey = "zmail.readerLayout.v1";
 const savedReaderLayout = readSavedReaderLayout();
 const navColumnWidth = ref(savedReaderLayout.navColumnWidth);
@@ -54,6 +57,25 @@ const listColumnWidth = ref(savedReaderLayout.listColumnWidth);
 const activeResize = ref<"nav" | "list" | null>(null);
 let resizeStartX = 0;
 let resizeStartWidth = 0;
+
+type MailboxTreeNode = {
+  id: string;
+  label: string;
+  mailbox?: MailboxSummary;
+  children: MailboxTreeNode[];
+  unreadCount: number;
+};
+
+type VisibleMailboxRow = {
+  key: string;
+  id: string;
+  label: string;
+  depth: number;
+  mailbox?: MailboxSummary;
+  hasChildren: boolean;
+  collapsed: boolean;
+  unreadCount: number;
+};
 
 const healthQuery = useQuery({ queryKey: ["health"], queryFn: () => fetchHealth() });
 const sessionQuery = useQuery({ queryKey: ["session"], queryFn: () => fetchSession() });
@@ -299,6 +321,126 @@ function openAdjacentMessage(messageId: string) {
   );
 }
 
+function accountCollapsed(accountId: string): boolean {
+  return collapsedAccounts.value.has(accountId);
+}
+
+function toggleAccount(accountId: string) {
+  collapsedAccounts.value = toggledSet(collapsedAccounts.value, accountId);
+}
+
+function mailboxGroupKey(accountId: string, mailboxId: string): string {
+  return `${accountId}:${mailboxId}`;
+}
+
+function mailboxGroupCollapsed(accountId: string, mailboxId: string): boolean {
+  return collapsedMailboxGroups.value.has(mailboxGroupKey(accountId, mailboxId));
+}
+
+function toggleMailboxGroup(accountId: string, mailboxId: string) {
+  collapsedMailboxGroups.value = toggledSet(
+    collapsedMailboxGroups.value,
+    mailboxGroupKey(accountId, mailboxId),
+  );
+}
+
+function toggledSet(source: Set<string>, value: string): Set<string> {
+  const next = new Set(source);
+
+  if (next.has(value)) {
+    next.delete(value);
+  } else {
+    next.add(value);
+  }
+
+  return next;
+}
+
+function visibleMailboxRows(account: MailAccountMailboxTree): VisibleMailboxRow[] {
+  const roots = buildMailboxTree(account.mailboxes);
+  const rows: VisibleMailboxRow[] = [];
+
+  for (const node of roots) {
+    appendMailboxRows(account.id, node, 0, rows);
+  }
+
+  return rows;
+}
+
+function appendMailboxRows(
+  accountId: string,
+  node: MailboxTreeNode,
+  depth: number,
+  rows: VisibleMailboxRow[],
+) {
+  const hasChildren = node.children.length > 0;
+  const collapsed = hasChildren && mailboxGroupCollapsed(accountId, node.id);
+
+  rows.push({
+    key: mailboxGroupKey(accountId, node.id),
+    id: node.id,
+    label: node.label,
+    depth,
+    mailbox: node.mailbox,
+    hasChildren,
+    collapsed,
+    unreadCount: node.unreadCount,
+  });
+
+  if (collapsed) {
+    return;
+  }
+
+  for (const child of node.children) {
+    appendMailboxRows(accountId, child, depth + 1, rows);
+  }
+}
+
+function buildMailboxTree(mailboxes: MailboxSummary[]): MailboxTreeNode[] {
+  const roots: MailboxTreeNode[] = [];
+  const nodes = new Map<string, MailboxTreeNode>();
+
+  for (const mailbox of mailboxes) {
+    const parts = mailbox.id.split("/").filter(Boolean);
+    let path = "";
+    let siblings = roots;
+
+    for (const [index, part] of parts.entries()) {
+      path = path ? `${path}/${part}` : part;
+      let node = nodes.get(path);
+
+      if (!node) {
+        node = {
+          id: path,
+          label: part,
+          children: [],
+          unreadCount: 0,
+        };
+        nodes.set(path, node);
+        siblings.push(node);
+      }
+
+      if (index === parts.length - 1) {
+        node.mailbox = mailbox;
+        node.unreadCount = mailbox.unreadCount;
+      }
+
+      siblings = node.children;
+    }
+  }
+
+  for (const node of [...nodes.values()].sort(
+    (first, second) => second.id.length - first.id.length,
+  )) {
+    node.unreadCount = node.mailbox?.unreadCount ?? 0;
+    node.children.sort((first, second) => first.label.localeCompare(second.label));
+  }
+
+  roots.sort((first, second) => first.label.localeCompare(second.label));
+
+  return roots;
+}
+
 function startColumnResize(column: "nav" | "list", event: PointerEvent) {
   activeResize.value = column;
   resizeStartX = event.clientX;
@@ -478,9 +620,19 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
           <div class="flex h-full flex-col">
             <div class="min-h-0 flex-1 overflow-y-auto p-2">
               <div v-for="account in mailAccounts" :key="account.id" class="mb-3">
-                <div class="flex items-start justify-between gap-2 px-1.5">
+                <div class="flex items-start justify-between gap-1">
                   <button
-                    class="min-w-0 text-left"
+                    class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded text-slate-500 hover:bg-stone-200"
+                    type="button"
+                    :aria-label="
+                      accountCollapsed(account.id) ? 'Expand account' : 'Collapse account'
+                    "
+                    @click="toggleAccount(account.id)"
+                  >
+                    <span class="text-[10px]">{{ accountCollapsed(account.id) ? ">" : "v" }}</span>
+                  </button>
+                  <button
+                    class="min-w-0 flex-1 text-left"
                     type="button"
                     @click="selectAccountDefault(account)"
                   >
@@ -493,9 +645,13 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                     }}</span>
                   </button>
                   <div class="flex shrink-0 items-center gap-1">
-                    <UBadge color="neutral" size="sm" variant="subtle">{{
-                      account.unreadCount
-                    }}</UBadge>
+                    <UBadge
+                      v-if="account.unreadCount > 0"
+                      color="neutral"
+                      size="sm"
+                      variant="subtle"
+                      >{{ account.unreadCount }}</UBadge
+                    >
                     <UButton
                       color="neutral"
                       icon="i-lucide-refresh-cw"
@@ -515,26 +671,49 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                     />
                   </div>
                 </div>
-                <div class="mt-1.5 space-y-0.5">
-                  <button
-                    v-for="mailbox in account.mailboxes"
-                    :key="mailbox.id"
-                    class="flex w-full items-center justify-between rounded-md px-1.5 py-1.5 text-left text-xs hover:bg-stone-200"
+                <div v-if="!accountCollapsed(account.id)" class="mt-1 space-y-0.5">
+                  <div
+                    v-for="row in visibleMailboxRows(account)"
+                    :key="row.key"
+                    class="group flex items-center gap-1 rounded-md py-1 text-xs hover:bg-stone-200"
                     :class="
                       readerRoute.kind === 'mailbox' &&
                       readerRoute.accountId === account.id &&
-                      readerRoute.mailboxId === mailbox.id
+                      row.mailbox &&
+                      readerRoute.mailboxId === row.mailbox.id
                         ? 'bg-stone-200'
                         : ''
                     "
-                    type="button"
-                    @click="selectList(mailboxPath(account.id, mailbox.id))"
+                    :style="{ paddingLeft: `${row.depth * 12 + 2}px`, paddingRight: '6px' }"
                   >
-                    <span class="truncate">{{ mailbox.name }}</span>
-                    <UBadge color="neutral" size="sm" variant="subtle">{{
-                      mailbox.unreadCount
+                    <button
+                      v-if="row.hasChildren"
+                      class="grid h-4 w-4 shrink-0 place-items-center rounded text-slate-500 hover:bg-stone-300"
+                      type="button"
+                      :aria-label="
+                        row.collapsed ? 'Expand mailbox group' : 'Collapse mailbox group'
+                      "
+                      @click.stop="toggleMailboxGroup(account.id, row.id)"
+                    >
+                      <span class="text-[9px]">{{ row.collapsed ? ">" : "v" }}</span>
+                    </button>
+                    <span v-else class="h-4 w-4 shrink-0"></span>
+                    <button
+                      class="min-w-0 flex-1 truncate text-left"
+                      :class="row.mailbox ? '' : 'font-medium text-slate-600'"
+                      type="button"
+                      @click="
+                        row.mailbox
+                          ? selectList(mailboxPath(account.id, row.mailbox.id))
+                          : toggleMailboxGroup(account.id, row.id)
+                      "
+                    >
+                      {{ row.label }}
+                    </button>
+                    <UBadge v-if="row.unreadCount > 0" color="neutral" size="sm" variant="subtle">{{
+                      row.unreadCount
                     }}</UBadge>
-                  </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -620,15 +799,20 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                 v-for="message in messages"
                 v-else
                 :key="message.id"
-                class="block w-full border-b border-stone-300 bg-stone-100 px-3 py-2 text-left hover:bg-stone-200"
-                :class="selectedMessageId === message.id ? 'bg-stone-200' : ''"
+                class="block w-full border-b border-stone-300 px-3 py-2 text-left hover:bg-stone-200"
+                :class="[
+                  message.unread
+                    ? 'border-l-4 border-l-slate-800 bg-stone-50'
+                    : 'border-l-4 border-l-transparent bg-stone-100',
+                  selectedMessageId === message.id ? 'bg-stone-200' : '',
+                ]"
                 type="button"
                 @click="selectMessage(message.id)"
               >
                 <div class="flex items-center justify-between gap-2">
                   <span
                     class="truncate text-xs"
-                    :class="message.unread ? 'font-semibold' : 'font-medium'"
+                    :class="message.unread ? 'font-bold text-slate-950' : 'font-medium'"
                   >
                     {{ senderLabel(message) }}
                   </span>
@@ -636,10 +820,16 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                     formatDate(message.receivedAt)
                   }}</span>
                 </div>
-                <p class="mt-0.5 truncate text-xs" :class="message.unread ? 'font-semibold' : ''">
+                <p
+                  class="mt-0.5 truncate text-xs"
+                  :class="message.unread ? 'font-bold text-slate-950' : 'text-slate-700'"
+                >
                   {{ message.subject || "(No subject)" }}
                 </p>
-                <p class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-500">
+                <p
+                  class="mt-0.5 line-clamp-2 text-[11px] leading-4"
+                  :class="message.unread ? 'font-medium text-slate-700' : 'text-slate-500'"
+                >
                   {{ message.snippet }}
                 </p>
               </button>

@@ -58,13 +58,18 @@ export function createApp(config: AppConfig): Hono {
   function mailboxTreeResponse() {
     return {
       mailAccounts: config.mailAccounts.map((configuredAccount) => {
-        const mailboxes = persistence.mailDatabaseFor(configuredAccount.id).listMailboxes();
+        const mailDatabase = persistence.mailDatabaseFor(configuredAccount.id);
+        const mailboxes = mailDatabase.listMailboxes();
+        const unreadMessages = mailDatabase.listUnreadMessages(configuredAccount.id);
 
         return {
           id: configuredAccount.id,
           emailAddress: configuredAccount.emailAddress,
           syncStatus: syncStateFor(configuredAccount.id).syncStatus,
-          unreadCount: mailboxes.reduce((total, mailbox) => total + mailbox.unreadCount, 0),
+          unreadCount:
+            unreadMessages.length > 0
+              ? unreadMessages.length
+              : Math.max(0, ...mailboxes.map((mailbox) => mailbox.unreadCount)),
           mailboxes,
         };
       }),
