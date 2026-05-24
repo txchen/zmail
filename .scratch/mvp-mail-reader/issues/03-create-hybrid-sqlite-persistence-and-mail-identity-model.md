@@ -1,6 +1,6 @@
 # Create hybrid SQLite persistence and mail identity model
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -12,16 +12,16 @@ Create the hybrid SQLite persistence foundation for Zmail's Local read model. Th
 
 ## Acceptance criteria
 
-- [ ] The app database can store app-level state without duplicating it into per-account mail databases.
-- [ ] Each Mail account can have its own mail database.
-- [ ] The mail database can store Mailboxes discovered for that Mail account.
-- [ ] The mail database can store Messages independently from Mailbox entries.
-- [ ] A Message can be associated with more than one Mailbox entry.
-- [ ] The model stores stable Message identity for API and AI reader use.
-- [ ] The model stores Gmail Unread state separately from any AI reader processed state.
-- [ ] The model stores per-Mail-account Account sync status.
-- [ ] Tests cover Message, Mailbox, and Mailbox entry relationships.
-- [ ] Tests cover per-account isolation in hybrid persistence.
+- [x] The app database can store app-level state without duplicating it into per-account mail databases.
+- [x] Each Mail account can have its own mail database.
+- [x] The mail database can store Mailboxes discovered for that Mail account.
+- [x] The mail database can store Messages independently from Mailbox entries.
+- [x] A Message can be associated with more than one Mailbox entry.
+- [x] The model stores stable Message identity for API and AI reader use.
+- [x] The model stores Gmail Unread state separately from any AI reader processed state.
+- [x] The model stores per-Mail-account Account sync status.
+- [x] Tests cover Message, Mailbox, and Mailbox entry relationships.
+- [x] Tests cover per-account isolation in hybrid persistence.
 
 ## Blocked by
 
