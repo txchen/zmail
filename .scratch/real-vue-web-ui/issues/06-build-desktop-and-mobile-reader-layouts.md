@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Build desktop and mobile reader layouts
 
@@ -12,14 +12,14 @@ Build the responsive reader shell. Desktop uses the full three-pane Mail reader 
 
 ## Acceptance criteria
 
-- [ ] Desktop view shows Account mailbox tree, Message list, and Message content as three usable panes.
-- [ ] The layout remains readable and does not overlap controls or text at normal desktop widths.
-- [ ] Mobile starts in the appropriate progressive pane for the current route.
-- [ ] Mobile allows navigation from Account mailbox tree to Message list or Search result view.
-- [ ] Mobile allows navigation from Message list to Message detail.
-- [ ] Mobile provides a clear way back from Message detail to Message list.
-- [ ] Search remains accessible on mobile for the selected Mail account.
-- [ ] Message actions remain available in mobile Message detail.
+- [x] Desktop view shows Account mailbox tree, Message list, and Message content as three usable panes.
+- [x] The layout remains readable and does not overlap controls or text at normal desktop widths.
+- [x] Mobile starts in the appropriate progressive pane for the current route.
+- [x] Mobile allows navigation from Account mailbox tree to Message list or Search result view.
+- [x] Mobile allows navigation from Message list to Message detail.
+- [x] Mobile provides a clear way back from Message detail to Message list.
+- [x] Search remains accessible on mobile for the selected Mail account.
+- [x] Message actions remain available in mobile Message detail.
 
 ## Blocked by
 
