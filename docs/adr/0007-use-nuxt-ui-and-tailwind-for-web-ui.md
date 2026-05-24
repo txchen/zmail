@@ -1,0 +1,7 @@
+# Use Nuxt UI and Tailwind for the web UI
+
+Zmail's Vue web UI will use Nuxt UI with Tailwind CSS as its component and styling foundation while staying a plain Vite Vue app rather than migrating to Nuxt. This gives the Mail reader a polished, accessible component system without building a local design system first, while preserving the existing Vue direction from ADR-0004 and avoiding Nuxt server, routing, and rendering features that are not needed for the MVP. shadcn-vue, PrimeVue, Vuetify, and direct Reka UI usage were considered, but Nuxt UI best fits the goal of a clean, fast reader UI with low custom component overhead.
+
+The first real UI uses a three-pane Mail reader layout, defaults to the first configured Mail account's Account unread view, keeps Message lists unthreaded, treats Search as a per-account reader view, changes read state only through explicit Mailbox actions, stores reader navigation state in Vue Router URLs, and uses TanStack Query for server state. Automatic mark-read and keyboard shortcuts can be revisited later after the core reader workflow is usable.
+
+The first implementation should be a working vertical slice over the existing UI API rather than a decorative shell: App login, Account unread view, per-account Search, Mail account diagnostics, Message detail, and Mailbox actions should be connected to real endpoints as they become available. Browser smoke testing is expected for the reader shell because the Vue/Nuxt UI integration can fail at runtime even when TypeScript passes.

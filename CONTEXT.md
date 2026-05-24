@@ -132,13 +132,21 @@ _Avoid_: Unified inbox, smart view
 A per-**Mail account** view of unread **Messages** across that account's **Mailboxes**, deduplicated by **Message**. **Account unread view** is not a cross-account unified inbox.
 _Avoid_: Unified inbox, global unread
 
+**Default reader view**:
+The first view shown to the **App user** after **App login**. The MVP **Default reader view** is the first configured **Mail account**'s **Account unread view**.
+_Avoid_: Home page, dashboard, unified inbox
+
 **Message list**:
 The middle-column view of individual **Messages** in the selected **Mailbox**. Thread identity can be preserved as **Message** metadata, but threads are not first-class UI or API aggregates.
 _Avoid_: Conversation list, thread list
 
 **Search**:
-Finding **Messages** by query across synced mail in the **Local read model**. **Search** is outside the MVP boundary but belongs to the eventual full **Mail reader** UI.
+Finding **Messages** by query across one **Mail account**'s synced mail in the **Local read model**. **Search** is part of the real **Mail reader** UI boundary and is not cross-account.
 _Avoid_: Browse, filter
+
+**Search result view**:
+A per-**Mail account** reader view that shows **Messages** returned by **Search** instead of the selected **Mailbox**. Clearing **Search** returns the **App user** to the previously selected **Mailbox** or **Account unread view**.
+_Avoid_: Filtered mailbox, global search
 
 **App user**:
 The single human operator who logs into Zmail. One **App user** can add many **Mail accounts** to the reader.
@@ -237,6 +245,14 @@ Domain expert: "No. Account sync status is per Mail account, so one failing acco
 Developer: "Should Zmail combine all accounts into one unread view?"
 
 Domain expert: "No. The Account mailbox tree should show each Mail account separately with its own Mailboxes and unread counts."
+
+Developer: "What should Zmail show immediately after login?"
+
+Domain expert: "Show the Default reader view: the first configured Mail account's Account unread view, not a global inbox."
+
+Developer: "If I search, am I filtering the current Mailbox?"
+
+Domain expert: "No. Search opens a Search result view for the selected Mail account, across that account's synced Messages."
 
 Developer: "Does the middle column show conversations?"
 

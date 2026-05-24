@@ -2,3 +2,5 @@ node_modules/
 dist/
 *.tsbuildinfo
 zmail.toml
+auto-imports.d.ts
+components.d.ts

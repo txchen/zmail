@@ -1,0 +1,23 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #f7f7f4;
+}
+
+.message-body {
+  color: #1f2933;
+  line-height: 1.6;
+}
+
+.message-body img {
+  max-width: 100%;
+  height: auto;
+}

@@ -1,10 +1,13 @@
 import type {
+  AccountSyncStatusResponse,
   HealthStatus,
+  MailAccountDiagnosticsResponse,
   MailboxMessagesResponse,
   MailboxAction,
   MailboxTreeResponse,
   MailAccountsResponse,
   MessageResponse,
+  SessionResponse,
 } from "@zmail/shared";
 
 export async function fetchHealth(fetcher: typeof fetch = fetch): Promise<HealthStatus> {
@@ -30,6 +33,20 @@ export async function login(
 
   if (!response.ok) {
     throw new Error("Login failed");
+  }
+}
+
+export async function fetchSession(fetcher: typeof fetch = fetch): Promise<SessionResponse> {
+  const response = await fetcher("/api/session");
+
+  return response.json();
+}
+
+export async function logout(fetcher: typeof fetch = fetch): Promise<void> {
+  const response = await fetcher("/api/logout", { method: "POST" });
+
+  if (!response.ok) {
+    throw new Error("Logout failed");
   }
 }
 
@@ -83,6 +100,63 @@ export async function fetchMessagesForMailbox(
 
   if (!response.ok) {
     throw new Error("Messages unavailable");
+  }
+
+  return response.json();
+}
+
+export async function fetchUnreadMessagesForAccount(
+  mailAccountId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<MailboxMessagesResponse> {
+  const response = await fetcher(`/api/mail-accounts/${mailAccountId}/messages/unread`);
+
+  if (!response.ok) {
+    throw new Error("Unread messages unavailable");
+  }
+
+  return response.json();
+}
+
+export async function searchMessagesForAccount(
+  mailAccountId: string,
+  query: string,
+  fetcher: typeof fetch = fetch,
+): Promise<MailboxMessagesResponse> {
+  const response = await fetcher(
+    `/api/mail-accounts/${mailAccountId}/messages/search?q=${encodeURIComponent(query)}`,
+  );
+
+  if (!response.ok) {
+    throw new Error("Search unavailable");
+  }
+
+  return response.json();
+}
+
+export async function fetchAccountSyncStatus(
+  mailAccountId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<AccountSyncStatusResponse> {
+  const response = await fetcher(`/api/mail-accounts/${mailAccountId}/sync-status`);
+
+  if (!response.ok) {
+    throw new Error("Sync status unavailable");
+  }
+
+  return response.json();
+}
+
+export async function runMailAccountDiagnostics(
+  mailAccountId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<MailAccountDiagnosticsResponse> {
+  const response = await fetcher(`/api/mail-accounts/${mailAccountId}/diagnose`, {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new Error("Diagnostics unavailable");
   }
 
   return response.json();

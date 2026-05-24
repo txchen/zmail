@@ -86,6 +86,7 @@ export type MessageDetail = MailboxMessageSummary & {
 
 export type MailboxMessagesResponse = {
   messages: MailboxMessageSummary[];
+  nextCursor?: string;
 };
 
 export type MessageResponse = {
@@ -93,3 +94,31 @@ export type MessageResponse = {
 };
 
 export type MailboxAction = "markRead" | "markUnread" | "archive" | "delete" | "star" | "unstar";
+
+export type SessionResponse =
+  | {
+      authenticated: false;
+    }
+  | {
+      authenticated: true;
+      username: string;
+      expiresAt: string;
+    };
+
+export type AccountSyncStatusResponse = {
+  accountId: string;
+  syncStatus: MailAccountMailboxTree["syncStatus"];
+  lastSyncStartedAt?: string;
+  lastSyncFinishedAt?: string;
+  lastError?: string;
+};
+
+export type MailAccountDiagnosticsResponse =
+  | {
+      success: true;
+      visibleMailboxCount: number;
+    }
+  | {
+      success: false;
+      lastError: string;
+    };
