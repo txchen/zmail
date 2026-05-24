@@ -4,7 +4,12 @@ import type { ConfiguredMailAccount } from "../apps/api/src/config";
 import { createHybridPersistence } from "../apps/api/src/persistence";
 import type { ImapMailbox, MailboxSyncClient } from "../apps/api/src/sync";
 import { syncMailboxTrees } from "../apps/api/src/sync";
-import { fetchMailboxTree, refreshMailAccount } from "../apps/web/src/api";
+import {
+  fetchAccountSyncStatus,
+  fetchMailboxTree,
+  refreshMailAccount,
+  runMailAccountDiagnostics,
+} from "../apps/web/src/api";
 
 describe("mailbox tree sync", () => {
   it("syncs visible Gmail Mailboxes per account and isolates account failures", async () => {
@@ -590,5 +595,46 @@ describe("mailbox tree sync", () => {
     expect(await (await app.request("/ai-api/mail-accounts")).json()).toEqual({
       mailAccounts: [],
     });
+  });
+
+  it("lets the web app fetch Account sync status and run Mail account diagnostics", async () => {
+    const requests: Array<{ path: string | URL | Request; init: RequestInit | undefined }> = [];
+    const fetcher = async (path: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      requests.push({ path, init });
+
+      if (path === "/api/mail-accounts/personal/sync-status") {
+        return Response.json({
+          accountId: "personal",
+          syncStatus: "failing",
+          lastError: "credential rejected",
+        });
+      }
+
+      return Response.json({
+        success: false,
+        lastError: "credential rejected",
+      });
+    };
+
+    await expect(fetchAccountSyncStatus("personal", fetcher)).resolves.toEqual({
+      accountId: "personal",
+      syncStatus: "failing",
+      lastError: "credential rejected",
+    });
+    await expect(runMailAccountDiagnostics("personal", fetcher)).resolves.toEqual({
+      success: false,
+      lastError: "credential rejected",
+    });
+
+    expect(requests).toEqual([
+      {
+        path: "/api/mail-accounts/personal/sync-status",
+        init: undefined,
+      },
+      {
+        path: "/api/mail-accounts/personal/diagnose",
+        init: { method: "POST" },
+      },
+    ]);
   });
 });

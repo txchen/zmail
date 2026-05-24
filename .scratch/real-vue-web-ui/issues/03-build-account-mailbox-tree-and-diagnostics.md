@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Build Account mailbox tree and diagnostics
 
@@ -12,14 +12,14 @@ Build the Account mailbox tree in the reader sidebar. Each Mail account shows un
 
 ## Acceptance criteria
 
-- [ ] Each configured Mail account appears separately in the Account mailbox tree.
-- [ ] Each Mail account shows its unread count and Account sync status.
-- [ ] Each Mailbox appears under its Mail account with unread count.
-- [ ] Manual refresh is available per Mail account and refreshes reader data after completion.
-- [ ] Diagnostics opens from a Mail account without replacing the current reader view.
-- [ ] Diagnostics shows current sync-status context before or alongside diagnostic results.
-- [ ] Running diagnostics displays success with visible Mailbox count or failure with provider error text.
-- [ ] Diagnostics does not perform mail sync or mutate the Local read model.
+- [x] Each configured Mail account appears separately in the Account mailbox tree.
+- [x] Each Mail account shows its unread count and Account sync status.
+- [x] Each Mailbox appears under its Mail account with unread count.
+- [x] Manual refresh is available per Mail account and refreshes reader data after completion.
+- [x] Diagnostics opens from a Mail account without replacing the current reader view.
+- [x] Diagnostics shows current sync-status context before or alongside diagnostic results.
+- [x] Running diagnostics displays success with visible Mailbox count or failure with provider error text.
+- [x] Diagnostics does not perform mail sync or mutate the Local read model.
 
 ## Blocked by
 

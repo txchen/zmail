@@ -24,6 +24,7 @@ import {
   searchMessagesForAccount,
 } from "./api";
 import { renderReadableMessage } from "./message-rendering";
+import { accountSyncStatusLabel } from "./reader-presenters";
 import {
   defaultReaderPath,
   mailboxPath,
@@ -393,6 +394,9 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
                     <span class="block truncate text-sm font-semibold">{{ account.id }}</span>
                     <span class="block truncate text-xs text-slate-500">{{
                       account.emailAddress
+                    }}</span>
+                    <span class="block truncate text-xs text-slate-500">{{
+                      accountSyncStatusLabel(account.syncStatus)
                     }}</span>
                   </button>
                   <div class="flex shrink-0 items-center gap-1">
