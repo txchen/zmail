@@ -23,6 +23,15 @@ export type AppConfig = {
   persistence?: HybridPersistence;
   mailboxSyncClient?: MailboxSyncClient;
   mailboxActionClient?: MailboxActionClient;
+  attachmentDownloadClient?: AttachmentDownloadClient;
+};
+
+export type AttachmentDownloadClient = {
+  downloadAttachment(request: {
+    accountId: string;
+    messageId: string;
+    attachmentId: string;
+  }): Promise<Uint8Array>;
 };
 
 type Env = Record<string, string | undefined>;

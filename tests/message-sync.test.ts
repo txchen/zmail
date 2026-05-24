@@ -488,4 +488,129 @@ describe("recent Message sync", () => {
     });
     expect(await noMatches.json()).toEqual({ messages: [] });
   });
+
+  it("downloads attachment bytes on demand after validating local attachment metadata", async () => {
+    const persistence = createHybridPersistence();
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "personal-app-password",
+    };
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    mailDatabase.saveMessage({
+      id: "message-1",
+      stableIdentity: "gmail:personal:message-1",
+      subject: "Attachment Message",
+      receivedAt: "2026-05-23T10:00:00.000Z",
+      unread: true,
+      starred: false,
+      aiProcessed: false,
+      readableBody: "",
+      attachments: [
+        {
+          id: "attachment-1",
+          filename: "agenda.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 3,
+        },
+      ],
+    });
+    const requests: Array<{ accountId: string; messageId: string; attachmentId: string }> = [];
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: [account],
+      persistence,
+      attachmentDownloadClient: {
+        async downloadAttachment(request) {
+          requests.push(request);
+          return new Uint8Array([1, 2, 3]);
+        },
+      },
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+    const cookie = loginResponse.headers.get("set-cookie") ?? "";
+
+    expect(
+      (
+        await app.request(
+          "/api/mail-accounts/personal/messages/message-1/attachments/attachment-1",
+        )
+      ).status,
+    ).toBe(401);
+
+    const response = await app.request(
+      "/api/mail-accounts/personal/messages/message-1/attachments/attachment-1",
+      { headers: { cookie } },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(response.headers.get("content-disposition")).toContain('filename="agenda.pdf"');
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+    expect(requests).toEqual([
+      { accountId: "personal", messageId: "message-1", attachmentId: "attachment-1" },
+    ]);
+
+    expect(
+      (
+        await app.request(
+          "/api/mail-accounts/personal/messages/message-1/attachments/unknown",
+          { headers: { cookie } },
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await app.request(
+          "/api/mail-accounts/personal/messages/unknown/attachments/attachment-1",
+          { headers: { cookie } },
+        )
+      ).status,
+    ).toBe(404);
+  });
+
+  it("returns a useful attachment download error without exposing credentials", async () => {
+    const persistence = createHybridPersistence();
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "secret-app-password",
+    };
+    persistence.mailDatabaseFor("personal").saveMessage({
+      id: "message-1",
+      stableIdentity: "gmail:personal:message-1",
+      subject: "Attachment Message",
+      receivedAt: "2026-05-23T10:00:00.000Z",
+      unread: true,
+      starred: false,
+      aiProcessed: false,
+      readableBody: "",
+      attachments: [{ id: "attachment-1", filename: "agenda.pdf", mimeType: "application/pdf", sizeBytes: 3 }],
+    });
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: [account],
+      persistence,
+      attachmentDownloadClient: {
+        async downloadAttachment() {
+          throw new Error("Gmail rejected secret-app-password");
+        },
+      },
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+    const response = await app.request(
+      "/api/mail-accounts/personal/messages/message-1/attachments/attachment-1",
+      { headers: { cookie: loginResponse.headers.get("set-cookie") ?? "" } },
+    );
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: "Attachment download failed" });
+  });
 });

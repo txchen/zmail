@@ -13,6 +13,7 @@ export function createApp(config: AppConfig): Hono {
   const persistence = config.persistence ?? createHybridPersistence();
   const mailboxSyncClient = config.mailboxSyncClient;
   const mailboxActionClient = config.mailboxActionClient;
+  const attachmentDownloadClient = config.attachmentDownloadClient;
   const sessionTtlDays = config.appLogin.sessionTtlDays ?? 365;
 
   function sessionFromCookie(cookie: string | undefined): AppSession | undefined {
@@ -350,6 +351,54 @@ export function createApp(config: AppConfig): Hono {
     }
 
     return c.json({ message });
+  });
+
+  app.get("/api/mail-accounts/:accountId/messages/:messageId/attachments/:attachmentId", async (c) => {
+    if (!isAuthenticated(c.req.header("cookie"))) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    if (!attachmentDownloadClient) {
+      return c.json({ error: "Attachment download is not configured" }, 503);
+    }
+
+    const accountId = c.req.param("accountId");
+    if (!config.mailAccounts.some((account) => account.id === accountId)) {
+      return c.json({ error: "Mail account not found" }, 404);
+    }
+
+    const messageId = c.req.param("messageId");
+    const attachmentId = c.req.param("attachmentId");
+    const message = persistence.mailDatabaseFor(accountId).getMessage(accountId, messageId);
+
+    if (!message) {
+      return c.json({ error: "Message not found" }, 404);
+    }
+
+    const attachment = message.attachments.find((candidate) => candidate.id === attachmentId);
+    if (!attachment) {
+      return c.json({ error: "Attachment not found" }, 404);
+    }
+
+    try {
+      const bytes = await attachmentDownloadClient.downloadAttachment({
+        accountId,
+        messageId,
+        attachmentId,
+      });
+
+      const body = new ArrayBuffer(bytes.byteLength);
+      new Uint8Array(body).set(bytes);
+
+      return new Response(body, {
+        headers: {
+          "content-type": attachment.mimeType,
+          "content-disposition": `attachment; filename="${attachment.filename}"`,
+        },
+      });
+    } catch {
+      return c.json({ error: "Attachment download failed" }, 502);
+    }
   });
 
   app.post("/api/mail-accounts/:accountId/messages/:messageId/actions", async (c) => {

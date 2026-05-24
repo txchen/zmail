@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Add attachment download proxy
 
@@ -8,13 +8,13 @@ Add authenticated on-demand attachment byte download through the backend. Attach
 
 ## Acceptance criteria
 
-- [ ] `GET /api/mail-accounts/:accountId/messages/:messageId/attachments/:attachmentId` streams attachment bytes through the API.
-- [ ] Endpoint requires App authentication.
-- [ ] Endpoint validates Mail account, Message, and attachment identity before fetching.
-- [ ] Attachment bytes are not persisted in the Local read model.
-- [ ] Response includes appropriate content type and filename headers when known.
-- [ ] Gmail/provider errors return useful authenticated UI errors without exposing Mail account credentials.
-- [ ] Tests cover successful download, unknown attachment, unknown message, provider failure, and unauthenticated access.
+- [x] `GET /api/mail-accounts/:accountId/messages/:messageId/attachments/:attachmentId` streams attachment bytes through the API.
+- [x] Endpoint requires App authentication.
+- [x] Endpoint validates Mail account, Message, and attachment identity before fetching.
+- [x] Attachment bytes are not persisted in the Local read model.
+- [x] Response includes appropriate content type and filename headers when known.
+- [x] Gmail/provider errors return useful authenticated UI errors without exposing Mail account credentials.
+- [x] Tests cover successful download, unknown attachment, unknown message, provider failure, and unauthenticated access.
 
 ## Blocked by
 
