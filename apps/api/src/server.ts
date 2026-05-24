@@ -9,6 +9,7 @@ const app = createApp({
   ...loadConfig(),
   mailboxSyncClient: gmailImapClient,
   messageSyncClient: gmailImapClient,
+  mailboxActionClient: gmailImapClient,
 });
 
 serve({ fetch: app.fetch, port });

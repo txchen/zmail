@@ -2,6 +2,7 @@ import { ImapFlow } from "imapflow";
 import type { ImapFlowOptions } from "imapflow";
 import { simpleParser } from "mailparser";
 import { logInfo } from "./logger.js";
+import type { MailboxActionClient, MailboxActionTarget } from "./mailbox-actions.js";
 import type { ImapMessage, MailboxSyncClient, MessageSyncClient } from "./sync.js";
 
 type ImapFlowClient = {
@@ -16,6 +17,14 @@ type ImapFlowClient = {
     }>
   >;
   mailboxOpen(path: string): Promise<{ exists?: number }>;
+  messageFlagsAdd(
+    range: string | number[] | { emailId: string },
+    flags: string[],
+  ): Promise<boolean>;
+  messageFlagsRemove(
+    range: string | number[] | { emailId: string },
+    flags: string[],
+  ): Promise<boolean>;
   fetch(
     range: string,
     query: {
@@ -26,7 +35,7 @@ type ImapFlowClient = {
       source: true;
       threadId: true;
     },
-    options: { uid: true },
+    options: { uid: boolean },
   ): AsyncIterable<{
     uid: number;
     emailId?: string;
@@ -55,7 +64,7 @@ type ImapAddress = {
 
 export function createGmailImapMailboxSyncClient(
   ImapFlowClient: ImapFlowConstructor = ImapFlow,
-): MailboxSyncClient & MessageSyncClient {
+): MailboxSyncClient & MessageSyncClient & MailboxActionClient {
   return {
     async listVisibleMailboxes(account) {
       const startedAt = Date.now();
@@ -144,16 +153,15 @@ export function createGmailImapMailboxSyncClient(
             continue;
           }
 
-          const range =
-            requestedMailbox?.afterUid !== undefined
-              ? `${requestedMailbox.afterUid + 1}:*`
-              : `${Math.max(1, messageCount - 9)}:*`;
+          const afterUid = requestedMailbox?.afterUid;
+          const incremental = afterUid !== undefined;
+          const range = incremental ? `${afterUid + 1}:*` : `${Math.max(1, messageCount - 9)}:*`;
           logInfo("gmail.messages.mailbox.fetch", {
             accountId: account.id,
             mailboxId: mailbox.path,
             range,
             messageCount,
-            mode: requestedMailbox?.afterUid !== undefined ? "incremental" : "backfill",
+            mode: incremental ? "incremental" : "backfill",
           });
           for await (const message of client.fetch(
             range,
@@ -165,7 +173,7 @@ export function createGmailImapMailboxSyncClient(
               source: true,
               threadId: true,
             },
-            { uid: true },
+            { uid: incremental },
           )) {
             fetchedMessageCount += 1;
             const id = message.emailId ?? `${mailbox.path}:${message.uid}`;
@@ -224,7 +232,79 @@ export function createGmailImapMailboxSyncClient(
         await client.logout();
       }
     },
+    async markRead(target) {
+      await applyMessageFlag(target, "\\Seen", true, ImapFlowClient);
+    },
+    async markUnread(target) {
+      await applyMessageFlag(target, "\\Seen", false, ImapFlowClient);
+    },
+    async star(target) {
+      await applyMessageFlag(target, "\\Flagged", true, ImapFlowClient);
+    },
+    async unstar(target) {
+      await applyMessageFlag(target, "\\Flagged", false, ImapFlowClient);
+    },
+    async archive() {},
+    async delete() {},
   };
+}
+
+async function applyMessageFlag(
+  target: MailboxActionTarget,
+  flag: "\\Seen" | "\\Flagged",
+  enabled: boolean,
+  ImapFlowClient: ImapFlowConstructor,
+): Promise<void> {
+  const client = new ImapFlowClient({
+    host: "imap.gmail.com",
+    port: 993,
+    secure: true,
+    auth: {
+      user: target.emailAddress,
+      pass: target.appPassword,
+    },
+    logger: false,
+  });
+
+  await client.connect();
+
+  try {
+    for (const mailboxId of mailboxActionCandidates(target)) {
+      await client.mailboxOpen(mailboxId);
+
+      const range = mailboxActionRange(target, mailboxId);
+      const changed = enabled
+        ? await client.messageFlagsAdd(range, [flag])
+        : await client.messageFlagsRemove(range, [flag]);
+
+      if (changed) {
+        return;
+      }
+    }
+
+    throw new Error("Gmail message not found");
+  } finally {
+    await client.logout();
+  }
+}
+
+function mailboxActionCandidates(target: MailboxActionTarget): string[] {
+  const candidates = target.mailboxIds.length ? target.mailboxIds : ["INBOX"];
+
+  return [...new Set([...candidates, "INBOX"])];
+}
+
+function mailboxActionRange(
+  target: MailboxActionTarget,
+  mailboxId: string,
+): string | { emailId: string } {
+  const uidPrefix = `${mailboxId}:`;
+
+  if (target.messageId.startsWith(uidPrefix)) {
+    return target.messageId.slice(uidPrefix.length);
+  }
+
+  return { emailId: target.messageId };
 }
 
 function isNonSelectableMailbox(mailbox: { flags?: Set<string> }): boolean {

@@ -6,6 +6,69 @@ import type { MailboxActionClient } from "../apps/api/src/mailbox-actions";
 import { performMailboxAction } from "../apps/web/src/api";
 
 describe("MVP Mailbox actions", () => {
+  it("marks a Message read locally when Gmail mailbox actions are not configured", async () => {
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "personal-app-password",
+    };
+    const persistence = createHybridPersistence();
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 1 });
+    mailDatabase.saveMessage({
+      id: "message-1",
+      stableIdentity: "gmail:personal:message-1",
+      subject: "Actionable Message",
+      receivedAt: "2026-05-23T10:00:00.000Z",
+      unread: true,
+      starred: false,
+      aiProcessed: false,
+      readableBody: "<p>Hello</p>",
+      attachments: [],
+    });
+    mailDatabase.saveMailboxEntry({
+      id: "message-1:inbox",
+      mailboxId: "inbox",
+      messageId: "message-1",
+    });
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: [account],
+      persistence,
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await app.request("/api/mail-accounts/personal/messages/message-1/actions", {
+      method: "POST",
+      body: JSON.stringify({ action: "markRead" }),
+      headers: {
+        cookie: loginResponse.headers.get("set-cookie") ?? "",
+        "content-type": "application/json",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      message: {
+        id: "message-1",
+        unread: false,
+      },
+    });
+    expect(mailDatabase.getMessage("personal", "message-1")).toMatchObject({
+      unread: false,
+    });
+    expect(mailDatabase.listMailboxes()).toEqual([
+      expect.objectContaining({
+        id: "inbox",
+        unreadCount: 0,
+      }),
+    ]);
+  });
+
   it("marks a Message read and unread through Gmail before updating local unread state", async () => {
     const { app, cookie, actions } = await createActionFixture();
 
@@ -41,8 +104,16 @@ describe("MVP Mailbox actions", () => {
       },
     });
     expect(actions).toEqual([
-      { action: "markRead", accountId: "personal", messageId: "message-1" },
-      { action: "markUnread", accountId: "personal", messageId: "message-1" },
+      expect.objectContaining({
+        action: "markRead",
+        accountId: "personal",
+        messageId: "message-1",
+      }),
+      expect.objectContaining({
+        action: "markUnread",
+        accountId: "personal",
+        messageId: "message-1",
+      }),
     ]);
   });
 
@@ -77,7 +148,9 @@ describe("MVP Mailbox actions", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(actions).toEqual([{ action: "archive", accountId: "personal", messageId: "message-1" }]);
+    expect(actions).toEqual([
+      expect.objectContaining({ action: "archive", accountId: "personal", messageId: "message-1" }),
+    ]);
     expect(persistence.mailDatabaseFor("personal").getMessage("message-1")).toMatchObject({
       id: "message-1",
     });
@@ -96,7 +169,9 @@ describe("MVP Mailbox actions", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(actions).toEqual([{ action: "delete", accountId: "personal", messageId: "message-1" }]);
+    expect(actions).toEqual([
+      expect.objectContaining({ action: "delete", accountId: "personal", messageId: "message-1" }),
+    ]);
     expect(persistence.mailDatabaseFor("personal").getMessage("message-1")).toMatchObject({
       id: "message-1",
     });
@@ -145,8 +220,8 @@ describe("MVP Mailbox actions", () => {
       },
     });
     expect(actions).toEqual([
-      { action: "star", accountId: "personal", messageId: "message-1" },
-      { action: "unstar", accountId: "personal", messageId: "message-1" },
+      expect.objectContaining({ action: "star", accountId: "personal", messageId: "message-1" }),
+      expect.objectContaining({ action: "unstar", accountId: "personal", messageId: "message-1" }),
     ]);
   });
 

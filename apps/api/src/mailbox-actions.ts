@@ -2,7 +2,10 @@ import type { MailboxAction } from "@zmail/shared";
 
 export type MailboxActionTarget = {
   accountId: string;
+  emailAddress: string;
+  appPassword: string;
   messageId: string;
+  mailboxIds: string[];
 };
 
 export type MailboxActionClient = {

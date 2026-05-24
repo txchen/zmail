@@ -5,6 +5,8 @@ const connect = vi.fn();
 const list = vi.fn();
 const mailboxOpen = vi.fn();
 const fetch = vi.fn();
+const messageFlagsAdd = vi.fn();
+const messageFlagsRemove = vi.fn();
 const logout = vi.fn();
 
 describe("Gmail IMAP mailbox sync client", () => {
@@ -128,7 +130,7 @@ describe("Gmail IMAP mailbox sync client", () => {
         source: true,
         threadId: true,
       },
-      { uid: true },
+      { uid: false },
     );
     expect(logout).toHaveBeenCalledOnce();
   });
@@ -204,5 +206,53 @@ describe("Gmail IMAP mailbox sync client", () => {
       },
       { uid: true },
     );
+  });
+
+  it("marks Gmail Messages read by applying the Seen flag in a containing Mailbox", async () => {
+    const imapFlow = vi.fn(function () {
+      return { connect, mailboxOpen, messageFlagsAdd, logout };
+    });
+    connect.mockResolvedValue(undefined);
+    mailboxOpen.mockResolvedValue({ exists: 42 });
+    messageFlagsAdd.mockResolvedValue(true);
+    logout.mockResolvedValue(undefined);
+
+    const client = createGmailImapMailboxSyncClient(imapFlow);
+
+    await client.markRead({
+      accountId: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "gmail-app-password",
+      messageId: "178abc",
+      mailboxIds: ["INBOX/Project", "INBOX"],
+    });
+
+    expect(mailboxOpen).toHaveBeenCalledWith("INBOX/Project");
+    expect(messageFlagsAdd).toHaveBeenCalledWith({ emailId: "178abc" }, ["\\Seen"]);
+    expect(logout).toHaveBeenCalledOnce();
+  });
+
+  it("marks Gmail Messages unread by UID when the local Message id contains a mailbox UID", async () => {
+    const imapFlow = vi.fn(function () {
+      return { connect, mailboxOpen, messageFlagsRemove, logout };
+    });
+    connect.mockResolvedValue(undefined);
+    mailboxOpen.mockResolvedValue({ exists: 42 });
+    messageFlagsRemove.mockResolvedValue(true);
+    logout.mockResolvedValue(undefined);
+
+    const client = createGmailImapMailboxSyncClient(imapFlow);
+
+    await client.markUnread({
+      accountId: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "gmail-app-password",
+      messageId: "INBOX/Project:42",
+      mailboxIds: ["INBOX/Project"],
+    });
+
+    expect(mailboxOpen).toHaveBeenCalledWith("INBOX/Project");
+    expect(messageFlagsRemove).toHaveBeenCalledWith("42", ["\\Seen"]);
+    expect(logout).toHaveBeenCalledOnce();
   });
 });

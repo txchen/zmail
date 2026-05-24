@@ -10,7 +10,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
-  fetchAccountSyncStatus,
   fetchHealth,
   fetchMailboxTree,
   fetchMessage,
@@ -21,7 +20,6 @@ import {
   logout,
   performMailboxAction,
   refreshMailAccount,
-  runMailAccountDiagnostics,
   searchMessagesForAccount,
 } from "./api";
 import { renderReadableMessage } from "./message-rendering";
@@ -43,7 +41,6 @@ const username = ref("");
 const password = ref("");
 const loginError = ref("");
 const showRemoteImages = ref(false);
-const diagnosticsAccountId = ref("");
 const mobilePane = ref<"nav" | "list" | "message">("nav");
 const lastListRouteByAccount = ref(new Map<string, string>());
 const searchDraft = ref("");
@@ -160,12 +157,6 @@ const renderedMessage = computed(() => {
   });
 });
 
-const diagnosticsStatusQuery = useQuery({
-  queryKey: computed(() => ["sync-status", diagnosticsAccountId.value]),
-  queryFn: () => fetchAccountSyncStatus(diagnosticsAccountId.value),
-  enabled: computed(() => authenticated.value && !!diagnosticsAccountId.value),
-});
-
 const loginMutation = useMutation({
   mutationFn: () => login({ username: username.value, password: password.value }),
   onSuccess: async () => {
@@ -197,10 +188,6 @@ const refreshMutation = useMutation({
     await queryClient.invalidateQueries({ queryKey: ["mailbox-tree"] });
     await queryClient.invalidateQueries({ queryKey: ["message-list"] });
   },
-});
-
-const diagnosticsMutation = useMutation({
-  mutationFn: (accountId: string) => runMailAccountDiagnostics(accountId),
 });
 
 const mailboxActionMutation = useMutation({
@@ -296,15 +283,6 @@ async function clearSearch() {
     : undefined;
   const fallback = selectedAccount.value ? defaultReaderPath([selectedAccount.value]) : undefined;
   await router.push(previous ?? fallback ?? "/");
-}
-
-function openDiagnostics(accountId: string) {
-  diagnosticsAccountId.value = accountId;
-  diagnosticsMutation.reset();
-}
-
-async function closeDiagnostics() {
-  diagnosticsAccountId.value = "";
 }
 
 function runMailboxAction(action: MailboxAction) {
@@ -636,12 +614,14 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                     type="button"
                     @click="selectAccountDefault(account)"
                   >
-                    <span class="block truncate text-xs font-semibold">{{ account.id }}</span>
+                    <span class="block min-w-0 truncate text-xs font-semibold">
+                      {{ account.id }}
+                      <span class="ml-1.5 text-[10px] font-medium text-slate-500">
+                        {{ accountSyncStatusLabel(account.syncStatus) }}
+                      </span>
+                    </span>
                     <span class="block truncate text-[11px] text-slate-500">{{
                       account.emailAddress
-                    }}</span>
-                    <span class="block truncate text-[11px] text-slate-500">{{
-                      accountSyncStatusLabel(account.syncStatus)
                     }}</span>
                   </button>
                   <div class="flex shrink-0 items-center gap-1">
@@ -660,14 +640,6 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                       variant="ghost"
                       aria-label="Refresh account"
                       @click="refreshMutation.mutate(account.id)"
-                    />
-                    <UButton
-                      color="neutral"
-                      icon="i-lucide-circle-alert"
-                      square
-                      variant="ghost"
-                      aria-label="Open diagnostics"
-                      @click="openDiagnostics(account.id)"
                     />
                   </div>
                 </div>
@@ -976,49 +948,5 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
         </article>
       </div>
     </section>
-
-    <UModal :open="!!diagnosticsAccountId" @update:open="closeDiagnostics">
-      <template #content>
-        <div class="space-y-4 p-5">
-          <div>
-            <h2 class="text-lg font-semibold">Mail account diagnostics</h2>
-            <p class="mt-1 text-sm text-slate-500">{{ diagnosticsAccountId }}</p>
-          </div>
-          <div class="rounded-md border border-stone-200 p-3 text-sm">
-            <p>Status: {{ diagnosticsStatusQuery.data.value?.syncStatus ?? "unknown" }}</p>
-            <p v-if="diagnosticsStatusQuery.data.value?.lastSyncFinishedAt">
-              Last sync: {{ diagnosticsStatusQuery.data.value.lastSyncFinishedAt }}
-            </p>
-            <p v-if="diagnosticsStatusQuery.data.value?.lastError" class="text-red-600">
-              {{ diagnosticsStatusQuery.data.value.lastError }}
-            </p>
-          </div>
-          <UAlert
-            v-if="diagnosticsMutation.data.value?.success === true"
-            color="success"
-            variant="soft"
-            title="Diagnostics passed"
-            :description="`${diagnosticsMutation.data.value.visibleMailboxCount} visible mailboxes found.`"
-          />
-          <UAlert
-            v-if="diagnosticsMutation.data.value?.success === false"
-            color="error"
-            variant="soft"
-            title="Diagnostics failed"
-            :description="diagnosticsMutation.data.value.lastError"
-          />
-          <div class="flex justify-end gap-2">
-            <UButton color="neutral" variant="ghost" @click="closeDiagnostics">Close</UButton>
-            <UButton
-              color="neutral"
-              :loading="diagnosticsMutation.isPending.value"
-              @click="diagnosticsMutation.mutate(diagnosticsAccountId)"
-            >
-              Run diagnostics
-            </UButton>
-          </div>
-        </div>
-      </template>
-    </UModal>
   </main>
 </template>

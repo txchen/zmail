@@ -267,6 +267,18 @@ export class MailDatabase {
   }
 
   setMessageUnread(messageId: string, unread: boolean): void {
+    const existing = this.database
+      .prepare(`
+        SELECT unread
+        FROM messages
+        WHERE id = ?
+      `)
+      .get(messageId) as { unread: number } | undefined;
+
+    if (!existing || Boolean(existing.unread) === unread) {
+      return;
+    }
+
     this.database
       .prepare(`
         UPDATE messages
@@ -274,6 +286,17 @@ export class MailDatabase {
         WHERE id = ?
       `)
       .run(unread ? 1 : 0, messageId);
+    this.database
+      .prepare(`
+        UPDATE mailboxes
+        SET unread_count = max(0, unread_count + ?)
+        WHERE id IN (
+          SELECT mailbox_id
+          FROM mailbox_entries
+          WHERE message_id = ?
+        )
+      `)
+      .run(unread ? 1 : -1, messageId);
   }
 
   setMessageStarred(messageId: string, starred: boolean): void {

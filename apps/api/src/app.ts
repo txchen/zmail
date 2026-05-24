@@ -486,10 +486,6 @@ export function createApp(config: AppConfig): Hono {
       return c.json({ error: "Authentication required" }, 401);
     }
 
-    if (!mailboxActionClient) {
-      return c.json({ error: "Mailbox actions are not configured" }, 503);
-    }
-
     const accountId = c.req.param("accountId");
     const body = await c.req.json<{ action: string; messageIds: string[] }>();
 
@@ -518,57 +514,60 @@ export function createApp(config: AppConfig): Hono {
       return c.json({ error: "Authentication required" }, 401);
     }
 
-    if (!mailboxActionClient) {
-      return c.json({ error: "Mailbox actions are not configured" }, 503);
-    }
-
     const accountId = c.req.param("accountId");
     const messageId = c.req.param("messageId");
-    const body = await c.req.json<{ action: MailboxAction }>();
-    const target = { accountId, messageId };
+    const body = await c.req.json<{ action: string }>();
 
-    try {
-      await mailboxActionClient[body.action](target);
-    } catch {
-      return c.json({ error: "Mailbox action failed" }, 502);
+    if (!isMailboxAction(body.action)) {
+      return c.json({ error: "Unsupported Mailbox action" }, 400);
     }
+
+    logInfo("mailbox.action.start", { accountId, messageId, action: body.action });
 
     const mailDatabase = persistence.mailDatabaseFor(accountId);
+    const account = config.mailAccounts.find((candidate) => candidate.id === accountId);
+    const existingMessage = mailDatabase.getMessage(accountId, messageId);
 
-    if (body.action === "markRead") {
-      mailDatabase.setMessageUnread(messageId, false);
+    if (!account) {
+      return c.json({ error: "Mail account not found" }, 404);
     }
 
-    if (body.action === "markUnread") {
-      mailDatabase.setMessageUnread(messageId, true);
+    if (!existingMessage) {
+      return c.json({ error: "Message not found" }, 404);
     }
 
-    if (body.action === "star") {
-      mailDatabase.setMessageStarred(messageId, true);
+    const target = {
+      accountId,
+      emailAddress: account.emailAddress,
+      appPassword: account.appPassword,
+      messageId,
+      mailboxIds: existingMessage.mailboxIds,
+    };
+
+    if (mailboxActionClient) {
+      try {
+        await mailboxActionClient[body.action](target);
+      } catch (error) {
+        logError("mailbox.action.gmail.error", {
+          accountId,
+          messageId,
+          action: body.action,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return c.json({ error: "Mailbox action failed" }, 502);
+      }
     }
 
-    if (body.action === "unstar") {
-      mailDatabase.setMessageStarred(messageId, false);
-    }
-
-    if (body.action === "archive") {
-      mailDatabase.removeMailboxEntry(messageId, "inbox");
-    }
-
-    if (body.action === "delete") {
-      mailDatabase.removeMailboxEntry(messageId, "inbox");
-      mailDatabase.saveMailboxEntry({
-        id: `${messageId}:trash`,
-        mailboxId: "trash",
-        messageId,
-      });
-    }
+    applyLocalMailboxAction(mailDatabase, messageId, body.action);
+    logInfo("mailbox.action.local", { accountId, messageId, action: body.action });
 
     const message = mailDatabase.getMessage(accountId, messageId);
 
     if (!message) {
       return c.json({ error: "Message not found" }, 404);
     }
+
+    logInfo("mailbox.action.finish", { accountId, messageId, action: body.action });
 
     return c.json({ message });
   });
@@ -581,20 +580,44 @@ export function createApp(config: AppConfig): Hono {
     action: MailboxAction,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
     const mailDatabase = persistence.mailDatabaseFor(accountId);
+    const account = config.mailAccounts.find((candidate) => candidate.id === accountId);
+    const message = mailDatabase.getMessage(accountId, messageId);
 
-    if (!mailDatabase.getMessage(accountId, messageId)) {
+    logInfo("mailbox.action.start", { accountId, messageId, action });
+
+    if (!account) {
+      return { ok: false, error: "Mail account not found" };
+    }
+
+    if (!message) {
       return { ok: false, error: "Message not found" };
     }
 
-    const target = { accountId, messageId };
+    const target = {
+      accountId,
+      emailAddress: account.emailAddress,
+      appPassword: account.appPassword,
+      messageId,
+      mailboxIds: message.mailboxIds,
+    };
 
-    try {
-      await mailboxActionClient?.[action](target);
-    } catch {
-      return { ok: false, error: "Mailbox action failed" };
+    if (mailboxActionClient) {
+      try {
+        await mailboxActionClient[action](target);
+      } catch (error) {
+        logError("mailbox.action.gmail.error", {
+          accountId,
+          messageId,
+          action,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return { ok: false, error: "Mailbox action failed" };
+      }
     }
 
     applyLocalMailboxAction(mailDatabase, messageId, action);
+    logInfo("mailbox.action.local", { accountId, messageId, action });
+    logInfo("mailbox.action.finish", { accountId, messageId, action });
 
     return { ok: true };
   }
