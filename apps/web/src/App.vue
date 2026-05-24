@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import type { MailAccountSummary } from "@zmail/shared";
+import type { MailAccountMailboxTree } from "@zmail/shared";
 import { onMounted, ref } from "vue";
-import { fetchHealth, fetchMailAccounts, login } from "./api";
+import { fetchHealth, fetchMailboxTree, login, refreshMailAccount } from "./api";
 import type { HealthStatus } from "@zmail/shared";
 
 const health = ref<HealthStatus | null>(null);
 const username = ref("");
 const password = ref("");
 const loginError = ref("");
-const mailAccounts = ref<MailAccountSummary[]>([]);
+const mailAccounts = ref<MailAccountMailboxTree[]>([]);
 
 onMounted(async () => {
   health.value = await fetchHealth();
@@ -19,10 +19,14 @@ async function submitLogin() {
 
   try {
     await login({ username: username.value, password: password.value });
-    mailAccounts.value = (await fetchMailAccounts()).mailAccounts;
+    mailAccounts.value = (await fetchMailboxTree()).mailAccounts;
   } catch {
     loginError.value = "Login failed";
   }
+}
+
+async function refreshAccount(mailAccountId: string) {
+  mailAccounts.value = (await refreshMailAccount(mailAccountId)).mailAccounts;
 }
 </script>
 
@@ -47,7 +51,16 @@ async function submitLogin() {
 
     <ul>
       <li v-for="account in mailAccounts" :key="account.id">
-        {{ account.displayName }} ({{ account.emailAddress }})
+        <div>
+          {{ account.displayName }} ({{ account.unreadCount }})
+          <button type="button" @click="refreshAccount(account.id)">Refresh</button>
+        </div>
+        <div>{{ account.syncStatus }}</div>
+        <ul>
+          <li v-for="mailbox in account.mailboxes" :key="mailbox.id">
+            {{ mailbox.name }} ({{ mailbox.unreadCount }})
+          </li>
+        </ul>
       </li>
     </ul>
   </main>

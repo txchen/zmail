@@ -21,8 +21,8 @@ describe("hybrid SQLite persistence", () => {
     const personal = persistence.mailDatabaseFor("personal");
     const work = persistence.mailDatabaseFor("work");
 
-    personal.saveMailbox({ id: "inbox", name: "Inbox" });
-    personal.saveMailbox({ id: "all-mail", name: "All Mail" });
+    personal.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 1 });
+    personal.saveMailbox({ id: "all-mail", name: "All Mail", unreadCount: 1 });
     personal.saveMessage({
       id: "message-1",
       stableIdentity: "gmail:personal:thread-1:message-1",

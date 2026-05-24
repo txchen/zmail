@@ -1,4 +1,6 @@
 import type { MailAccountSummary } from "@zmail/shared";
+import type { HybridPersistence } from "./persistence.js";
+import type { MailboxSyncClient } from "./sync.js";
 
 export type AppLogin = {
   username: string;
@@ -12,6 +14,8 @@ export type ConfiguredMailAccount = MailAccountSummary & {
 export type AppConfig = {
   appLogin: AppLogin;
   mailAccounts: ConfiguredMailAccount[];
+  persistence?: HybridPersistence;
+  mailboxSyncClient?: MailboxSyncClient;
 };
 
 type Env = Record<string, string | undefined>;

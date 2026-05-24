@@ -1,6 +1,6 @@
 # Sync mailbox tree and per-account status from Gmail
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -12,16 +12,16 @@ Connect to configured Gmail Mail accounts over IMAP and sync each account's Visi
 
 ## Acceptance criteria
 
-- [ ] The backend can connect to each Configured Mail account using its server-side Mail account credential.
-- [ ] Sync discovers all visible Gmail Mailboxes and labels exposed through IMAP, including Spam and Trash.
-- [ ] Sync stores Mailboxes in the correct per-account mail database.
-- [ ] Sync stores unread counts per Mail account and Mailbox.
-- [ ] The API exposes Mail accounts, Mailboxes, unread counts, and Account sync status to the UI.
-- [ ] The UI shows the Account mailbox tree with each Mail account separated.
-- [ ] The App user can trigger manual refresh for a Mail account.
-- [ ] A failing Mail account shows a failing Account sync status without preventing other Mail accounts from being read.
-- [ ] Tests cover Visible mailbox set discovery including Spam and Trash.
-- [ ] Tests cover per-account sync failure isolation.
+- [x] The backend can connect to each Configured Mail account using its server-side Mail account credential.
+- [x] Sync discovers all visible Gmail Mailboxes and labels exposed through IMAP, including Spam and Trash.
+- [x] Sync stores Mailboxes in the correct per-account mail database.
+- [x] Sync stores unread counts per Mail account and Mailbox.
+- [x] The API exposes Mail accounts, Mailboxes, unread counts, and Account sync status to the UI.
+- [x] The UI shows the Account mailbox tree with each Mail account separated.
+- [x] The App user can trigger manual refresh for a Mail account.
+- [x] A failing Mail account shows a failing Account sync status without preventing other Mail accounts from being read.
+- [x] Tests cover Visible mailbox set discovery including Spam and Trash.
+- [x] Tests cover per-account sync failure isolation.
 
 ## Blocked by
 

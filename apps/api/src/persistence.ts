@@ -12,6 +12,7 @@ export type StoredMailAccount = {
 export type StoredMailbox = {
   id: string;
   name: string;
+  unreadCount: number;
 };
 
 export type StoredMessage = {
@@ -119,7 +120,8 @@ export class MailDatabase {
     database.exec(`
       CREATE TABLE IF NOT EXISTS mailboxes (
         id TEXT PRIMARY KEY,
-        name TEXT NOT NULL
+        name TEXT NOT NULL,
+        unread_count INTEGER NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS messages (
@@ -142,11 +144,36 @@ export class MailDatabase {
   saveMailbox(mailbox: StoredMailbox): void {
     this.database
       .prepare(`
-        INSERT INTO mailboxes (id, name)
-        VALUES (?, ?)
-        ON CONFLICT(id) DO UPDATE SET name = excluded.name
+        INSERT INTO mailboxes (id, name, unread_count)
+        VALUES (?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          unread_count = excluded.unread_count
       `)
-      .run(mailbox.id, mailbox.name);
+      .run(mailbox.id, mailbox.name, mailbox.unreadCount);
+  }
+
+  listMailboxes(): StoredMailbox[] {
+    return this.database
+      .prepare(`
+        SELECT id, name, unread_count
+        FROM mailboxes
+        ORDER BY id
+      `)
+      .all()
+      .map((row) => {
+        const mailbox = row as {
+          id: string;
+          name: string;
+          unread_count: number;
+        };
+
+        return {
+          id: mailbox.id,
+          name: mailbox.name,
+          unreadCount: mailbox.unread_count,
+        };
+      });
   }
 
   saveMessage(message: StoredMessage): void {

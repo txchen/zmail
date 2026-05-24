@@ -17,3 +17,19 @@ export type MailAccountSummary = {
 export type MailAccountsResponse = {
   mailAccounts: MailAccountSummary[];
 };
+
+export type MailboxSummary = {
+  id: string;
+  name: string;
+  unreadCount: number;
+};
+
+export type MailAccountMailboxTree = MailAccountSummary & {
+  syncStatus: "synced" | "syncing" | "stale" | "failing";
+  unreadCount: number;
+  mailboxes: MailboxSummary[];
+};
+
+export type MailboxTreeResponse = {
+  mailAccounts: MailAccountMailboxTree[];
+};
