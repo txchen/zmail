@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import type { AppConfig, AppLogin } from "./config.js";
 import { loadConfigFromEnv } from "./config.js";
+import type { MailboxAction } from "./mailbox-actions.js";
 import { createHybridPersistence } from "./persistence.js";
 import { syncMailboxTrees } from "./sync.js";
 
@@ -13,6 +14,7 @@ export function createApp(config: AppConfig): Hono {
   const sessionToken = randomUUID();
   const persistence = config.persistence ?? createHybridPersistence();
   const mailboxSyncClient = config.mailboxSyncClient;
+  const mailboxActionClient = config.mailboxActionClient;
 
   function isAuthenticated(cookie: string | undefined): boolean {
     return cookie?.includes(`${sessionCookieName}=${sessionToken}`) ?? false;
@@ -112,6 +114,66 @@ export function createApp(config: AppConfig): Hono {
     const message = persistence
       .mailDatabaseFor(c.req.param("accountId"))
       .getMessage(c.req.param("messageId"));
+
+    if (!message) {
+      return c.json({ error: "Message not found" }, 404);
+    }
+
+    return c.json({ message });
+  });
+
+  app.post("/api/mail-accounts/:accountId/messages/:messageId/actions", async (c) => {
+    if (!isAuthenticated(c.req.header("cookie"))) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    if (!mailboxActionClient) {
+      return c.json({ error: "Mailbox actions are not configured" }, 503);
+    }
+
+    const accountId = c.req.param("accountId");
+    const messageId = c.req.param("messageId");
+    const body = await c.req.json<{ action: MailboxAction }>();
+    const target = { accountId, messageId };
+
+    try {
+      await mailboxActionClient[body.action](target);
+    } catch {
+      return c.json({ error: "Mailbox action failed" }, 502);
+    }
+
+    const mailDatabase = persistence.mailDatabaseFor(accountId);
+
+    if (body.action === "markRead") {
+      mailDatabase.setMessageUnread(messageId, false);
+    }
+
+    if (body.action === "markUnread") {
+      mailDatabase.setMessageUnread(messageId, true);
+    }
+
+    if (body.action === "star") {
+      mailDatabase.setMessageStarred(messageId, true);
+    }
+
+    if (body.action === "unstar") {
+      mailDatabase.setMessageStarred(messageId, false);
+    }
+
+    if (body.action === "archive") {
+      mailDatabase.removeMailboxEntry(messageId, "inbox");
+    }
+
+    if (body.action === "delete") {
+      mailDatabase.removeMailboxEntry(messageId, "inbox");
+      mailDatabase.saveMailboxEntry({
+        id: `${messageId}:trash`,
+        mailboxId: "trash",
+        messageId,
+      });
+    }
+
+    const message = mailDatabase.getMessage(messageId);
 
     if (!message) {
       return c.json({ error: "Message not found" }, 404);

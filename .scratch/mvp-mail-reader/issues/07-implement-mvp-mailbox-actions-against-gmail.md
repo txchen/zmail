@@ -1,6 +1,6 @@
 # Implement MVP Mailbox actions against Gmail
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -12,18 +12,18 @@ Add the MVP Mailbox actions for existing Messages: mark read/unread, Archive, De
 
 ## Acceptance criteria
 
-- [ ] The UI exposes mark read/unread for Messages.
-- [ ] Mark read/unread updates Gmail unread state.
-- [ ] The UI exposes Archive for Messages.
-- [ ] Archive removes a Message from Inbox while keeping it in the Mail account.
-- [ ] The UI exposes Delete for Messages.
-- [ ] Delete moves a Message to Gmail Trash and does not permanently delete it.
-- [ ] The UI exposes star/unstar for Messages.
-- [ ] Star/unstar updates Gmail state.
-- [ ] After a successful Mailbox action, the Local read model reflects updated Gmail state.
-- [ ] Failed Mailbox actions surface a clear error without corrupting local state.
-- [ ] Tests cover each Mailbox action against mocked Gmail behavior.
-- [ ] Tests cover Archive and Delete semantics specifically.
+- [x] The UI exposes mark read/unread for Messages.
+- [x] Mark read/unread updates Gmail unread state.
+- [x] The UI exposes Archive for Messages.
+- [x] Archive removes a Message from Inbox while keeping it in the Mail account.
+- [x] The UI exposes Delete for Messages.
+- [x] Delete moves a Message to Gmail Trash and does not permanently delete it.
+- [x] The UI exposes star/unstar for Messages.
+- [x] Star/unstar updates Gmail state.
+- [x] After a successful Mailbox action, the Local read model reflects updated Gmail state.
+- [x] Failed Mailbox actions surface a clear error without corrupting local state.
+- [x] Tests cover each Mailbox action against mocked Gmail behavior.
+- [x] Tests cover Archive and Delete semantics specifically.
 
 ## Blocked by
 

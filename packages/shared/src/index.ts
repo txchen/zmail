@@ -47,6 +47,7 @@ export type MailboxMessageSummary = {
   subject: string;
   receivedAt: string;
   unread: boolean;
+  starred: boolean;
   mailboxEntryId: string;
   attachments: AttachmentMetadata[];
 };
@@ -57,6 +58,7 @@ export type MessageDetail = {
   subject: string;
   receivedAt: string;
   unread: boolean;
+  starred: boolean;
   readableBody: string;
   plainTextBody?: string;
   attachments: AttachmentMetadata[];
@@ -69,3 +71,5 @@ export type MailboxMessagesResponse = {
 export type MessageResponse = {
   message: MessageDetail;
 };
+
+export type MailboxAction = "markRead" | "markUnread" | "archive" | "delete" | "star" | "unstar";

@@ -95,6 +95,7 @@ export async function syncRecentMessages({
         subject: message.subject,
         receivedAt: message.receivedAt,
         unread: message.unread,
+        starred: false,
         aiProcessed: false,
         readableBody: message.readableBody,
         attachments: message.attachments.map(({ id, filename, mimeType, sizeBytes }) => ({

@@ -1,6 +1,7 @@
 import type {
   HealthStatus,
   MailboxMessagesResponse,
+  MailboxAction,
   MailboxTreeResponse,
   MailAccountsResponse,
   MessageResponse,
@@ -96,6 +97,28 @@ export async function fetchMessage(
 
   if (!response.ok) {
     throw new Error("Message unavailable");
+  }
+
+  return response.json();
+}
+
+export async function performMailboxAction(
+  mailAccountId: string,
+  messageId: string,
+  action: MailboxAction,
+  fetcher: typeof fetch = fetch,
+): Promise<MessageResponse> {
+  const response = await fetcher(
+    `/api/mail-accounts/${mailAccountId}/messages/${messageId}/actions`,
+    {
+      method: "POST",
+      body: JSON.stringify({ action }),
+      headers: { "content-type": "application/json" },
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error("Mailbox action failed");
   }
 
   return response.json();

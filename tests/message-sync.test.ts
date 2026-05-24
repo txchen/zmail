@@ -70,6 +70,7 @@ describe("recent Message sync", () => {
         subject: "Recent readable Message",
         receivedAt: "2026-05-23T10:00:00.000Z",
         unread: true,
+        starred: false,
         aiProcessed: false,
         readableBody: "<p>Hello</p>",
         attachments: [
@@ -110,6 +111,7 @@ describe("recent Message sync", () => {
       subject: "Readable Message",
       receivedAt: "2026-05-23T10:00:00.000Z",
       unread: true,
+      starred: false,
       aiProcessed: false,
       readableBody: "<p>Hello</p>",
       attachments: [
@@ -150,6 +152,7 @@ describe("recent Message sync", () => {
           subject: "Readable Message",
           receivedAt: "2026-05-23T10:00:00.000Z",
           unread: true,
+          starred: false,
           mailboxEntryId: "message-1:inbox",
           attachments: [
             {
@@ -174,6 +177,7 @@ describe("recent Message sync", () => {
         subject: "Readable Message",
         receivedAt: "2026-05-23T10:00:00.000Z",
         unread: true,
+        starred: false,
         readableBody: "<p>Hello</p>",
         attachments: [
           {

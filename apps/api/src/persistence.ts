@@ -21,6 +21,7 @@ export type StoredMessage = {
   subject: string;
   receivedAt: string;
   unread: boolean;
+  starred: boolean;
   aiProcessed: boolean;
   readableBody: string;
   attachments: AttachmentMetadata[];
@@ -146,6 +147,7 @@ export class MailDatabase {
         subject TEXT NOT NULL,
         received_at TEXT NOT NULL DEFAULT '',
         unread INTEGER NOT NULL,
+        starred INTEGER NOT NULL DEFAULT 0,
         ai_processed INTEGER NOT NULL,
         readable_body TEXT NOT NULL DEFAULT '',
         attachments_json TEXT NOT NULL DEFAULT '[]'
@@ -158,6 +160,26 @@ export class MailDatabase {
         UNIQUE(mailbox_id, message_id)
       );
     `);
+  }
+
+  setMessageUnread(messageId: string, unread: boolean): void {
+    this.database
+      .prepare(`
+        UPDATE messages
+        SET unread = ?
+        WHERE id = ?
+      `)
+      .run(unread ? 1 : 0, messageId);
+  }
+
+  setMessageStarred(messageId: string, starred: boolean): void {
+    this.database
+      .prepare(`
+        UPDATE messages
+        SET starred = ?
+        WHERE id = ?
+      `)
+      .run(starred ? 1 : 0, messageId);
   }
 
   saveMailbox(mailbox: StoredMailbox): void {
@@ -198,13 +220,14 @@ export class MailDatabase {
   saveMessage(message: StoredMessage): void {
     this.database
       .prepare(`
-        INSERT INTO messages (id, stable_identity, subject, received_at, unread, ai_processed, readable_body, attachments_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (id, stable_identity, subject, received_at, unread, starred, ai_processed, readable_body, attachments_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           stable_identity = excluded.stable_identity,
           subject = excluded.subject,
           received_at = excluded.received_at,
           unread = excluded.unread,
+          starred = excluded.starred,
           ai_processed = excluded.ai_processed,
           readable_body = excluded.readable_body,
           attachments_json = excluded.attachments_json
@@ -215,6 +238,7 @@ export class MailDatabase {
         message.subject,
         message.receivedAt,
         message.unread ? 1 : 0,
+        message.starred ? 1 : 0,
         message.aiProcessed ? 1 : 0,
         message.readableBody,
         JSON.stringify(message.attachments),
@@ -233,10 +257,19 @@ export class MailDatabase {
       .run(entry.id, entry.mailboxId, entry.messageId);
   }
 
+  removeMailboxEntry(messageId: string, mailboxId: string): void {
+    this.database
+      .prepare(`
+        DELETE FROM mailbox_entries
+        WHERE message_id = ? AND mailbox_id = ?
+      `)
+      .run(messageId, mailboxId);
+  }
+
   listMessagesWithMailboxEntries(): MessageWithMailboxEntries[] {
     const messages = this.database
       .prepare(`
-        SELECT id, stable_identity, subject, received_at, unread, ai_processed, readable_body, attachments_json
+        SELECT id, stable_identity, subject, received_at, unread, starred, ai_processed, readable_body, attachments_json
         FROM messages
         ORDER BY id
       `)
@@ -246,6 +279,7 @@ export class MailDatabase {
       subject: string;
       received_at: string;
       unread: number;
+      starred: number;
       ai_processed: number;
       readable_body: string;
       attachments_json: string;
@@ -271,6 +305,7 @@ export class MailDatabase {
       subject: message.subject,
       receivedAt: message.received_at,
       unread: Boolean(message.unread),
+      starred: Boolean(message.starred),
       aiProcessed: Boolean(message.ai_processed),
       readableBody: message.readable_body,
       attachments: JSON.parse(message.attachments_json) as AttachmentMetadata[],
@@ -288,7 +323,7 @@ export class MailDatabase {
     return this.database
       .prepare(`
         SELECT messages.id, messages.stable_identity, messages.subject, messages.received_at,
-          messages.unread, messages.attachments_json, mailbox_entries.id AS mailbox_entry_id
+          messages.unread, messages.starred, messages.attachments_json, mailbox_entries.id AS mailbox_entry_id
         FROM mailbox_entries
         JOIN messages ON messages.id = mailbox_entries.message_id
         WHERE mailbox_entries.mailbox_id = ?
@@ -302,6 +337,7 @@ export class MailDatabase {
           subject: string;
           received_at: string;
           unread: number;
+          starred: number;
           attachments_json: string;
           mailbox_entry_id: string;
         };
@@ -312,6 +348,7 @@ export class MailDatabase {
           subject: message.subject,
           receivedAt: message.received_at,
           unread: Boolean(message.unread),
+          starred: Boolean(message.starred),
           attachments: JSON.parse(message.attachments_json) as AttachmentMetadata[],
           mailboxEntryId: message.mailbox_entry_id,
         };
@@ -321,7 +358,7 @@ export class MailDatabase {
   getMessage(messageId: string): MessageDetail | null {
     const row = this.database
       .prepare(`
-        SELECT id, stable_identity, subject, received_at, unread, readable_body, attachments_json
+        SELECT id, stable_identity, subject, received_at, unread, starred, readable_body, attachments_json
         FROM messages
         WHERE id = ?
       `)
@@ -332,6 +369,7 @@ export class MailDatabase {
           subject: string;
           received_at: string;
           unread: number;
+          starred: number;
           readable_body: string;
           attachments_json: string;
         }
@@ -347,6 +385,7 @@ export class MailDatabase {
       subject: row.subject,
       receivedAt: row.received_at,
       unread: Boolean(row.unread),
+      starred: Boolean(row.starred),
       readableBody: row.readable_body,
       attachments: JSON.parse(row.attachments_json) as AttachmentMetadata[],
     };

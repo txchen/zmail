@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import type { HealthStatus } from "@zmail/shared";
-import type { MailAccountMailboxTree, MailboxMessageSummary, MessageDetail } from "@zmail/shared";
+import type {
+  MailAccountMailboxTree,
+  MailboxAction,
+  MailboxMessageSummary,
+  MessageDetail,
+} from "@zmail/shared";
 import { computed, onMounted, ref } from "vue";
 import {
   fetchHealth,
@@ -8,6 +13,7 @@ import {
   fetchMessage,
   fetchMessagesForMailbox,
   login,
+  performMailboxAction,
   refreshMailAccount,
 } from "./api";
 import { renderReadableMessage } from "./message-rendering";
@@ -22,6 +28,7 @@ const selectedMailboxId = ref("");
 const messages = ref<MailboxMessageSummary[]>([]);
 const selectedMessage = ref<MessageDetail | null>(null);
 const showRemoteImages = ref(false);
+const mailboxActionError = ref("");
 
 const renderedMessage = computed(() => {
   if (!selectedMessage.value) {
@@ -65,6 +72,28 @@ async function selectMailbox(mailAccountId: string, mailboxId: string) {
 async function selectMessage(messageId: string) {
   selectedMessage.value = (await fetchMessage(selectedMailAccountId.value, messageId)).message;
   showRemoteImages.value = false;
+  mailboxActionError.value = "";
+}
+
+async function runMailboxAction(action: MailboxAction) {
+  if (!selectedMessage.value) {
+    return;
+  }
+
+  mailboxActionError.value = "";
+
+  try {
+    selectedMessage.value = (
+      await performMailboxAction(selectedMailAccountId.value, selectedMessage.value.id, action)
+    ).message;
+    if (selectedMailboxId.value) {
+      messages.value = (
+        await fetchMessagesForMailbox(selectedMailAccountId.value, selectedMailboxId.value)
+      ).messages;
+    }
+  } catch {
+    mailboxActionError.value = "Mailbox action failed";
+  }
 }
 </script>
 
@@ -125,6 +154,23 @@ async function selectMessage(messageId: string) {
       <article aria-label="Message content">
         <template v-if="selectedMessage && renderedMessage">
           <h2>{{ selectedMessage.subject }}</h2>
+          <div>
+            <button
+              type="button"
+              @click="runMailboxAction(selectedMessage.unread ? 'markRead' : 'markUnread')"
+            >
+              {{ selectedMessage.unread ? "Mark read" : "Mark unread" }}
+            </button>
+            <button type="button" @click="runMailboxAction('archive')">Archive</button>
+            <button type="button" @click="runMailboxAction('delete')">Delete</button>
+            <button
+              type="button"
+              @click="runMailboxAction(selectedMessage.starred ? 'unstar' : 'star')"
+            >
+              {{ selectedMessage.starred ? "Unstar" : "Star" }}
+            </button>
+          </div>
+          <p v-if="mailboxActionError">{{ mailboxActionError }}</p>
           <button
             v-if="renderedMessage.blockedRemoteImageCount && !showRemoteImages"
             type="button"
