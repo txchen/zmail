@@ -32,7 +32,6 @@ import {
   nextMessagePathAfterRemoval,
   parseReaderRoute,
   searchPath,
-  unreadPath,
 } from "./reader-routes";
 
 const route = useRoute();
@@ -245,9 +244,8 @@ async function clearSearch() {
   const previous = selectedAccountId.value
     ? lastListRouteByAccount.value.get(selectedAccountId.value)
     : undefined;
-  await router.push(
-    previous ?? (selectedAccountId.value ? unreadPath(selectedAccountId.value) : "/"),
-  );
+  const fallback = selectedAccount.value ? defaultReaderPath([selectedAccount.value]) : undefined;
+  await router.push(previous ?? fallback ?? "/");
 }
 
 function openDiagnostics(accountId: string) {
@@ -288,6 +286,18 @@ function formatDate(value: string): string {
 
 function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): string {
   return account.mailboxes.find((mailbox) => mailbox.id === mailboxId)?.name ?? mailboxId;
+}
+
+function accountDefaultPath(account: MailAccountMailboxTree): string | undefined {
+  return defaultReaderPath([account]);
+}
+
+async function selectAccountDefault(account: MailAccountMailboxTree) {
+  const path = accountDefaultPath(account);
+
+  if (path) {
+    await selectList(path);
+  }
 }
 </script>
 
@@ -381,7 +391,7 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
                   <button
                     class="min-w-0 text-left"
                     type="button"
-                    @click="selectList(unreadPath(account.id))"
+                    @click="selectAccountDefault(account)"
                   >
                     <span class="block truncate text-sm font-semibold">{{ account.id }}</span>
                     <span class="block truncate text-xs text-slate-500">{{
@@ -414,22 +424,7 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
                     />
                   </div>
                 </div>
-                <button
-                  class="mt-2 flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm hover:bg-stone-100"
-                  :class="
-                    readerRoute.kind === 'unread' && readerRoute.accountId === account.id
-                      ? 'bg-stone-200'
-                      : ''
-                  "
-                  type="button"
-                  @click="selectList(unreadPath(account.id))"
-                >
-                  <span>Unread</span>
-                  <UBadge color="neutral" size="sm" variant="subtle">{{
-                    account.unreadCount
-                  }}</UBadge>
-                </button>
-                <div class="mt-1 space-y-1">
+                <div class="mt-2 space-y-1">
                   <button
                     v-for="mailbox in account.mailboxes"
                     :key="mailbox.id"

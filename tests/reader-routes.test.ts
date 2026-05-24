@@ -51,14 +51,15 @@ describe("reader routes", () => {
   it("builds the Default reader view from the first configured Mail account", () => {
     expect(
       defaultReaderPath([
-        { id: "personal", emailAddress: "me@example.com" },
-        { id: "work", emailAddress: "work@example.com" },
+        { id: "personal", emailAddress: "me@example.com", mailboxes: [{ id: "INBOX" }] },
+        { id: "work", emailAddress: "work@example.com", mailboxes: [{ id: "INBOX" }] },
       ]),
-    ).toBe("/accounts/personal/unread");
+    ).toBe("/accounts/personal/mailboxes/INBOX");
   });
 
-  it("has no Default reader view when there are no Mail accounts", () => {
+  it("has no Default reader view when there are no Mail accounts or Mailboxes", () => {
     expect(defaultReaderPath([])).toBeUndefined();
+    expect(defaultReaderPath([{ id: "personal", mailboxes: [] }])).toBeUndefined();
   });
 
   it("advances to the next Message after removing the selected Message", () => {
