@@ -3,6 +3,7 @@ import {
   defaultReaderPath,
   mailboxPath,
   messagePath,
+  nextMessagePathAfterRemoval,
   parseReaderRoute,
   searchPath,
 } from "../apps/web/src/reader-routes";
@@ -58,5 +59,36 @@ describe("reader routes", () => {
 
   it("has no Default reader view when there are no Mail accounts", () => {
     expect(defaultReaderPath([])).toBeUndefined();
+  });
+
+  it("advances to the next Message after removing the selected Message", () => {
+    expect(
+      nextMessagePathAfterRemoval(
+        { kind: "mailbox", accountId: "personal", mailboxId: "inbox", messageId: "message-1" },
+        "message-1",
+        [{ id: "message-1" }, { id: "message-2" }],
+        "/fallback",
+      ),
+    ).toBe("/accounts/personal/mailboxes/inbox/messages/message-2");
+  });
+
+  it("falls back to the previous Message or current list after removal", () => {
+    expect(
+      nextMessagePathAfterRemoval(
+        { kind: "unread", accountId: "personal", messageId: "message-2" },
+        "message-2",
+        [{ id: "message-1" }, { id: "message-2" }],
+        "/fallback",
+      ),
+    ).toBe("/accounts/personal/unread/messages/message-1");
+
+    expect(
+      nextMessagePathAfterRemoval(
+        { kind: "search", accountId: "personal", query: "invoice", messageId: "message-1" },
+        "message-1",
+        [{ id: "message-1" }],
+        "/fallback",
+      ),
+    ).toBe("/accounts/personal/search?q=invoice");
   });
 });

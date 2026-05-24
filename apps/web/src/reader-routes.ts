@@ -72,3 +72,33 @@ export function messagePath(current: ReaderRoute, messageId: string, fallbackPat
 
   return fallbackPath;
 }
+
+export function listPath(current: ReaderRoute, fallbackPath: string): string {
+  if (current.kind === "unread") {
+    return unreadPath(current.accountId);
+  }
+
+  if (current.kind === "mailbox") {
+    return mailboxPath(current.accountId, current.mailboxId);
+  }
+
+  if (current.kind === "search") {
+    return searchPath(current.accountId, current.query);
+  }
+
+  return fallbackPath;
+}
+
+export function nextMessagePathAfterRemoval(
+  current: ReaderRoute,
+  removedMessageId: string,
+  messages: { id: string }[],
+  fallbackPath: string,
+): string {
+  const index = messages.findIndex((message) => message.id === removedMessageId);
+  const adjacent = messages[index + 1] ?? messages[index - 1];
+
+  return adjacent
+    ? messagePath(current, adjacent.id, fallbackPath)
+    : listPath(current, fallbackPath);
+}

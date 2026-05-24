@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Build Message detail and Mailbox actions
 
@@ -12,15 +12,15 @@ Build the Message content pane for selected Messages from any Message list. The 
 
 ## Acceptance criteria
 
-- [ ] Selecting a Message from Account unread view, Mailbox view, or Search result view opens Message detail.
-- [ ] Message detail displays subject, sender, received time, Readable body, and attachment metadata.
-- [ ] Remote images remain blocked by default.
-- [ ] A per-Message action can show blocked remote images.
-- [ ] The toolbar exposes mark read/unread, Archive, Delete, and star/unstar.
-- [ ] Opening a Message does not automatically mark it read.
-- [ ] Successful Mailbox actions refresh affected reader data.
-- [ ] Archive and Delete advance to the next Message, or previous Message if there is no next Message.
-- [ ] If no adjacent Message exists after Archive or Delete, the detail pane returns to an empty selected state for the current list.
+- [x] Selecting a Message from Account unread view, Mailbox view, or Search result view opens Message detail.
+- [x] Message detail displays subject, sender, received time, Readable body, and attachment metadata.
+- [x] Remote images remain blocked by default.
+- [x] A per-Message action can show blocked remote images.
+- [x] The toolbar exposes mark read/unread, Archive, Delete, and star/unstar.
+- [x] Opening a Message does not automatically mark it read.
+- [x] Successful Mailbox actions refresh affected reader data.
+- [x] Archive and Delete advance to the next Message, or previous Message if there is no next Message.
+- [x] If no adjacent Message exists after Archive or Delete, the detail pane returns to an empty selected state for the current list.
 
 ## Blocked by
 

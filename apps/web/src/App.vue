@@ -29,6 +29,7 @@ import {
   defaultReaderPath,
   mailboxPath,
   messagePath,
+  nextMessagePathAfterRemoval,
   parseReaderRoute,
   searchPath,
   unreadPath,
@@ -267,21 +268,9 @@ function runMailboxAction(action: MailboxAction) {
 }
 
 function openAdjacentMessage(messageId: string) {
-  const index = messages.value.findIndex((message) => message.id === messageId);
-  const adjacent = messages.value[index + 1] ?? messages.value[index - 1];
-
-  if (adjacent) {
-    void router.replace(messagePath(readerRoute.value, adjacent.id, route.fullPath));
-    return;
-  }
-
-  if (readerRoute.value.kind === "unread") {
-    void router.replace(unreadPath(readerRoute.value.accountId));
-  } else if (readerRoute.value.kind === "mailbox") {
-    void router.replace(mailboxPath(readerRoute.value.accountId, readerRoute.value.mailboxId));
-  } else if (readerRoute.value.kind === "search") {
-    void router.replace(searchPath(readerRoute.value.accountId, readerRoute.value.query));
-  }
+  void router.replace(
+    nextMessagePathAfterRemoval(readerRoute.value, messageId, messages.value, route.fullPath),
+  );
 }
 
 function senderLabel(message: MailboxMessageSummary): string {
