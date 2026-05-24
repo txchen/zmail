@@ -8,7 +8,7 @@ import {
   createHybridPersistence,
   type MailDatabase,
 } from "./persistence.js";
-import { syncMailboxTrees, type MailAccountSyncState } from "./sync.js";
+import { syncMailboxTrees, syncRecentMessages, type MailAccountSyncState } from "./sync.js";
 
 const sessionCookieName = "zmail_session";
 
@@ -20,6 +20,7 @@ export function createApp(config: AppConfig): Hono {
       ? createFileBackedHybridPersistence(config.storage.databaseDir)
       : createHybridPersistence());
   const mailboxSyncClient = config.mailboxSyncClient;
+  const messageSyncClient = config.messageSyncClient;
   const mailboxActionClient = config.mailboxActionClient;
   const attachmentDownloadClient = config.attachmentDownloadClient;
   const sessionTtlDays = config.appLogin.sessionTtlDays ?? 365;
@@ -188,6 +189,14 @@ export function createApp(config: AppConfig): Hono {
       persistence,
       client: mailboxSyncClient,
     });
+    if (messageSyncClient) {
+      await syncRecentMessages({
+        accounts: [account],
+        persistence,
+        client: messageSyncClient,
+        syncWindowDays: 3650,
+      });
+    }
     saveSyncStates(syncResults);
 
     return c.json(mailboxTreeResponse());

@@ -204,6 +204,70 @@ describe("recent Message sync", () => {
     });
   });
 
+  it("syncs recent Messages during manual Mail account refresh", async () => {
+    const persistence = createHybridPersistence();
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "personal-app-password",
+    };
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: [account],
+      persistence,
+      mailboxSyncClient: {
+        async listVisibleMailboxes() {
+          return [{ id: "inbox", name: "Inbox", unreadCount: 1 }];
+        },
+      },
+      messageSyncClient: {
+        async listRecentMessages(request) {
+          expect(request.account).toBe(account);
+          expect(request.since).toBeInstanceOf(Date);
+          expect(request.since.getUTCFullYear()).toBeLessThanOrEqual(2016);
+
+          return [
+            {
+              id: "message-1",
+              stableIdentity: "gmail:personal:message-1",
+              subject: "Synced during refresh",
+              receivedAt: "2026-05-23T10:00:00.000Z",
+              unread: true,
+              readableBody: "<p>Hello from refresh</p>",
+              attachments: [],
+              mailboxIds: ["inbox"],
+            },
+          ];
+        },
+      },
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+    const cookie = loginResponse.headers.get("set-cookie") ?? "";
+
+    const refreshResponse = await app.request("/api/mail-accounts/personal/refresh", {
+      method: "POST",
+      headers: { cookie },
+    });
+    const listResponse = await app.request("/api/mail-accounts/personal/mailboxes/inbox/messages", {
+      headers: { cookie },
+    });
+
+    expect(refreshResponse.status).toBe(200);
+    expect(await listResponse.json()).toMatchObject({
+      messages: [
+        {
+          id: "message-1",
+          subject: "Synced during refresh",
+          unread: true,
+        },
+      ],
+    });
+  });
+
   it("paginates and filters Messages in a Mailbox by common Message filters", async () => {
     const persistence = createHybridPersistence();
     const account: ConfiguredMailAccount = {

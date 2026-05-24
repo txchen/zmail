@@ -4,7 +4,7 @@ import { dirname, join, parse, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import type { MailboxActionClient } from "./mailbox-actions.js";
 import type { HybridPersistence } from "./persistence.js";
-import type { MailboxSyncClient } from "./sync.js";
+import type { MailboxSyncClient, MessageSyncClient } from "./sync.js";
 
 export type AppLogin = {
   username: string;
@@ -27,6 +27,7 @@ export type AppConfig = {
   mailAccounts: ConfiguredMailAccount[];
   persistence?: HybridPersistence;
   mailboxSyncClient?: MailboxSyncClient;
+  messageSyncClient?: MessageSyncClient;
   mailboxActionClient?: MailboxActionClient;
   attachmentDownloadClient?: AttachmentDownloadClient;
 };
