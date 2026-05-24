@@ -15,7 +15,7 @@ COPY . .
 
 RUN pnpm --filter @zmail/web exec vite build
 RUN pnpm exec tsc -b
-RUN pnpm deploy --filter @zmail/api --prod /runtime
+RUN pnpm deploy --filter @zmail/api --prod --legacy /runtime
 
 FROM node:24-bookworm-slim AS runtime
 
