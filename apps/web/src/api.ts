@@ -1,4 +1,10 @@
-import type { HealthStatus, MailboxTreeResponse, MailAccountsResponse } from "@zmail/shared";
+import type {
+  HealthStatus,
+  MailboxMessagesResponse,
+  MailboxTreeResponse,
+  MailAccountsResponse,
+  MessageResponse,
+} from "@zmail/shared";
 
 export async function fetchHealth(fetcher: typeof fetch = fetch): Promise<HealthStatus> {
   const response = await fetcher("/api/health");
@@ -60,6 +66,36 @@ export async function refreshMailAccount(
 
   if (!response.ok) {
     throw new Error("Refresh failed");
+  }
+
+  return response.json();
+}
+
+export async function fetchMessagesForMailbox(
+  mailAccountId: string,
+  mailboxId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<MailboxMessagesResponse> {
+  const response = await fetcher(
+    `/api/mail-accounts/${mailAccountId}/mailboxes/${mailboxId}/messages`,
+  );
+
+  if (!response.ok) {
+    throw new Error("Messages unavailable");
+  }
+
+  return response.json();
+}
+
+export async function fetchMessage(
+  mailAccountId: string,
+  messageId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<MessageResponse> {
+  const response = await fetcher(`/api/mail-accounts/${mailAccountId}/messages/${messageId}`);
+
+  if (!response.ok) {
+    throw new Error("Message unavailable");
   }
 
   return response.json();

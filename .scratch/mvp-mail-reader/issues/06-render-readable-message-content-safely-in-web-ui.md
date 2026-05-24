@@ -1,6 +1,6 @@
 # Render readable Message content safely in the web UI
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -12,18 +12,18 @@ Complete the core Mail reader UI path from Account mailbox tree to Message list 
 
 ## Acceptance criteria
 
-- [ ] The UI uses a three-column layout: Account mailbox tree, Message list, and Message content.
-- [ ] Selecting a Mailbox loads individual Messages for that Mailbox.
-- [ ] Selecting a Message shows its readable body in the content pane.
-- [ ] HTML Message bodies are sanitized before rendering.
-- [ ] Plain-text fallback is used when HTML is unavailable.
-- [ ] Remote images are blocked by default.
-- [ ] The App user can manually show remote images for a Message.
-- [ ] Attachment metadata is visible when a Message has attachments.
-- [ ] The UI does not expose attachment file downloads in the MVP.
-- [ ] Tests cover sanitizer behavior for unsafe HTML.
-- [ ] Tests cover remote-image blocking.
-- [ ] UI tests cover selecting a Mailbox and Message.
+- [x] The UI uses a three-column layout: Account mailbox tree, Message list, and Message content.
+- [x] Selecting a Mailbox loads individual Messages for that Mailbox.
+- [x] Selecting a Message shows its readable body in the content pane.
+- [x] HTML Message bodies are sanitized before rendering.
+- [x] Plain-text fallback is used when HTML is unavailable.
+- [x] Remote images are blocked by default.
+- [x] The App user can manually show remote images for a Message.
+- [x] Attachment metadata is visible when a Message has attachments.
+- [x] The UI does not expose attachment file downloads in the MVP.
+- [x] Tests cover sanitizer behavior for unsafe HTML.
+- [x] Tests cover remote-image blocking.
+- [x] UI tests cover selecting a Mailbox and Message.
 
 ## Blocked by
 

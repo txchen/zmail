@@ -33,3 +33,39 @@ export type MailAccountMailboxTree = MailAccountSummary & {
 export type MailboxTreeResponse = {
   mailAccounts: MailAccountMailboxTree[];
 };
+
+export type AttachmentMetadata = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+};
+
+export type MailboxMessageSummary = {
+  id: string;
+  stableIdentity: string;
+  subject: string;
+  receivedAt: string;
+  unread: boolean;
+  mailboxEntryId: string;
+  attachments: AttachmentMetadata[];
+};
+
+export type MessageDetail = {
+  id: string;
+  stableIdentity: string;
+  subject: string;
+  receivedAt: string;
+  unread: boolean;
+  readableBody: string;
+  plainTextBody?: string;
+  attachments: AttachmentMetadata[];
+};
+
+export type MailboxMessagesResponse = {
+  messages: MailboxMessageSummary[];
+};
+
+export type MessageResponse = {
+  message: MessageDetail;
+};
