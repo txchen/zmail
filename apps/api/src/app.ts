@@ -92,6 +92,34 @@ export function createApp(config: AppConfig): Hono {
     return c.json(mailboxTreeResponse());
   });
 
+  app.get("/api/mail-accounts/:accountId/mailboxes/:mailboxId/messages", (c) => {
+    if (!isAuthenticated(c.req.header("cookie"))) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    return c.json({
+      messages: persistence
+        .mailDatabaseFor(c.req.param("accountId"))
+        .listMessagesForMailbox(c.req.param("mailboxId")),
+    });
+  });
+
+  app.get("/api/mail-accounts/:accountId/messages/:messageId", (c) => {
+    if (!isAuthenticated(c.req.header("cookie"))) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    const message = persistence
+      .mailDatabaseFor(c.req.param("accountId"))
+      .getMessage(c.req.param("messageId"));
+
+    if (!message) {
+      return c.json({ error: "Message not found" }, 404);
+    }
+
+    return c.json({ message });
+  });
+
   return app;
 }
 

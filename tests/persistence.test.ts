@@ -27,8 +27,11 @@ describe("hybrid SQLite persistence", () => {
       id: "message-1",
       stableIdentity: "gmail:personal:thread-1:message-1",
       subject: "Shared identity",
+      receivedAt: "2026-05-23T10:00:00.000Z",
       unread: true,
       aiProcessed: false,
+      readableBody: "<p>Hello</p>",
+      attachments: [],
     });
     personal.saveMailboxEntry({
       id: "entry-inbox",
@@ -60,8 +63,11 @@ describe("hybrid SQLite persistence", () => {
         id: "message-1",
         stableIdentity: "gmail:personal:thread-1:message-1",
         subject: "Shared identity",
+        receivedAt: "2026-05-23T10:00:00.000Z",
         unread: true,
         aiProcessed: false,
+        readableBody: "<p>Hello</p>",
+        attachments: [],
         mailboxEntries: [
           { id: "entry-inbox", mailboxId: "inbox", mailboxName: "Inbox" },
           { id: "entry-all-mail", mailboxId: "all-mail", mailboxName: "All Mail" },
