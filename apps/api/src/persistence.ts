@@ -653,6 +653,54 @@ export class MailDatabase {
       });
   }
 
+  searchMessages(mailAccountId: string, query: string): MessageSummary[] {
+    const pattern = `%${query.toLowerCase()}%`;
+
+    return this.database
+      .prepare(`
+        SELECT id, stable_identity, thread_id, subject, sender_json, recipients_json, received_at,
+          unread, starred, snippet, updated_at, attachments_json
+        FROM messages
+        WHERE lower(subject) LIKE ? OR lower(readable_body) LIKE ?
+        ORDER BY received_at DESC, id DESC
+      `)
+      .all(pattern, pattern)
+      .map((row) => {
+        const message = row as {
+          id: string;
+          stable_identity: string;
+          thread_id: string | null;
+          subject: string;
+          sender_json: string;
+          recipients_json: string;
+          received_at: string;
+          unread: number;
+          starred: number;
+          snippet: string;
+          updated_at: string;
+          attachments_json: string;
+        };
+        const attachments = JSON.parse(message.attachments_json) as AttachmentMetadata[];
+
+        return {
+          accountId: mailAccountId,
+          id: message.id,
+          stableIdentity: message.stable_identity,
+          ...(message.thread_id ? { threadId: message.thread_id } : {}),
+          subject: message.subject,
+          sender: JSON.parse(message.sender_json) as MessageParticipant,
+          recipients: JSON.parse(message.recipients_json) as MessageParticipant[],
+          receivedAt: message.received_at,
+          unread: Boolean(message.unread),
+          starred: Boolean(message.starred),
+          mailboxIds: this.listMailboxIdsForMessage(message.id),
+          snippet: message.snippet,
+          attachmentCount: attachments.length,
+          updatedAt: message.updated_at || message.received_at,
+        };
+      });
+  }
+
   getMessageByStableIdentity(
     mailAccountId: string,
     stableIdentity: string,

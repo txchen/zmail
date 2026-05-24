@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Add Local read model Search
 
@@ -8,13 +8,13 @@ Add Search over synced Messages in the Local read model for the eventual full Ma
 
 ## Acceptance criteria
 
-- [ ] `GET /api/mail-accounts/:accountId/messages/search?q=...` searches synced Messages for one Mail account.
-- [ ] Search returns the standardized paginated Message list shape.
-- [ ] Search supports common Message filters.
-- [ ] Empty or missing query is rejected with a clear `400` response.
-- [ ] Unknown Mail account IDs return `404`.
-- [ ] Search reads only the Local read model and does not call Gmail.
-- [ ] Tests cover subject/body matches, no matches, filters, pagination, invalid query, and unauthenticated access.
+- [x] `GET /api/mail-accounts/:accountId/messages/search?q=...` searches synced Messages for one Mail account.
+- [x] Search returns the standardized paginated Message list shape.
+- [x] Search supports common Message filters.
+- [x] Empty or missing query is rejected with a clear `400` response.
+- [x] Unknown Mail account IDs return `404`.
+- [x] Search reads only the Local read model and does not call Gmail.
+- [x] Tests cover subject/body matches, no matches, filters, pagination, invalid query, and unauthenticated access.
 
 ## Blocked by
 

@@ -301,6 +301,41 @@ export function createApp(config: AppConfig): Hono {
     );
   });
 
+  app.get("/api/mail-accounts/:accountId/messages/search", (c) => {
+    if (!isAuthenticated(c.req.header("cookie"))) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    const accountId = c.req.param("accountId");
+    if (!config.mailAccounts.some((account) => account.id === accountId)) {
+      return c.json({ error: "Mail account not found" }, 404);
+    }
+
+    const query = c.req.query("q")?.trim();
+    if (!query) {
+      return c.json({ error: "Search query is required" }, 400);
+    }
+
+    const cursor = parseMessageCursor(c.req.query("cursor"));
+    if (cursor === null) {
+      return c.json({ error: "Invalid cursor" }, 400);
+    }
+
+    return c.json(
+      paginateMessageSummaries(persistence.mailDatabaseFor(accountId).searchMessages(accountId, query), {
+        limit: parseLimit(c.req.query("limit")),
+        ...(cursor ? { cursor } : {}),
+        filters: {
+          starred: parseBooleanQuery(c.req.query("starred")),
+          hasAttachments: parseBooleanQuery(c.req.query("hasAttachments")),
+          from: c.req.query("from"),
+          after: c.req.query("after"),
+          before: c.req.query("before"),
+        },
+      }),
+    );
+  });
+
   app.get("/api/mail-accounts/:accountId/messages/:messageId", (c) => {
     if (!isAuthenticated(c.req.header("cookie"))) {
       return c.json({ error: "Authentication required" }, 401);

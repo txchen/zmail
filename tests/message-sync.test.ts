@@ -391,4 +391,101 @@ describe("recent Message sync", () => {
       "message-2",
     ]);
   });
+
+  it("searches one Mail account from the Local read model with pagination and filters", async () => {
+    const persistence = createHybridPersistence();
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "personal-app-password",
+    };
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 1 });
+
+    for (const message of [
+      {
+        id: "message-2",
+        subject: "Quarterly plan",
+        readableBody: "Launch checklist",
+        receivedAt: "2026-05-23T12:00:00.000Z",
+        unread: true,
+        starred: true,
+        sender: { address: "alerts@example.com" },
+      },
+      {
+        id: "message-1",
+        subject: "Status",
+        readableBody: "Quarterly body match",
+        receivedAt: "2026-05-23T11:00:00.000Z",
+        unread: true,
+        starred: false,
+        sender: { address: "friend@example.com" },
+      },
+    ]) {
+      mailDatabase.saveMessage({
+        ...message,
+        stableIdentity: `gmail:personal:${message.id}`,
+        recipients: [],
+        aiProcessed: false,
+        attachments: [],
+      });
+      mailDatabase.saveMailboxEntry({
+        id: `${message.id}:inbox`,
+        mailboxId: "inbox",
+        messageId: message.id,
+      });
+    }
+
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: [account],
+      persistence,
+      mailboxSyncClient: {
+        async listVisibleMailboxes() {
+          throw new Error("Search must not call Gmail");
+        },
+      },
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+    const cookie = loginResponse.headers.get("set-cookie") ?? "";
+
+    expect((await app.request("/api/mail-accounts/personal/messages/search?q=quarterly")).status).toBe(
+      401,
+    );
+    expect(
+      (await app.request("/api/mail-accounts/personal/messages/search", { headers: { cookie } }))
+        .status,
+    ).toBe(400);
+    expect(
+      (await app.request("/api/mail-accounts/unknown/messages/search?q=quarterly", { headers: { cookie } }))
+        .status,
+    ).toBe(404);
+
+    const firstPage = await app.request(
+      "/api/mail-accounts/personal/messages/search?q=quarterly&limit=1",
+      { headers: { cookie } },
+    );
+    const firstPageBody = await firstPage.json();
+    expect(firstPageBody.messages.map((message: { id: string }) => message.id)).toEqual([
+      "message-2",
+    ]);
+    expect(firstPageBody.nextCursor).toEqual(expect.any(String));
+
+    const filtered = await app.request(
+      "/api/mail-accounts/personal/messages/search?q=quarterly&starred=false&from=friend@example.com",
+      { headers: { cookie } },
+    );
+    expect((await filtered.json()).messages.map((message: { id: string }) => message.id)).toEqual([
+      "message-1",
+    ]);
+
+    const noMatches = await app.request("/api/mail-accounts/personal/messages/search?q=missing", {
+      headers: { cookie },
+    });
+    expect(await noMatches.json()).toEqual({ messages: [] });
+  });
 });
