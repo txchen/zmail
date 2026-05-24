@@ -6,6 +6,9 @@ export type StoredMailAccount = {
   id: string;
   emailAddress: string;
   syncStatus: AccountSyncStatus;
+  lastSyncStartedAt?: string;
+  lastSyncFinishedAt?: string;
+  lastError?: string;
 };
 
 export type StoredMailbox = {
@@ -94,7 +97,10 @@ export class AppDatabase {
       CREATE TABLE IF NOT EXISTS mail_accounts (
         id TEXT PRIMARY KEY,
         email_address TEXT NOT NULL,
-        sync_status TEXT NOT NULL
+        sync_status TEXT NOT NULL,
+        last_sync_started_at TEXT,
+        last_sync_finished_at TEXT,
+        last_error TEXT
       )
     `);
   }
@@ -102,19 +108,36 @@ export class AppDatabase {
   saveMailAccount(account: StoredMailAccount): void {
     this.database
       .prepare(`
-        INSERT INTO mail_accounts (id, email_address, sync_status)
-        VALUES (?, ?, ?)
+        INSERT INTO mail_accounts (
+          id,
+          email_address,
+          sync_status,
+          last_sync_started_at,
+          last_sync_finished_at,
+          last_error
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           email_address = excluded.email_address,
-          sync_status = excluded.sync_status
+          sync_status = excluded.sync_status,
+          last_sync_started_at = excluded.last_sync_started_at,
+          last_sync_finished_at = excluded.last_sync_finished_at,
+          last_error = excluded.last_error
       `)
-      .run(account.id, account.emailAddress, account.syncStatus);
+      .run(
+        account.id,
+        account.emailAddress,
+        account.syncStatus,
+        account.lastSyncStartedAt ?? null,
+        account.lastSyncFinishedAt ?? null,
+        account.lastError ?? null,
+      );
   }
 
   listMailAccounts(): StoredMailAccount[] {
     return this.database
       .prepare(`
-        SELECT id, email_address, sync_status
+        SELECT id, email_address, sync_status, last_sync_started_at, last_sync_finished_at, last_error
         FROM mail_accounts
         ORDER BY id
       `)
@@ -124,12 +147,20 @@ export class AppDatabase {
           id: string;
           email_address: string;
           sync_status: AccountSyncStatus;
+          last_sync_started_at: string | null;
+          last_sync_finished_at: string | null;
+          last_error: string | null;
         };
 
         return {
           id: account.id,
           emailAddress: account.email_address,
           syncStatus: account.sync_status,
+          ...(account.last_sync_started_at ? { lastSyncStartedAt: account.last_sync_started_at } : {}),
+          ...(account.last_sync_finished_at
+            ? { lastSyncFinishedAt: account.last_sync_finished_at }
+            : {}),
+          ...(account.last_error ? { lastError: account.last_error } : {}),
         };
       });
   }

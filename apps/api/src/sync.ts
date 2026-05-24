@@ -37,9 +37,12 @@ export async function syncMailboxTrees({
   client,
 }: SyncMailboxTreesOptions): Promise<void> {
   for (const account of accounts) {
+    const lastSyncStartedAt = new Date().toISOString();
+
     try {
       const mailboxes = await client.listVisibleMailboxes(account);
       const mailDatabase = persistence.mailDatabaseFor(account.id);
+      const lastSyncFinishedAt = new Date().toISOString();
 
       for (const mailbox of mailboxes) {
         mailDatabase.saveMailbox(mailbox);
@@ -49,12 +52,17 @@ export async function syncMailboxTrees({
         id: account.id,
         emailAddress: account.emailAddress,
         syncStatus: "synced",
+        lastSyncStartedAt,
+        lastSyncFinishedAt,
       });
-    } catch {
+    } catch (error) {
       persistence.app.saveMailAccount({
         id: account.id,
         emailAddress: account.emailAddress,
         syncStatus: "failing",
+        lastSyncStartedAt,
+        lastSyncFinishedAt: new Date().toISOString(),
+        lastError: error instanceof Error ? error.message : String(error),
       });
     }
   }

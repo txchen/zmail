@@ -113,7 +113,11 @@ export function createApp(config: AppConfig): Hono {
 
   app.get("/ai-api/mail-accounts", (c) =>
     c.json({
-      mailAccounts: persistence.app.listMailAccounts(),
+      mailAccounts: persistence.app.listMailAccounts().map(({ id, emailAddress, syncStatus }) => ({
+        id,
+        emailAddress,
+        syncStatus,
+      })),
     }),
   );
 
@@ -173,6 +177,67 @@ export function createApp(config: AppConfig): Hono {
     });
 
     return c.json(mailboxTreeResponse());
+  });
+
+  app.get("/api/mail-accounts/:accountId/sync-status", (c) => {
+    if (!isAuthenticated(c.req.header("cookie"))) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    const accountId = c.req.param("accountId");
+    const account = config.mailAccounts.find((candidate) => candidate.id === accountId);
+
+    if (!account) {
+      return c.json({ error: "Mail account not found" }, 404);
+    }
+
+    const persistedAccount = persistence.app
+      .listMailAccounts()
+      .find((candidate) => candidate.id === accountId);
+
+    return c.json({
+      accountId,
+      syncStatus: persistedAccount?.syncStatus ?? "stale",
+      ...(persistedAccount?.lastSyncStartedAt
+        ? { lastSyncStartedAt: persistedAccount.lastSyncStartedAt }
+        : {}),
+      ...(persistedAccount?.lastSyncFinishedAt
+        ? { lastSyncFinishedAt: persistedAccount.lastSyncFinishedAt }
+        : {}),
+      ...(persistedAccount?.lastError ? { lastError: persistedAccount.lastError } : {}),
+    });
+  });
+
+  app.post("/api/mail-accounts/:accountId/diagnose", async (c) => {
+    if (!isAuthenticated(c.req.header("cookie"))) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    if (!mailboxSyncClient) {
+      return c.json({ error: "Mailbox sync is not configured" }, 503);
+    }
+
+    const account = config.mailAccounts.find(
+      (candidate) => candidate.id === c.req.param("accountId"),
+    );
+
+    if (!account) {
+      return c.json({ error: "Mail account not found" }, 404);
+    }
+
+    try {
+      const mailboxes = await mailboxSyncClient.listVisibleMailboxes(account);
+
+      return c.json({
+        success: true,
+        visibleMailboxCount: mailboxes.length,
+      });
+    } catch (error) {
+      return c.json({
+        success: false,
+        lastError: error instanceof Error ? error.message : String(error),
+      });
+    }
   });
 
   app.get("/api/mail-accounts/:accountId/mailboxes/:mailboxId/messages", (c) => {

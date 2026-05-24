@@ -47,16 +47,21 @@ describe("mailbox tree sync", () => {
       { emailAddress: "me@example.com", appPassword: "personal-app-password" },
       { emailAddress: "me@work.example", appPassword: "work-app-password" },
     ]);
-    expect(persistence.app.listMailAccounts()).toEqual([
+    expect(persistence.app.listMailAccounts()).toMatchObject([
       {
         id: "personal",
         emailAddress: "me@example.com",
         syncStatus: "synced",
+        lastSyncStartedAt: expect.any(String),
+        lastSyncFinishedAt: expect.any(String),
       },
       {
         id: "work",
         emailAddress: "me@work.example",
         syncStatus: "failing",
+        lastSyncStartedAt: expect.any(String),
+        lastSyncFinishedAt: expect.any(String),
+        lastError: "IMAP login failed",
       },
     ]);
     expect(persistence.mailDatabaseFor("personal").listMailboxes()).toEqual([
@@ -236,6 +241,151 @@ describe("mailbox tree sync", () => {
           mailboxes: [{ id: "inbox", name: "Inbox", unreadCount: 1 }],
         },
       ],
+    });
+  });
+
+  it("exposes authenticated Account sync status and records manual refresh failures", async () => {
+    const persistence = createHybridPersistence();
+    const accounts: ConfiguredMailAccount[] = [
+      {
+        id: "personal",
+        emailAddress: "me@example.com",
+        appPassword: "personal-app-password",
+      },
+    ];
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: accounts,
+      persistence,
+      mailboxSyncClient: {
+        async listVisibleMailboxes() {
+          throw new Error("IMAP login failed");
+        },
+      },
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+    const cookie = loginResponse.headers.get("set-cookie") ?? "";
+
+    const anonymousResponse = await app.request("/api/mail-accounts/personal/sync-status");
+    expect(anonymousResponse.status).toBe(401);
+
+    const refreshResponse = await app.request("/api/mail-accounts/personal/refresh", {
+      method: "POST",
+      headers: { cookie },
+    });
+    expect(refreshResponse.status).toBe(200);
+
+    const statusResponse = await app.request("/api/mail-accounts/personal/sync-status", {
+      headers: { cookie },
+    });
+    expect(statusResponse.status).toBe(200);
+    expect(await statusResponse.json()).toEqual({
+      accountId: "personal",
+      syncStatus: "failing",
+      lastSyncStartedAt: expect.any(String),
+      lastSyncFinishedAt: expect.any(String),
+      lastError: "IMAP login failed",
+    });
+    expect(await (await app.request("/ai-api/mail-accounts")).json()).toEqual({
+      mailAccounts: [
+        {
+          id: "personal",
+          emailAddress: "me@example.com",
+          syncStatus: "failing",
+        },
+      ],
+    });
+
+    const unknownResponse = await app.request("/api/mail-accounts/unknown/sync-status", {
+      headers: { cookie },
+    });
+    expect(unknownResponse.status).toBe(404);
+  });
+
+  it("diagnoses a Mail account without saving Mailboxes", async () => {
+    const persistence = createHybridPersistence();
+    const accounts: ConfiguredMailAccount[] = [
+      {
+        id: "personal",
+        emailAddress: "me@example.com",
+        appPassword: "personal-app-password",
+      },
+    ];
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: accounts,
+      persistence,
+      mailboxSyncClient: {
+        async listVisibleMailboxes() {
+          return [
+            { id: "inbox", name: "Inbox", unreadCount: 1 },
+            { id: "trash", name: "Trash", unreadCount: 0 },
+          ];
+        },
+      },
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+    const cookie = loginResponse.headers.get("set-cookie") ?? "";
+
+    const response = await app.request("/api/mail-accounts/personal/diagnose", {
+      method: "POST",
+      headers: { cookie },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      success: true,
+      visibleMailboxCount: 2,
+    });
+    expect(persistence.mailDatabaseFor("personal").listMailboxes()).toEqual([]);
+  });
+
+  it("returns diagnostic failures without exposing them through AI APIs", async () => {
+    const persistence = createHybridPersistence();
+    const accounts: ConfiguredMailAccount[] = [
+      {
+        id: "personal",
+        emailAddress: "me@example.com",
+        appPassword: "personal-app-password",
+      },
+    ];
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: accounts,
+      persistence,
+      mailboxSyncClient: {
+        async listVisibleMailboxes() {
+          throw new Error("credential rejected");
+        },
+      },
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+    const cookie = loginResponse.headers.get("set-cookie") ?? "";
+
+    const response = await app.request("/api/mail-accounts/personal/diagnose", {
+      method: "POST",
+      headers: { cookie },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      success: false,
+      lastError: "credential rejected",
+    });
+
+    expect(await (await app.request("/ai-api/mail-accounts")).json()).toEqual({
+      mailAccounts: [],
     });
   });
 });
