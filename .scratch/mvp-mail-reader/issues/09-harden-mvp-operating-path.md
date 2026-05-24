@@ -1,6 +1,6 @@
 # Harden the MVP operating path
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -12,15 +12,15 @@ Tighten the end-to-end MVP so Zmail can run predictably in a home-network deploy
 
 ## Acceptance criteria
 
-- [ ] Background polling runs for configured Mail accounts on the configured interval.
-- [ ] Manual refresh and background polling do not create unsafe overlapping sync work for the same Mail account.
-- [ ] Startup clearly reports missing or invalid app configuration.
-- [ ] Startup clearly reports missing or invalid Mail account configuration.
-- [ ] Per-account sync failures remain visible in the UI.
-- [ ] Other Mail accounts remain usable when one Mail account fails.
-- [ ] The documented development command still starts both frontend and backend.
-- [ ] End-to-end checks cover login, account tree loading, Message listing, Message reading, and AI unread access.
-- [ ] Tests or smoke checks cover the main home-network operating path.
+- [x] Background polling runs for configured Mail accounts on the configured interval.
+- [x] Manual refresh and background polling do not create unsafe overlapping sync work for the same Mail account.
+- [x] Startup clearly reports missing or invalid app configuration.
+- [x] Startup clearly reports missing or invalid Mail account configuration.
+- [x] Per-account sync failures remain visible in the UI.
+- [x] Other Mail accounts remain usable when one Mail account fails.
+- [x] The documented development command still starts both frontend and backend.
+- [x] End-to-end checks cover login, account tree loading, Message listing, Message reading, and AI unread access.
+- [x] Tests or smoke checks cover the main home-network operating path.
 
 ## Blocked by
 

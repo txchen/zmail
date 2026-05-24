@@ -2,7 +2,6 @@ import { healthy } from "@zmail/shared";
 import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import type { AppConfig, AppLogin } from "./config.js";
-import { loadConfigFromEnv } from "./config.js";
 import type { MailboxAction } from "./mailbox-actions.js";
 import { createHybridPersistence } from "./persistence.js";
 import { syncMailboxTrees } from "./sync.js";
@@ -217,4 +216,10 @@ export function createApp(config: AppConfig): Hono {
   return app;
 }
 
-export const app = createApp(loadConfigFromEnv());
+export const app = createApp({
+  appLogin: {
+    username: "test",
+    password: "test",
+  },
+  mailAccounts: [],
+});
