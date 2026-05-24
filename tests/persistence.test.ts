@@ -71,6 +71,8 @@ describe("per-account SQLite persistence", () => {
     const reopened = createFileBackedHybridPersistence(databaseDir);
 
     expect(existsSync(join(databaseDir, "app.sqlite"))).toBe(false);
+    expect(existsSync(join(databaseDir, "mail"))).toBe(false);
+    expect(existsSync(join(databaseDir, "personal.sqlite"))).toBe(true);
     expect(reopened.mailDatabaseFor("personal").listMailboxes()).toEqual([
       {
         id: "inbox",
@@ -114,6 +116,8 @@ describe("per-account SQLite persistence", () => {
 
     const reopened = createFileBackedHybridPersistence(databaseDir);
     expect(existsSync(join(databaseDir, "app.sqlite"))).toBe(false);
+    expect(existsSync(join(databaseDir, "mail"))).toBe(false);
+    expect(existsSync(join(databaseDir, "personal.sqlite"))).toBe(true);
     expect(reopened.mailDatabaseFor("personal").listMailboxes()).toEqual([
       {
         id: "inbox",

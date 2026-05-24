@@ -128,11 +128,11 @@ export function createHybridPersistence(): HybridPersistence {
 }
 
 export function createFileBackedHybridPersistence(databaseDir: string): HybridPersistence {
-  mkdirSync(join(databaseDir, "mail"), { recursive: true });
+  mkdirSync(databaseDir, { recursive: true });
 
   return new HybridPersistence({
     mailDatabasePath(mailAccountId) {
-      return join(databaseDir, "mail", `${mailAccountId}.sqlite`);
+      return join(databaseDir, `${mailAccountId}.sqlite`);
     },
   });
 }
