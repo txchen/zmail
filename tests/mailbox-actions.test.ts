@@ -242,7 +242,7 @@ async function createActionFixture(overrides: Partial<MailboxActionClient> = {})
   });
 
   const app = createApp({
-    appLogin: { username: "reader", password: "secret" },
+    appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
     mailAccounts: [account],
     persistence,
     mailboxActionClient: actionClient,

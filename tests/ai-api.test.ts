@@ -108,7 +108,7 @@ function createAiApiFixture() {
 
   return {
     app: createApp({
-      appLogin: { username: "reader", password: "secret" },
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
       mailAccounts: [account],
       persistence,
     }),

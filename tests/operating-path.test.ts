@@ -20,6 +20,7 @@ describe("MVP operating path", () => {
           [app_login]
           username = "reader"
           password = "secret"
+          session_secret = "test-session-secret"
         `),
       ),
     ).toThrow("Invalid App configuration: missing mail_accounts");
@@ -29,6 +30,7 @@ describe("MVP operating path", () => {
           [app_login]
           username = "reader"
           password = "secret"
+          session_secret = "test-session-secret"
 
           [[mail_accounts]]
           id = "Personal"
@@ -43,6 +45,7 @@ describe("MVP operating path", () => {
           [app_login]
           username = "reader"
           password = "secret"
+          session_secret = "test-session-secret"
           password_hint = "local"
 
           [[mail_accounts]]
@@ -126,7 +129,7 @@ describe("MVP operating path", () => {
       messageId: "message-1",
     });
     const app = createApp({
-      appLogin: { username: "reader", password: "secret" },
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
       mailAccounts: [account],
       persistence,
     });

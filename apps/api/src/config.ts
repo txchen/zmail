@@ -9,6 +9,8 @@ import type { MailboxSyncClient } from "./sync.js";
 export type AppLogin = {
   username: string;
   password: string;
+  sessionSecret: string;
+  sessionTtlDays?: number;
 };
 
 export type ConfiguredMailAccount = MailAccountSummary & {
@@ -70,10 +72,29 @@ function parseConfigFile(value: unknown): AppConfig {
     throw new Error("Invalid App configuration: missing app_login table");
   }
 
-  assertKnownKeys(value.app_login, "app_login", ["username", "password"]);
+  assertKnownKeys(value.app_login, "app_login", [
+    "username",
+    "password",
+    "session_secret",
+    "session_ttl_days",
+  ]);
 
   const username = requireString(value.app_login.username, "app_login.username");
   const password = requireString(value.app_login.password, "app_login.password");
+  const sessionSecret = requireString(
+    value.app_login.session_secret,
+    "app_login.session_secret",
+  );
+  const sessionTtlDays = optionalIntegerInRange(
+    value.app_login.session_ttl_days,
+    "app_login.session_ttl_days",
+    1,
+    3650,
+  );
+
+  if (sessionSecret.length < 16) {
+    throw new Error("Invalid app_login.session_secret: minimum length 16");
+  }
 
   if (!("mail_accounts" in value)) {
     throw new Error("Invalid App configuration: missing mail_accounts");
@@ -87,6 +108,8 @@ function parseConfigFile(value: unknown): AppConfig {
     appLogin: {
       username,
       password,
+      sessionSecret,
+      sessionTtlDays: sessionTtlDays ?? 365,
     },
     mailAccounts: value.mail_accounts.map(parseMailAccount),
   };
@@ -120,7 +143,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function requireString(value: unknown, path: string): string {
   if (typeof value !== "string" || !value) {
+    if (value === undefined) {
+      throw new Error(`Invalid App configuration: missing ${path}`);
+    }
+
     throw new Error(`Invalid ${path}: expected non-empty string`);
+  }
+
+  return value;
+}
+
+function optionalIntegerInRange(
+  value: unknown,
+  path: string,
+  min: number,
+  max: number,
+): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`Invalid ${path}: expected integer in range ${min}..${max}`);
   }
 
   return value;

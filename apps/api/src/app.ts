@@ -1,6 +1,6 @@
 import { healthy } from "@zmail/shared";
 import { Hono } from "hono";
-import { randomUUID } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { AppConfig, AppLogin } from "./config.js";
 import type { MailboxAction } from "./mailbox-actions.js";
 import { createHybridPersistence } from "./persistence.js";
@@ -10,13 +10,27 @@ const sessionCookieName = "zmail_session";
 
 export function createApp(config: AppConfig): Hono {
   const app = new Hono();
-  const sessionToken = randomUUID();
   const persistence = config.persistence ?? createHybridPersistence();
   const mailboxSyncClient = config.mailboxSyncClient;
   const mailboxActionClient = config.mailboxActionClient;
+  const sessionTtlDays = config.appLogin.sessionTtlDays ?? 365;
+
+  function sessionFromCookie(cookie: string | undefined): AppSession | undefined {
+    const token = cookie
+      ?.split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(`${sessionCookieName}=`))
+      ?.slice(sessionCookieName.length + 1);
+
+    if (!token) {
+      return undefined;
+    }
+
+    return verifySessionToken(token, config.appLogin.sessionSecret);
+  }
 
   function isAuthenticated(cookie: string | undefined): boolean {
-    return cookie?.includes(`${sessionCookieName}=${sessionToken}`) ?? false;
+    return sessionFromCookie(cookie) !== undefined;
   }
 
   function mailboxTreeResponse() {
@@ -50,7 +64,36 @@ export function createApp(config: AppConfig): Hono {
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
+    const expiresAt = new Date(Date.now() + sessionTtlDays * 24 * 60 * 60 * 1000).toISOString();
+    const sessionToken = signSessionToken(
+      {
+        username: config.appLogin.username,
+        expiresAt,
+      },
+      config.appLogin.sessionSecret,
+    );
+
     c.header("set-cookie", `${sessionCookieName}=${sessionToken}; HttpOnly; SameSite=Lax; Path=/`);
+
+    return c.body(null, 204);
+  });
+
+  app.get("/api/session", (c) => {
+    const session = sessionFromCookie(c.req.header("cookie"));
+
+    if (!session) {
+      return c.json({ authenticated: false });
+    }
+
+    return c.json({
+      authenticated: true,
+      username: session.username,
+      expiresAt: session.expiresAt,
+    });
+  });
+
+  app.post("/api/logout", (c) => {
+    c.header("set-cookie", `${sessionCookieName}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
 
     return c.body(null, 204);
   });
@@ -227,6 +270,69 @@ export const app = createApp({
   appLogin: {
     username: "test",
     password: "test",
+    sessionSecret: "test-session-secret",
   },
   mailAccounts: [],
 });
+
+type AppSession = {
+  username: string;
+  expiresAt: string;
+};
+
+function signSessionToken(session: AppSession, secret: string): string {
+  const encodedHeader = base64UrlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const encodedPayload = base64UrlEncode(JSON.stringify(session));
+  const unsignedToken = `${encodedHeader}.${encodedPayload}`;
+  const signature = sign(unsignedToken, secret);
+
+  return `${unsignedToken}.${signature}`;
+}
+
+function verifySessionToken(token: string, secret: string): AppSession | undefined {
+  const [encodedHeader, encodedPayload, signature, extra] = token.split(".");
+
+  if (!encodedHeader || !encodedPayload || !signature || extra !== undefined) {
+    return undefined;
+  }
+
+  if (!safeEqual(signature, sign(`${encodedHeader}.${encodedPayload}`, secret))) {
+    return undefined;
+  }
+
+  let parsed: Partial<AppSession>;
+
+  try {
+    parsed = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as Partial<AppSession>;
+  } catch {
+    return undefined;
+  }
+
+  if (typeof parsed.username !== "string" || typeof parsed.expiresAt !== "string") {
+    return undefined;
+  }
+
+  if (Date.parse(parsed.expiresAt) <= Date.now()) {
+    return undefined;
+  }
+
+  return {
+    username: parsed.username,
+    expiresAt: parsed.expiresAt,
+  };
+}
+
+function sign(value: string, secret: string): string {
+  return createHmac("sha256", secret).update(value).digest("base64url");
+}
+
+function base64UrlEncode(value: string): string {
+  return Buffer.from(value, "utf8").toString("base64url");
+}
+
+function safeEqual(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}

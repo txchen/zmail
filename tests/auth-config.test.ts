@@ -12,6 +12,7 @@ describe("App login and configured Mail accounts", () => {
       appLogin: {
         username: "reader",
         password: "secret",
+        sessionSecret: "test-session-secret",
       },
       mailAccounts: [
         {
@@ -48,6 +49,32 @@ describe("App login and configured Mail accounts", () => {
         },
       ],
     });
+
+    const restartedApp = createApp({
+      appLogin: {
+        username: "reader",
+        password: "secret",
+        sessionSecret: "test-session-secret",
+      },
+      mailAccounts: [
+        {
+          id: "personal",
+          emailAddress: "me@example.com",
+          appPassword: "gmail-app-password",
+        },
+      ],
+    });
+
+    const restartedSessionResponse = await restartedApp.request("/api/session", {
+      headers: { cookie: cookie ?? "" },
+    });
+
+    expect(restartedSessionResponse.status).toBe(200);
+    expect(await restartedSessionResponse.json()).toEqual({
+      authenticated: true,
+      username: "reader",
+      expiresAt: expect.any(String),
+    });
   });
 
   it("loads App login and multiple Configured Mail accounts from a TOML file", () => {
@@ -56,6 +83,7 @@ describe("App login and configured Mail accounts", () => {
         [app_login]
         username = "reader"
         password = "secret"
+        session_secret = "test-session-secret"
 
         [[mail_accounts]]
         id = "personal"
@@ -73,6 +101,8 @@ describe("App login and configured Mail accounts", () => {
       appLogin: {
         username: "reader",
         password: "secret",
+        sessionSecret: "test-session-secret",
+        sessionTtlDays: 365,
       },
       mailAccounts: [
         {
@@ -96,12 +126,15 @@ describe("App login and configured Mail accounts", () => {
       [app_login]
       username = "reader"
       password = "secret"
+      session_secret = "test-session-secret"
     `);
 
     expect(loadConfig({ ZMAIL_CONFIG_PATH: path })).toEqual({
       appLogin: {
         username: "reader",
         password: "secret",
+        sessionSecret: "test-session-secret",
+        sessionTtlDays: 365,
       },
       mailAccounts: [],
     });
@@ -119,6 +152,7 @@ describe("App login and configured Mail accounts", () => {
         [app_login]
         username = "reader"
         password = "secret"
+        session_secret = "test-session-secret"
       `),
     );
 
@@ -130,6 +164,8 @@ describe("App login and configured Mail accounts", () => {
       appLogin: {
         username: "reader",
         password: "secret",
+        sessionSecret: "test-session-secret",
+        sessionTtlDays: 365,
       },
       mailAccounts: [],
     });
@@ -149,6 +185,7 @@ describe("App login and configured Mail accounts", () => {
       appLogin: {
         username: "reader",
         password: "secret",
+        sessionSecret: "test-session-secret",
       },
       mailAccounts: [],
     });
@@ -158,6 +195,124 @@ describe("App login and configured Mail accounts", () => {
     });
 
     expect(response.status).toBe(401);
+  });
+
+  it("reports anonymous sessions and clears App session cookies on logout", async () => {
+    const app = createApp({
+      appLogin: {
+        username: "reader",
+        password: "secret",
+        sessionSecret: "test-session-secret",
+      },
+      mailAccounts: [],
+    });
+
+    const anonymousSessionResponse = await app.request("/api/session");
+    expect(await anonymousSessionResponse.json()).toEqual({ authenticated: false });
+
+    const logoutResponse = await app.request("/api/logout", { method: "POST" });
+    expect(logoutResponse.status).toBe(204);
+    expect(logoutResponse.headers.get("set-cookie")).toContain("zmail_session=");
+    expect(logoutResponse.headers.get("set-cookie")).toContain("Max-Age=0");
+  });
+
+  it("rejects sessions signed with an old secret or an invalid signature", async () => {
+    const app = createApp({
+      appLogin: {
+        username: "reader",
+        password: "secret",
+        sessionSecret: "original-session-secret",
+      },
+      mailAccounts: [],
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+    const cookie = loginResponse.headers.get("set-cookie") ?? "";
+
+    const rotatedApp = createApp({
+      appLogin: {
+        username: "reader",
+        password: "secret",
+        sessionSecret: "rotated-session-secret",
+      },
+      mailAccounts: [],
+    });
+    const rotatedSessionResponse = await rotatedApp.request("/api/session", {
+      headers: { cookie },
+    });
+    expect(await rotatedSessionResponse.json()).toEqual({ authenticated: false });
+
+    const invalidSignatureResponse = await app.request("/api/session", {
+      headers: { cookie: cookie.replace(/\.[^.;]+/, ".invalid-signature") },
+    });
+    expect(await invalidSignatureResponse.json()).toEqual({ authenticated: false });
+  });
+
+  it("rejects expired App sessions", async () => {
+    const app = createApp({
+      appLogin: {
+        username: "reader",
+        password: "secret",
+        sessionSecret: "test-session-secret",
+        sessionTtlDays: -1,
+      },
+      mailAccounts: [],
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const sessionResponse = await app.request("/api/session", {
+      headers: { cookie: loginResponse.headers.get("set-cookie") ?? "" },
+    });
+
+    expect(await sessionResponse.json()).toEqual({ authenticated: false });
+  });
+
+  it("validates App session configuration", () => {
+    expect(() =>
+      loadConfigFromFile(
+        writeConfig(`
+          mail_accounts = []
+
+          [app_login]
+          username = "reader"
+          password = "secret"
+        `),
+      ),
+    ).toThrow("missing app_login.session_secret");
+
+    expect(() =>
+      loadConfigFromFile(
+        writeConfig(`
+          mail_accounts = []
+
+          [app_login]
+          username = "reader"
+          password = "secret"
+          session_secret = "too-short"
+        `),
+      ),
+    ).toThrow("minimum length 16");
+
+    expect(() =>
+      loadConfigFromFile(
+        writeConfig(`
+          mail_accounts = []
+
+          [app_login]
+          username = "reader"
+          password = "secret"
+          session_secret = "test-session-secret"
+          session_ttl_days = 3651
+        `),
+      ),
+    ).toThrow("expected integer in range 1..3650");
   });
 
   it("lets the web app login and fetch protected Mail account summaries", async () => {

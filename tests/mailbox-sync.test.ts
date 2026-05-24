@@ -92,7 +92,7 @@ describe("mailbox tree sync", () => {
     });
 
     const app = createApp({
-      appLogin: { username: "reader", password: "secret" },
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
       mailAccounts: accounts,
       persistence,
     });
@@ -153,7 +153,7 @@ describe("mailbox tree sync", () => {
       },
     ];
     const app = createApp({
-      appLogin: { username: "reader", password: "secret" },
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
       mailAccounts: accounts,
       persistence,
     });
@@ -193,7 +193,7 @@ describe("mailbox tree sync", () => {
     ];
     let unreadCount = 1;
     const app = createApp({
-      appLogin: { username: "reader", password: "secret" },
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
       mailAccounts: accounts,
       persistence,
       mailboxSyncClient: {

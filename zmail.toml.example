@@ -6,6 +6,9 @@
 [app_login]
 username = "reader"
 password = "change-me"
+session_secret = "replace-with-at-least-16-random-characters"
+# Optional, defaults to 365. Valid range: 1..3650.
+# session_ttl_days = 365
 
 [[mail_accounts]]
 id = "personal"
