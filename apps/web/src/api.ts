@@ -95,7 +95,9 @@ export async function fetchMessagesForMailbox(
   fetcher: typeof fetch = fetch,
 ): Promise<MailboxMessagesResponse> {
   const response = await fetcher(
-    `/api/mail-accounts/${mailAccountId}/mailboxes/${mailboxId}/messages`,
+    `/api/mail-accounts/${encodeURIComponent(mailAccountId)}/mailboxes/${encodeURIComponent(
+      mailboxId,
+    )}/messages`,
   );
 
   if (!response.ok) {

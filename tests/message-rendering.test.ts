@@ -106,4 +106,19 @@ describe("readable Message rendering", () => {
       "/api/mail-accounts/personal/messages/message-1",
     ]);
   });
+
+  it("encodes Mailbox IDs with slashes when fetching Message lists", async () => {
+    const requests: string[] = [];
+    const fetcher = async (path: string | URL | Request): Promise<Response> => {
+      requests.push(String(path));
+
+      return Response.json({ messages: [] });
+    };
+
+    await fetchMessagesForMailbox("personal", "INBOX/06蓓雯", fetcher);
+
+    expect(requests).toEqual([
+      "/api/mail-accounts/personal/mailboxes/INBOX%2F06%E8%93%93%E9%9B%AF/messages",
+    ]);
+  });
 });

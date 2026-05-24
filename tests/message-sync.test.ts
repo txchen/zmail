@@ -279,6 +279,60 @@ describe("recent Message sync", () => {
     });
   });
 
+  it("exposes Messages for a Mailbox ID containing slashes", async () => {
+    const persistence = createHybridPersistence();
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "personal-app-password",
+    };
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    mailDatabase.saveMailbox({ id: "INBOX/06蓓雯", name: "INBOX/06蓓雯", unreadCount: 1 });
+    mailDatabase.saveMessage({
+      id: "message-1",
+      stableIdentity: "gmail:personal:message-1",
+      subject: "Nested label Message",
+      receivedAt: "2026-05-23T10:00:00.000Z",
+      unread: true,
+      starred: false,
+      aiProcessed: false,
+      readableBody: "<p>Hello</p>",
+      attachments: [],
+    });
+    mailDatabase.saveMailboxEntry({
+      id: "message-1:INBOX/06蓓雯",
+      mailboxId: "INBOX/06蓓雯",
+      messageId: "message-1",
+    });
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: [account],
+      persistence,
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await app.request(
+      "/api/mail-accounts/personal/mailboxes/INBOX%2F06%E8%93%93%E9%9B%AF/messages",
+      {
+        headers: { cookie: loginResponse.headers.get("set-cookie") ?? "" },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      messages: [
+        {
+          id: "message-1",
+          mailboxIds: ["INBOX/06蓓雯"],
+        },
+      ],
+    });
+  });
+
   it("syncs recent Messages during manual Mail account refresh", async () => {
     const persistence = createHybridPersistence();
     const account: ConfiguredMailAccount = {
