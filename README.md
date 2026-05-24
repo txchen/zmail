@@ -1,5 +1,7 @@
 # Zmail
 
+[![Docker image](https://img.shields.io/badge/ghcr.io-txchen%2Fzmail-blue?logo=github)](https://github.com/txchen/zmail/pkgs/container/zmail)
+
 ## Development
 
 Install dependencies once:
@@ -32,3 +34,22 @@ vp test
 vp check
 vp run typecheck
 ```
+
+## Docker
+
+GitHub Actions publishes a single-container image to GitHub Container Registry on pushes to
+`master` and version tags.
+
+The container serves both the web UI and API on port `3001`. Provide runtime config and data through
+mounts:
+
+```sh
+docker run --name zmail \
+  -p 3001:3001 \
+  -v /srv/zmail/config:/config:ro \
+  -v /srv/zmail/data:/data \
+  ghcr.io/OWNER/REPO:latest
+```
+
+Set `[storage] database_dir = "/data"` in `/srv/zmail/config/zmail.toml`. The image defaults to
+`ZMAIL_CONFIG_PATH=/config/zmail.toml`.

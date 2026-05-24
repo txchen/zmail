@@ -4,6 +4,7 @@
 # Keep mail_accounts at the top level, before [app_login].
 
 [storage]
+# Use "/data" when running the published Docker image with a mounted data volume.
 database_dir = ".data"
 
 [sync]

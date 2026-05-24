@@ -1,0 +1,11 @@
+.data
+.git
+.github
+.scratch
+apps/*/dist
+apps/*/node_modules
+node_modules
+packages/*/dist
+packages/*/node_modules
+*.sqlite
+zmail.toml

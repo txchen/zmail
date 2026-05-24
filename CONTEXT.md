@@ -104,6 +104,18 @@ _Avoid_: Mail account session, Gmail session
 Server-side settings that declare the **App login**, **Configured Mail accounts**, and operator-controlled sync settings for one Zmail installation. **App configuration** is controlled by the operator, not edited by the **App user** in the UI.
 _Avoid_: User settings, account settings, preferences
 
+**Zmail container image**:
+An immutable deployable package for running one Zmail installation on a server. A **Zmail container image** does not contain **App configuration**, **Mail account credentials**, or **Local read model** database files.
+_Avoid_: Backup, configured instance
+
+**Container config mount**:
+The operator-provided file mount that supplies **App configuration** to a **Zmail container image** at runtime.
+_Avoid_: Baked config, image settings
+
+**Container data volume**:
+The operator-provided persistent storage mounted into a **Zmail container image** for the **Local read model**.
+_Avoid_: Image storage, bundled database
+
 **Mail account credential**:
 The Gmail app password Zmail uses server-side to sync a **Mail account**. **Mail account credentials** are never exposed to the browser.
 _Avoid_: App login, OAuth token
