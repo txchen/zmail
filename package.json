@@ -7,7 +7,7 @@
   ],
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n api,web -c cyan,green \"vp run --filter @zmail/api dev\" \"vp dev apps/web --host 0.0.0.0\"",
+    "dev": "concurrently -n api,web -c cyan,green \"vp run --filter @zmail/api dev\" \"vp run --filter @zmail/web dev\"",
     "test": "vp test",
     "typecheck": "tsc -b",
     "check": "vp check"
