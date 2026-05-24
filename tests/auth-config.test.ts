@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../apps/api/src/app";
 import { loadConfig, loadConfigFromFile, resolveConfigPath } from "../apps/api/src/config";
-import { fetchMailAccounts, login } from "../apps/web/src/api";
+import { fetchMailAccounts, fetchSession, login, logout } from "../apps/web/src/api";
 
 describe("App login and configured Mail accounts", () => {
   it("protects configured Mail account summaries behind App login without exposing credentials", async () => {
@@ -358,6 +358,50 @@ describe("App login and configured Mail accounts", () => {
         init: undefined,
       },
     ]);
+  });
+
+  it("lets the web app check and end an App session", async () => {
+    const requests: Array<{ path: string | URL | Request; init: RequestInit | undefined }> = [];
+    const fetcher = async (path: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      requests.push({ path, init });
+
+      if (path === "/api/session") {
+        return Response.json({
+          authenticated: true,
+          username: "reader",
+          expiresAt: "2026-05-24T12:00:00.000Z",
+        });
+      }
+
+      return new Response(null, { status: 204 });
+    };
+
+    await expect(fetchSession(fetcher)).resolves.toEqual({
+      authenticated: true,
+      username: "reader",
+      expiresAt: "2026-05-24T12:00:00.000Z",
+    });
+    await expect(logout(fetcher)).resolves.toBeUndefined();
+
+    expect(requests).toEqual([
+      {
+        path: "/api/session",
+        init: undefined,
+      },
+      {
+        path: "/api/logout",
+        init: { method: "POST" },
+      },
+    ]);
+  });
+
+  it("surfaces failed App login to the web app", async () => {
+    const fetcher = async (): Promise<Response> =>
+      Response.json({ error: "Invalid credentials" }, { status: 401 });
+
+    await expect(login({ username: "reader", password: "wrong" }, fetcher)).rejects.toThrow(
+      "Login failed",
+    );
   });
 });
 

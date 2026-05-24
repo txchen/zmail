@@ -25,6 +25,7 @@ import {
 } from "./api";
 import { renderReadableMessage } from "./message-rendering";
 import {
+  defaultReaderPath,
   mailboxPath,
   messagePath,
   parseReaderRoute,
@@ -44,11 +45,14 @@ const diagnosticsAccountId = ref("");
 const mobilePane = ref<"nav" | "list" | "message">("nav");
 const lastListRouteByAccount = ref(new Map<string, string>());
 const searchDraft = ref("");
+const loggedOut = ref(false);
 
 const healthQuery = useQuery({ queryKey: ["health"], queryFn: () => fetchHealth() });
 const sessionQuery = useQuery({ queryKey: ["session"], queryFn: () => fetchSession() });
 
-const authenticated = computed(() => sessionQuery.data.value?.authenticated === true);
+const authenticated = computed(
+  () => !loggedOut.value && sessionQuery.data.value?.authenticated === true,
+);
 
 const mailboxTreeQuery = useQuery({
   queryKey: ["mailbox-tree"],
@@ -129,6 +133,7 @@ const loginMutation = useMutation({
   mutationFn: () => login({ username: username.value, password: password.value }),
   onSuccess: async () => {
     loginError.value = "";
+    loggedOut.value = false;
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["session"] }),
       queryClient.invalidateQueries({ queryKey: ["mailbox-tree"] }),
@@ -142,7 +147,9 @@ const loginMutation = useMutation({
 const logoutMutation = useMutation({
   mutationFn: () => logout(),
   onSuccess: async () => {
-    await queryClient.clear();
+    loggedOut.value = true;
+    queryClient.clear();
+    queryClient.setQueryData(["session"], { authenticated: false });
     await router.push("/");
   },
 });
@@ -182,7 +189,10 @@ watch(
       return;
     }
 
-    await router.replace(unreadPath(mailAccounts.value[0].id));
+    const path = defaultReaderPath(mailAccounts.value);
+    if (path) {
+      await router.replace(path);
+    }
   },
 );
 

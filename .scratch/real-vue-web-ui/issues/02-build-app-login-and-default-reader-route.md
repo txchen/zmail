@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Build App login and Default reader route
 
@@ -12,13 +12,13 @@ Create the authenticated entry flow for the real Mail reader. The App user can l
 
 ## Acceptance criteria
 
-- [ ] The App user can submit App login credentials from the web UI.
-- [ ] Failed login displays a clear failure state.
-- [ ] Authenticated session state is checked on page load.
-- [ ] Logout ends the App session and returns to the login screen.
-- [ ] After successful App login, the app routes to the first configured Mail account's Account unread view.
-- [ ] The Default reader view does not route to a global inbox or cross-account unread view.
-- [ ] Browser refresh preserves the authenticated reader route when the App session is valid.
+- [x] The App user can submit App login credentials from the web UI.
+- [x] Failed login displays a clear failure state.
+- [x] Authenticated session state is checked on page load.
+- [x] Logout ends the App session and returns to the login screen.
+- [x] After successful App login, the app routes to the first configured Mail account's Account unread view.
+- [x] The Default reader view does not route to a global inbox or cross-account unread view.
+- [x] Browser refresh preserves the authenticated reader route when the App session is valid.
 
 ## Blocked by
 

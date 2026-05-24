@@ -43,6 +43,10 @@ export function unreadPath(accountId: string): string {
   return `/accounts/${encodeURIComponent(accountId)}/unread`;
 }
 
+export function defaultReaderPath(mailAccounts: { id: string }[]): string | undefined {
+  return mailAccounts[0] ? unreadPath(mailAccounts[0].id) : undefined;
+}
+
 export function mailboxPath(accountId: string, mailboxId: string): string {
   return `/accounts/${encodeURIComponent(accountId)}/mailboxes/${encodeURIComponent(mailboxId)}`;
 }

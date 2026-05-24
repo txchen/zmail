@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  defaultReaderPath,
   mailboxPath,
   messagePath,
   parseReaderRoute,
@@ -44,5 +45,18 @@ describe("reader routes", () => {
       accountId: "personal",
       mailboxId: "[Gmail]/Trash",
     });
+  });
+
+  it("builds the Default reader view from the first configured Mail account", () => {
+    expect(
+      defaultReaderPath([
+        { id: "personal", emailAddress: "me@example.com" },
+        { id: "work", emailAddress: "work@example.com" },
+      ]),
+    ).toBe("/accounts/personal/unread");
+  });
+
+  it("has no Default reader view when there are no Mail accounts", () => {
+    expect(defaultReaderPath([])).toBeUndefined();
   });
 });
