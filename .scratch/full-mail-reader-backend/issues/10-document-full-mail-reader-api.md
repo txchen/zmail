@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Document full Mail reader API
 
@@ -8,13 +8,13 @@ Create a durable backend API reference for the full Mail reader API so future UI
 
 ## Acceptance criteria
 
-- [ ] API documentation lives at `docs/api.md` unless a better existing docs location is discovered.
-- [ ] Auth/session endpoints are documented, including JWT cookie behavior, session TTL, logout, and restart survival.
-- [ ] Mail account, sync status, diagnostics, mailbox tree, message list, unread, search, attachment, and Mailbox action endpoints are documented.
-- [ ] AI API endpoints are documented separately from authenticated UI APIs.
-- [ ] Request params, request bodies, response shapes, status codes, auth requirements, pagination, filters, and error behavior are listed.
-- [ ] Documentation explicitly calls out unsupported areas: Composition actions, label management, cross-account unread, saved views, and first-class Thread APIs.
-- [ ] Tests or checks ensure documented shared response type names match exported shared API types where practical.
+- [x] API documentation lives at `docs/api.md` unless a better existing docs location is discovered.
+- [x] Auth/session endpoints are documented, including JWT cookie behavior, session TTL, logout, and restart survival.
+- [x] Mail account, sync status, diagnostics, mailbox tree, message list, unread, search, attachment, and Mailbox action endpoints are documented.
+- [x] AI API endpoints are documented separately from authenticated UI APIs.
+- [x] Request params, request bodies, response shapes, status codes, auth requirements, pagination, filters, and error behavior are listed.
+- [x] Documentation explicitly calls out unsupported areas: Composition actions, label management, cross-account unread, saved views, and first-class Thread APIs.
+- [x] Tests or checks ensure documented shared response type names match exported shared API types where practical.
 
 ## Blocked by
 
