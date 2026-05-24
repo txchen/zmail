@@ -80,7 +80,7 @@ export function createGmailImapMailboxSyncClient(
         await client.logout();
       }
     },
-    async listRecentMessages({ account }) {
+    async listRecentMessages({ account, mailboxes: requestedMailboxes }) {
       const client = new ImapFlowClient({
         host: "imap.gmail.com",
         port: 993,
@@ -98,11 +98,18 @@ export function createGmailImapMailboxSyncClient(
         const mailboxes = await client.list({ statusQuery: { unseen: true } });
         const messagesByIdentity = new Map<string, ImapMessage>();
 
-        for (const mailbox of mailboxes.filter((candidate) => candidate.path === "INBOX")) {
+        for (const mailbox of mailboxes.filter(
+          (candidate) =>
+            requestedMailboxes.some((requestedMailbox) => requestedMailbox.id === candidate.path) &&
+            candidate.path === "INBOX",
+        )) {
           if (isNonSelectableMailbox(mailbox)) {
             continue;
           }
 
+          const requestedMailbox = requestedMailboxes.find(
+            (candidate) => candidate.id === mailbox.path,
+          );
           const openedMailbox = await client.mailboxOpen(mailbox.path);
           const messageCount = openedMailbox.exists ?? 0;
 
@@ -110,9 +117,12 @@ export function createGmailImapMailboxSyncClient(
             continue;
           }
 
-          const startSequence = Math.max(1, messageCount - 9);
+          const range =
+            requestedMailbox?.afterUid !== undefined
+              ? `${requestedMailbox.afterUid + 1}:*`
+              : `${Math.max(1, messageCount - 9)}:*`;
           for await (const message of client.fetch(
-            `${startSequence}:*`,
+            range,
             {
               uid: true,
               flags: true,

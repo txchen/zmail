@@ -58,6 +58,30 @@ describe("per-account SQLite persistence", () => {
     expect(work.listMessagesWithMailboxEntries()).toEqual([]);
   });
 
+  it("stores per-Mailbox sync checkpoints and keeps the highest UID", () => {
+    const persistence = createHybridPersistence();
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+
+    expect(mailDatabase.getMailboxSyncState("inbox")).toBeUndefined();
+
+    mailDatabase.saveMailboxSyncState({
+      mailboxId: "inbox",
+      highestUid: 42,
+      lastSyncedAt: "2026-05-24T10:00:00.000Z",
+    });
+    mailDatabase.saveMailboxSyncState({
+      mailboxId: "inbox",
+      highestUid: 40,
+      lastSyncedAt: "2026-05-24T11:00:00.000Z",
+    });
+
+    expect(mailDatabase.getMailboxSyncState("inbox")).toEqual({
+      mailboxId: "inbox",
+      highestUid: 42,
+      lastSyncedAt: "2026-05-24T11:00:00.000Z",
+    });
+  });
+
   it("persists per-account mail data to SQLite files without app.sqlite", () => {
     const databaseDir = mkdtempSync(join(tmpdir(), "zmail-db-"));
     const persistence = createFileBackedHybridPersistence(databaseDir);

@@ -7,7 +7,8 @@
 database_dir = ".data"
 
 [sync]
-# Optional, defaults to 90. Valid range: 1..3650.
+# Optional initial backfill window for a Mailbox with no sync checkpoint.
+# Refreshes after that are incremental. Defaults to 90. Valid range: 1..3650.
 recent_message_window_days = 90
 
 [app_login]

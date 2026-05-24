@@ -18,6 +18,7 @@ export type MailboxSyncClient = {
 export type ImapMessage = {
   id: string;
   stableIdentity: string;
+  uid?: number;
   threadId?: string;
   subject: string;
   sender?: {
@@ -42,7 +43,11 @@ export type ImapMessage = {
 export type MessageSyncClient = {
   listRecentMessages(request: {
     account: ConfiguredMailAccount;
-    since: Date;
+    mailboxes: Array<{
+      id: string;
+      since?: Date;
+      afterUid?: number;
+    }>;
   }): Promise<ImapMessage[]>;
 };
 
@@ -144,11 +149,36 @@ export async function syncRecentMessages({
   since.setUTCDate(since.getUTCDate() - syncWindowDays);
 
   for (const account of accounts) {
-    const messages = await client.listRecentMessages({ account, since });
     const mailDatabase = persistence.mailDatabaseFor(account.id);
+    const mailboxes = mailDatabase
+      .listMailboxes()
+      .filter((mailbox) => mailbox.selectable !== false)
+      .map((mailbox) => {
+        const syncState = mailDatabase.getMailboxSyncState(mailbox.id);
+
+        return {
+          id: mailbox.id,
+          ...(syncState ? { afterUid: syncState.highestUid } : { since }),
+        };
+      });
+    const messages = await client.listRecentMessages({ account, mailboxes });
 
     for (const message of messages) {
-      if (new Date(message.receivedAt) < since) {
+      if (
+        message.mailboxIds.some(
+          (mailboxId) => !mailboxes.some((mailbox) => mailbox.id === mailboxId),
+        )
+      ) {
+        continue;
+      }
+
+      if (
+        message.mailboxIds.some((mailboxId) => {
+          const mailbox = mailboxes.find((candidate) => candidate.id === mailboxId);
+
+          return mailbox && "since" in mailbox && new Date(message.receivedAt) < mailbox.since;
+        })
+      ) {
         continue;
       }
 
@@ -182,6 +212,14 @@ export async function syncRecentMessages({
           mailboxId,
           messageId: message.id,
         });
+
+        if (message.uid !== undefined) {
+          mailDatabase.saveMailboxSyncState({
+            mailboxId,
+            highestUid: message.uid,
+            lastSyncedAt: now.toISOString(),
+          });
+        }
       }
     }
   }

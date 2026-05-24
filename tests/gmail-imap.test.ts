@@ -95,7 +95,7 @@ describe("Gmail IMAP mailbox sync client", () => {
           emailAddress: "me@example.com",
           appPassword: "gmail-app-password",
         },
-        since: new Date("2026-05-01T00:00:00.000Z"),
+        mailboxes: [{ id: "INBOX", since: new Date("2026-05-01T00:00:00.000Z") }],
       }),
     ).resolves.toEqual([
       {
@@ -129,5 +129,40 @@ describe("Gmail IMAP mailbox sync client", () => {
       { uid: true },
     );
     expect(logout).toHaveBeenCalledOnce();
+  });
+
+  it("fetches Gmail Messages after a saved Mailbox UID checkpoint", async () => {
+    const imapFlow = vi.fn(function () {
+      return { connect, list, mailboxOpen, fetch, logout };
+    });
+    connect.mockResolvedValue(undefined);
+    list.mockResolvedValue([{ path: "INBOX", status: { unseen: 1 } }]);
+    mailboxOpen.mockResolvedValue({ exists: 42 });
+    fetch.mockImplementation(async function* () {});
+    logout.mockResolvedValue(undefined);
+
+    const client = createGmailImapMailboxSyncClient(imapFlow);
+
+    await client.listRecentMessages({
+      account: {
+        id: "personal",
+        emailAddress: "me@example.com",
+        appPassword: "gmail-app-password",
+      },
+      mailboxes: [{ id: "INBOX", afterUid: 42 }],
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "43:*",
+      {
+        uid: true,
+        flags: true,
+        envelope: true,
+        internalDate: true,
+        source: { maxLength: 16384 },
+        threadId: true,
+      },
+      { uid: true },
+    );
   });
 });

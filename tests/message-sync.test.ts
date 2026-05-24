@@ -22,12 +22,16 @@ describe("recent Message sync", () => {
     const client: MessageSyncClient = {
       async listRecentMessages(request) {
         expect(request.account.appPassword).toBe("personal-app-password");
-        expect(request.since).toEqual(new Date("2026-02-23T12:00:00.000Z"));
+        expect(request.mailboxes).toEqual([
+          { id: "all-mail", since: new Date("2026-02-23T12:00:00.000Z") },
+          { id: "inbox", since: new Date("2026-02-23T12:00:00.000Z") },
+        ]);
 
         return [
           {
             id: "message-1",
             stableIdentity: "gmail:personal:message-1",
+            uid: 42,
             subject: "Recent readable Message",
             receivedAt: "2026-05-23T10:00:00.000Z",
             unread: true,
@@ -91,6 +95,76 @@ describe("recent Message sync", () => {
         ],
       },
     ]);
+    expect(mailDatabase.getMailboxSyncState("inbox")).toEqual({
+      mailboxId: "inbox",
+      highestUid: 42,
+      lastSyncedAt: "2026-05-24T12:00:00.000Z",
+    });
+    expect(mailDatabase.getMailboxSyncState("all-mail")).toEqual({
+      mailboxId: "all-mail",
+      highestUid: 42,
+      lastSyncedAt: "2026-05-24T12:00:00.000Z",
+    });
+  });
+
+  it("uses saved Mailbox checkpoints for incremental Message sync", async () => {
+    const persistence = createHybridPersistence();
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "personal-app-password",
+    };
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    const requests: unknown[] = [];
+    const client: MessageSyncClient = {
+      async listRecentMessages(request) {
+        requests.push(request);
+
+        return [
+          {
+            id: `message-${requests.length}`,
+            stableIdentity: `gmail:personal:message-${requests.length}`,
+            uid: requests.length === 1 ? 10 : 11,
+            subject: "Incremental Message",
+            receivedAt: "2026-05-23T10:00:00.000Z",
+            unread: true,
+            readableBody: "<p>Hello</p>",
+            attachments: [],
+            mailboxIds: ["inbox"],
+          },
+        ];
+      },
+    };
+    mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 1 });
+
+    await syncRecentMessages({
+      accounts: [account],
+      persistence,
+      client,
+      now: new Date("2026-05-24T12:00:00.000Z"),
+    });
+    await syncRecentMessages({
+      accounts: [account],
+      persistence,
+      client,
+      now: new Date("2026-05-24T12:05:00.000Z"),
+    });
+
+    expect(requests).toEqual([
+      {
+        account,
+        mailboxes: [{ id: "inbox", since: new Date("2026-02-23T12:00:00.000Z") }],
+      },
+      {
+        account,
+        mailboxes: [{ id: "inbox", afterUid: 10 }],
+      },
+    ]);
+    expect(mailDatabase.getMailboxSyncState("inbox")).toEqual({
+      mailboxId: "inbox",
+      highestUid: 11,
+      lastSyncedAt: "2026-05-24T12:05:00.000Z",
+    });
   });
 
   it("exposes Messages for a selected Mailbox and returns metadata with readable body", async () => {
@@ -224,13 +298,18 @@ describe("recent Message sync", () => {
       messageSyncClient: {
         async listRecentMessages(request) {
           expect(request.account).toBe(account);
-          expect(request.since).toBeInstanceOf(Date);
-          expect(request.since.getTime()).toBeGreaterThan(new Date("2026-01-01").getTime());
+          expect(request.mailboxes).toHaveLength(1);
+          expect(request.mailboxes[0]?.id).toBe("inbox");
+          expect(request.mailboxes[0]?.since).toBeInstanceOf(Date);
+          expect(request.mailboxes[0]?.since?.getTime()).toBeGreaterThan(
+            new Date("2026-01-01").getTime(),
+          );
 
           return [
             {
               id: "message-1",
               stableIdentity: "gmail:personal:message-1",
+              uid: 42,
               subject: "Synced during refresh",
               receivedAt: "2026-05-23T10:00:00.000Z",
               unread: true,

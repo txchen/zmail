@@ -62,6 +62,12 @@ export type StoredMailboxEntry = {
   messageId: string;
 };
 
+export type MailboxSyncState = {
+  mailboxId: string;
+  highestUid: number;
+  lastSyncedAt: string;
+};
+
 type MessageWithMailboxEntries = StoredMessage & {
   mailboxEntries: Array<{
     id: string;
@@ -201,6 +207,12 @@ export class MailDatabase {
         message_id TEXT NOT NULL REFERENCES messages(id),
         UNIQUE(mailbox_id, message_id)
       );
+
+      CREATE TABLE IF NOT EXISTS mailbox_sync_states (
+        mailbox_id TEXT PRIMARY KEY,
+        highest_uid INTEGER NOT NULL,
+        last_synced_at TEXT NOT NULL
+      );
     `);
   }
 
@@ -339,6 +351,50 @@ export class MailDatabase {
           message_id = excluded.message_id
       `)
       .run(entry.id, entry.mailboxId, entry.messageId);
+  }
+
+  saveMailboxSyncState(state: MailboxSyncState): void {
+    const existing = this.getMailboxSyncState(state.mailboxId);
+
+    this.database
+      .prepare(`
+        INSERT INTO mailbox_sync_states (mailbox_id, highest_uid, last_synced_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(mailbox_id) DO UPDATE SET
+          highest_uid = excluded.highest_uid,
+          last_synced_at = excluded.last_synced_at
+      `)
+      .run(
+        state.mailboxId,
+        Math.max(existing?.highestUid ?? 0, state.highestUid),
+        state.lastSyncedAt,
+      );
+  }
+
+  getMailboxSyncState(mailboxId: string): MailboxSyncState | undefined {
+    const row = this.database
+      .prepare(`
+        SELECT mailbox_id, highest_uid, last_synced_at
+        FROM mailbox_sync_states
+        WHERE mailbox_id = ?
+      `)
+      .get(mailboxId) as
+      | {
+          mailbox_id: string;
+          highest_uid: number;
+          last_synced_at: string;
+        }
+      | undefined;
+
+    if (!row) {
+      return undefined;
+    }
+
+    return {
+      mailboxId: row.mailbox_id,
+      highestUid: row.highest_uid,
+      lastSyncedAt: row.last_synced_at,
+    };
   }
 
   removeMailboxEntry(messageId: string, mailboxId: string): void {
