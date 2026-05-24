@@ -245,10 +245,26 @@ export function createApp(config: AppConfig): Hono {
       return c.json({ error: "Authentication required" }, 401);
     }
 
+    const cursor = parseMessageCursor(c.req.query("cursor"));
+    if (cursor === null) {
+      return c.json({ error: "Invalid cursor" }, 400);
+    }
+
     return c.json({
-      messages: persistence
+      ...persistence
         .mailDatabaseFor(c.req.param("accountId"))
-        .listMessagesForMailbox(c.req.param("accountId"), c.req.param("mailboxId")),
+        .listMessagesForMailbox(c.req.param("accountId"), c.req.param("mailboxId"), {
+          limit: parseLimit(c.req.query("limit")),
+          ...(cursor ? { cursor } : {}),
+          filters: {
+            unread: parseBooleanQuery(c.req.query("unread")),
+            starred: parseBooleanQuery(c.req.query("starred")),
+            hasAttachments: parseBooleanQuery(c.req.query("hasAttachments")),
+            from: c.req.query("from"),
+            after: c.req.query("after"),
+            before: c.req.query("before"),
+          },
+        }),
     });
   });
 
@@ -400,4 +416,56 @@ function safeEqual(left: string, right: string): boolean {
   const rightBuffer = Buffer.from(right);
 
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function parseLimit(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return undefined;
+  }
+
+  return Math.min(parsed, 200);
+}
+
+function parseBooleanQuery(value: string | undefined): boolean | undefined {
+  if (value === "true") {
+    return true;
+  }
+
+  if (value === "false") {
+    return false;
+  }
+
+  return undefined;
+}
+
+function parseMessageCursor(
+  value: string | undefined,
+): { receivedAt: string; id: string } | undefined | null {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<{
+      receivedAt: string;
+      id: string;
+    }>;
+
+    if (typeof parsed.receivedAt !== "string" || typeof parsed.id !== "string") {
+      return null;
+    }
+
+    return {
+      receivedAt: parsed.receivedAt,
+      id: parsed.id,
+    };
+  } catch {
+    return null;
+  }
 }

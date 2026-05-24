@@ -203,4 +203,102 @@ describe("recent Message sync", () => {
       },
     });
   });
+
+  it("paginates and filters Messages in a Mailbox by common Message filters", async () => {
+    const persistence = createHybridPersistence();
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "personal-app-password",
+    };
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 2 });
+
+    for (const message of [
+      {
+        id: "message-3",
+        receivedAt: "2026-05-23T12:00:00.000Z",
+        unread: true,
+        starred: true,
+        sender: { address: "alerts@example.com" },
+        attachments: [{ id: "a1", filename: "a.pdf", mimeType: "application/pdf", sizeBytes: 1 }],
+      },
+      {
+        id: "message-2",
+        receivedAt: "2026-05-23T11:00:00.000Z",
+        unread: false,
+        starred: true,
+        sender: { address: "friend@example.com" },
+        attachments: [],
+      },
+      {
+        id: "message-1",
+        receivedAt: "2026-05-22T10:00:00.000Z",
+        unread: true,
+        starred: false,
+        sender: { address: "alerts@example.com" },
+        attachments: [],
+      },
+    ]) {
+      mailDatabase.saveMessage({
+        ...message,
+        stableIdentity: `gmail:personal:${message.id}`,
+        subject: message.id,
+        recipients: [],
+        aiProcessed: false,
+        readableBody: "",
+      });
+      mailDatabase.saveMailboxEntry({
+        id: `${message.id}:inbox`,
+        mailboxId: "inbox",
+        messageId: message.id,
+      });
+    }
+
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: [account],
+      persistence,
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+    const cookie = loginResponse.headers.get("set-cookie") ?? "";
+
+    const firstPage = await app.request(
+      "/api/mail-accounts/personal/mailboxes/inbox/messages?limit=2",
+      { headers: { cookie } },
+    );
+    expect(firstPage.status).toBe(200);
+    const firstPageBody = await firstPage.json();
+    expect(firstPageBody.messages.map((message: { id: string }) => message.id)).toEqual([
+      "message-3",
+      "message-2",
+    ]);
+    expect(firstPageBody.nextCursor).toEqual(expect.any(String));
+
+    const secondPage = await app.request(
+      `/api/mail-accounts/personal/mailboxes/inbox/messages?cursor=${encodeURIComponent(firstPageBody.nextCursor)}`,
+      { headers: { cookie } },
+    );
+    expect((await secondPage.json()).messages.map((message: { id: string }) => message.id)).toEqual([
+      "message-1",
+    ]);
+
+    const filtered = await app.request(
+      "/api/mail-accounts/personal/mailboxes/inbox/messages?unread=true&starred=true&hasAttachments=true&from=alerts@example.com&after=2026-05-23T00:00:00.000Z&before=2026-05-24T00:00:00.000Z",
+      { headers: { cookie } },
+    );
+    expect((await filtered.json()).messages.map((message: { id: string }) => message.id)).toEqual([
+      "message-3",
+    ]);
+
+    const invalidCursor = await app.request(
+      "/api/mail-accounts/personal/mailboxes/inbox/messages?cursor=not-a-cursor",
+      { headers: { cookie } },
+    );
+    expect(invalidCursor.status).toBe(400);
+  });
 });

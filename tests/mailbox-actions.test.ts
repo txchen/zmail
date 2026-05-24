@@ -81,7 +81,7 @@ describe("MVP Mailbox actions", () => {
     expect(persistence.mailDatabaseFor("personal").getMessage("message-1")).toMatchObject({
       id: "message-1",
     });
-    expect(persistence.mailDatabaseFor("personal").listMessagesForMailbox("inbox")).toEqual([]);
+    expect(persistence.mailDatabaseFor("personal").listMessagesForMailbox("inbox").messages).toEqual([]);
   });
 
   it("deletes by moving the Message to Trash without permanently deleting it", async () => {
@@ -98,7 +98,7 @@ describe("MVP Mailbox actions", () => {
     expect(persistence.mailDatabaseFor("personal").getMessage("message-1")).toMatchObject({
       id: "message-1",
     });
-    expect(persistence.mailDatabaseFor("personal").listMessagesForMailbox("trash")).toEqual([
+    expect(persistence.mailDatabaseFor("personal").listMessagesForMailbox("trash").messages).toEqual([
       expect.objectContaining({
         id: "message-1",
         mailboxIds: ["trash"],

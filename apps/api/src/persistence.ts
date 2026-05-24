@@ -96,6 +96,29 @@ export type MessageSummary = {
 
 export type MailboxMessageSummary = MessageSummary;
 
+export type MessageListOptions = {
+  limit?: number;
+  cursor?: {
+    receivedAt: string;
+    id: string;
+  };
+  filters?: MessageFilters;
+};
+
+export type MessageFilters = {
+  unread?: boolean;
+  starred?: boolean;
+  hasAttachments?: boolean;
+  from?: string;
+  after?: string;
+  before?: string;
+};
+
+export type MessageListPage = {
+  messages: MailboxMessageSummary[];
+  nextCursor?: string;
+};
+
 export type MessageDetail = MessageSummary & {
   readableBody: string;
   plainTextBody?: string;
@@ -450,11 +473,16 @@ export class MailDatabase {
     }));
   }
 
-  listMessagesForMailbox(accountId: string, mailboxId?: string): MailboxMessageSummary[] {
+  listMessagesForMailbox(
+    accountId: string,
+    mailboxId?: string,
+    options: MessageListOptions = {},
+  ): MessageListPage {
     const resolvedAccountId = mailboxId === undefined ? "" : accountId;
     const resolvedMailboxId = mailboxId ?? accountId;
+    const limit = Math.min(options.limit ?? 50, 200);
 
-    return this.database
+    const messages = this.database
       .prepare(`
         SELECT messages.id, messages.stable_identity, messages.thread_id, messages.subject,
           messages.sender_json, messages.recipients_json, messages.received_at,
@@ -463,7 +491,7 @@ export class MailDatabase {
         FROM mailbox_entries
         JOIN messages ON messages.id = mailbox_entries.message_id
         WHERE mailbox_entries.mailbox_id = ?
-        ORDER BY messages.received_at DESC, messages.id
+        ORDER BY messages.received_at DESC, messages.id DESC
       `)
       .all(resolvedMailboxId)
       .map((row) => {
@@ -499,7 +527,25 @@ export class MailDatabase {
           attachmentCount: attachments.length,
           updatedAt: message.updated_at || message.received_at,
         };
-      });
+      })
+      .filter((message) => matchesMessageFilters(message, options.filters))
+      .filter(
+        (message) =>
+          !options.cursor ||
+          message.receivedAt < options.cursor.receivedAt ||
+          (message.receivedAt === options.cursor.receivedAt && message.id < options.cursor.id),
+      );
+
+    const pageMessages = messages.slice(0, limit);
+    const hasNextPage = messages.length > limit;
+    const lastMessage = pageMessages.at(-1);
+
+    return {
+      messages: pageMessages,
+      ...(hasNextPage && lastMessage
+        ? { nextCursor: encodeMessageCursor(lastMessage.receivedAt, lastMessage.id) }
+        : {}),
+    };
   }
 
   getMessage(accountId: string, messageId?: string): MessageDetail | null {
@@ -678,4 +724,36 @@ export class MailDatabase {
       .all(messageId)
       .map((row) => (row as { mailbox_id: string }).mailbox_id);
   }
+}
+
+function matchesMessageFilters(message: MessageSummary, filters: MessageFilters = {}): boolean {
+  if (filters.unread !== undefined && message.unread !== filters.unread) {
+    return false;
+  }
+
+  if (filters.starred !== undefined && message.starred !== filters.starred) {
+    return false;
+  }
+
+  if (filters.hasAttachments !== undefined && (message.attachmentCount > 0) !== filters.hasAttachments) {
+    return false;
+  }
+
+  if (filters.from && message.sender.address.toLowerCase() !== filters.from.toLowerCase()) {
+    return false;
+  }
+
+  if (filters.after && message.receivedAt <= filters.after) {
+    return false;
+  }
+
+  if (filters.before && message.receivedAt >= filters.before) {
+    return false;
+  }
+
+  return true;
+}
+
+function encodeMessageCursor(receivedAt: string, id: string): string {
+  return Buffer.from(JSON.stringify({ receivedAt, id }), "utf8").toString("base64url");
 }
