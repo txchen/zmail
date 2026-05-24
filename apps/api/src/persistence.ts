@@ -14,8 +14,23 @@ export type StoredMailAccount = {
 export type StoredMailbox = {
   id: string;
   name: string;
+  path?: string;
+  parentId?: string;
+  systemRole?: SystemMailboxRole;
   unreadCount: number;
+  totalCount?: number;
+  selectable?: boolean;
 };
+
+export type SystemMailboxRole =
+  | "inbox"
+  | "sent"
+  | "drafts"
+  | "spam"
+  | "trash"
+  | "allMail"
+  | "archive"
+  | "flagged";
 
 export type StoredMessage = {
   id: string;
@@ -172,7 +187,12 @@ export class MailDatabase {
       CREATE TABLE IF NOT EXISTS mailboxes (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
-        unread_count INTEGER NOT NULL
+        path TEXT NOT NULL,
+        parent_id TEXT,
+        system_role TEXT,
+        unread_count INTEGER NOT NULL,
+        total_count INTEGER NOT NULL,
+        selectable INTEGER NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS messages (
@@ -219,19 +239,33 @@ export class MailDatabase {
   saveMailbox(mailbox: StoredMailbox): void {
     this.database
       .prepare(`
-        INSERT INTO mailboxes (id, name, unread_count)
-        VALUES (?, ?, ?)
+        INSERT INTO mailboxes (id, name, path, parent_id, system_role, unread_count, total_count, selectable)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
-          unread_count = excluded.unread_count
+          path = excluded.path,
+          parent_id = excluded.parent_id,
+          system_role = excluded.system_role,
+          unread_count = excluded.unread_count,
+          total_count = excluded.total_count,
+          selectable = excluded.selectable
       `)
-      .run(mailbox.id, mailbox.name, mailbox.unreadCount);
+      .run(
+        mailbox.id,
+        mailbox.name,
+        mailbox.path ?? mailbox.name,
+        mailbox.parentId ?? null,
+        mailbox.systemRole ?? null,
+        mailbox.unreadCount,
+        mailbox.totalCount ?? mailbox.unreadCount,
+        mailbox.selectable === false ? 0 : 1,
+      );
   }
 
   listMailboxes(): StoredMailbox[] {
     return this.database
       .prepare(`
-        SELECT id, name, unread_count
+        SELECT id, name, path, parent_id, system_role, unread_count, total_count, selectable
         FROM mailboxes
         ORDER BY id
       `)
@@ -240,13 +274,23 @@ export class MailDatabase {
         const mailbox = row as {
           id: string;
           name: string;
+          path: string;
+          parent_id: string | null;
+          system_role: SystemMailboxRole | null;
           unread_count: number;
+          total_count: number;
+          selectable: number;
         };
 
         return {
           id: mailbox.id,
           name: mailbox.name,
+          path: mailbox.path,
+          ...(mailbox.parent_id ? { parentId: mailbox.parent_id } : {}),
+          ...(mailbox.system_role ? { systemRole: mailbox.system_role } : {}),
           unreadCount: mailbox.unread_count,
+          totalCount: mailbox.total_count,
+          selectable: mailbox.selectable === 1,
         };
       });
   }

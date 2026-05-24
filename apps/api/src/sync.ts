@@ -1,7 +1,14 @@
 import type { ConfiguredMailAccount } from "./config.js";
-import type { AttachmentMetadata, HybridPersistence, StoredMailbox } from "./persistence.js";
+import type {
+  AttachmentMetadata,
+  HybridPersistence,
+  StoredMailbox,
+  SystemMailboxRole,
+} from "./persistence.js";
 
-export type ImapMailbox = StoredMailbox;
+export type ImapMailbox = Omit<StoredMailbox, "systemRole"> & {
+  specialUse?: string;
+};
 
 export type MailboxSyncClient = {
   listVisibleMailboxes(account: ConfiguredMailAccount): Promise<ImapMailbox[]>;
@@ -45,7 +52,10 @@ export async function syncMailboxTrees({
       const lastSyncFinishedAt = new Date().toISOString();
 
       for (const mailbox of mailboxes) {
-        mailDatabase.saveMailbox(mailbox);
+        mailDatabase.saveMailbox({
+          ...mailbox,
+          systemRole: normalizeSystemMailboxRole(mailbox.specialUse),
+        });
       }
 
       persistence.app.saveMailAccount({
@@ -65,6 +75,29 @@ export async function syncMailboxTrees({
         lastError: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+}
+
+function normalizeSystemMailboxRole(specialUse: string | undefined): SystemMailboxRole | undefined {
+  switch (specialUse?.toLowerCase()) {
+    case "\\inbox":
+      return "inbox";
+    case "\\sent":
+      return "sent";
+    case "\\drafts":
+      return "drafts";
+    case "\\junk":
+      return "spam";
+    case "\\trash":
+      return "trash";
+    case "\\all":
+      return "allMail";
+    case "\\archive":
+      return "archive";
+    case "\\flagged":
+      return "flagged";
+    default:
+      return undefined;
   }
 }
 

@@ -20,8 +20,23 @@ export type MailAccountsResponse = {
 export type MailboxSummary = {
   id: string;
   name: string;
+  path: string;
+  parentId?: string;
+  systemRole?: SystemMailboxRole;
   unreadCount: number;
+  totalCount: number;
+  selectable: boolean;
 };
+
+export type SystemMailboxRole =
+  | "inbox"
+  | "sent"
+  | "drafts"
+  | "spam"
+  | "trash"
+  | "allMail"
+  | "archive"
+  | "flagged";
 
 export type MailAccountMailboxTree = MailAccountSummary & {
   syncStatus: "synced" | "syncing" | "stale" | "failing";

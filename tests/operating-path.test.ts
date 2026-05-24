@@ -149,7 +149,16 @@ describe("MVP operating path", () => {
           emailAddress: "me@example.com",
           syncStatus: "synced",
           unreadCount: 1,
-          mailboxes: [{ id: "inbox", name: "Inbox", unreadCount: 1 }],
+          mailboxes: [
+            {
+              id: "inbox",
+              name: "Inbox",
+              path: "Inbox",
+              unreadCount: 1,
+              totalCount: 1,
+              selectable: true,
+            },
+          ],
         },
       ],
     });

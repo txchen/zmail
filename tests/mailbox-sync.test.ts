@@ -65,9 +65,30 @@ describe("mailbox tree sync", () => {
       },
     ]);
     expect(persistence.mailDatabaseFor("personal").listMailboxes()).toEqual([
-      { id: "inbox", name: "Inbox", unreadCount: 3 },
-      { id: "spam", name: "[Gmail]/Spam", unreadCount: 1 },
-      { id: "trash", name: "[Gmail]/Trash", unreadCount: 0 },
+      {
+        id: "inbox",
+        name: "Inbox",
+        path: "Inbox",
+        unreadCount: 3,
+        totalCount: 3,
+        selectable: true,
+      },
+      {
+        id: "spam",
+        name: "[Gmail]/Spam",
+        path: "[Gmail]/Spam",
+        unreadCount: 1,
+        totalCount: 1,
+        selectable: true,
+      },
+      {
+        id: "trash",
+        name: "[Gmail]/Trash",
+        path: "[Gmail]/Trash",
+        unreadCount: 0,
+        totalCount: 0,
+        selectable: true,
+      },
     ]);
     expect(persistence.mailDatabaseFor("work").listMailboxes()).toEqual([]);
   });
@@ -88,9 +109,30 @@ describe("mailbox tree sync", () => {
       client: {
         async listVisibleMailboxes() {
           return [
-            { id: "inbox", name: "Inbox", unreadCount: 3 },
-            { id: "spam", name: "[Gmail]/Spam", unreadCount: 1 },
-            { id: "trash", name: "[Gmail]/Trash", unreadCount: 0 },
+            {
+              id: "inbox",
+              name: "Inbox",
+              path: "Inbox",
+              unreadCount: 3,
+              totalCount: 3,
+              selectable: true,
+            },
+            {
+              id: "spam",
+              name: "[Gmail]/Spam",
+              path: "[Gmail]/Spam",
+              unreadCount: 1,
+              totalCount: 1,
+              selectable: true,
+            },
+            {
+              id: "trash",
+              name: "[Gmail]/Trash",
+              path: "[Gmail]/Trash",
+              unreadCount: 0,
+              totalCount: 0,
+              selectable: true,
+            },
           ];
         },
       },
@@ -121,9 +163,30 @@ describe("mailbox tree sync", () => {
           syncStatus: "synced",
           unreadCount: 4,
           mailboxes: [
-            { id: "inbox", name: "Inbox", unreadCount: 3 },
-            { id: "spam", name: "[Gmail]/Spam", unreadCount: 1 },
-            { id: "trash", name: "[Gmail]/Trash", unreadCount: 0 },
+            {
+              id: "inbox",
+              name: "Inbox",
+              path: "Inbox",
+              unreadCount: 3,
+              totalCount: 3,
+              selectable: true,
+            },
+            {
+              id: "spam",
+              name: "[Gmail]/Spam",
+              path: "[Gmail]/Spam",
+              unreadCount: 1,
+              totalCount: 1,
+              selectable: true,
+            },
+            {
+              id: "trash",
+              name: "[Gmail]/Trash",
+              path: "[Gmail]/Trash",
+              unreadCount: 0,
+              totalCount: 0,
+              selectable: true,
+            },
           ],
         },
       ],
@@ -139,9 +202,131 @@ describe("mailbox tree sync", () => {
           syncStatus: "synced",
           unreadCount: 4,
           mailboxes: [
-            { id: "inbox", name: "Inbox", unreadCount: 3 },
-            { id: "spam", name: "[Gmail]/Spam", unreadCount: 1 },
-            { id: "trash", name: "[Gmail]/Trash", unreadCount: 0 },
+            {
+              id: "inbox",
+              name: "Inbox",
+              path: "Inbox",
+              unreadCount: 3,
+              totalCount: 3,
+              selectable: true,
+            },
+            {
+              id: "spam",
+              name: "[Gmail]/Spam",
+              path: "[Gmail]/Spam",
+              unreadCount: 1,
+              totalCount: 1,
+              selectable: true,
+            },
+            {
+              id: "trash",
+              name: "[Gmail]/Trash",
+              path: "[Gmail]/Trash",
+              unreadCount: 0,
+              totalCount: 0,
+              selectable: true,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("syncs flat Mailbox metadata with system roles, hierarchy, counts, and selectable state", async () => {
+    const persistence = createHybridPersistence();
+    const accounts: ConfiguredMailAccount[] = [
+      {
+        id: "personal",
+        emailAddress: "me@example.com",
+        appPassword: "personal-app-password",
+      },
+    ];
+
+    await syncMailboxTrees({
+      accounts,
+      persistence,
+      client: {
+        async listVisibleMailboxes() {
+          return [
+            {
+              id: "inbox",
+              name: "Inbox",
+              path: "Inbox",
+              specialUse: "\\Inbox",
+              unreadCount: 3,
+              totalCount: 10,
+              selectable: true,
+            },
+            {
+              id: "projects",
+              name: "Projects",
+              path: "Projects",
+              unreadCount: 1,
+              totalCount: 4,
+              selectable: false,
+            },
+            {
+              id: "projects-zmail",
+              name: "Zmail",
+              path: "Projects/Zmail",
+              parentId: "projects",
+              unreadCount: 1,
+              totalCount: 2,
+              selectable: true,
+            },
+          ];
+        },
+      },
+    });
+
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: accounts,
+      persistence,
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+    const cookie = loginResponse.headers.get("set-cookie") ?? "";
+
+    const response = await app.request("/api/mailbox-tree", {
+      headers: { cookie },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      mailAccounts: [
+        {
+          id: "personal",
+          mailboxes: [
+            {
+              id: "inbox",
+              name: "Inbox",
+              path: "Inbox",
+              systemRole: "inbox",
+              unreadCount: 3,
+              totalCount: 10,
+              selectable: true,
+            },
+            {
+              id: "projects",
+              name: "Projects",
+              path: "Projects",
+              unreadCount: 1,
+              totalCount: 4,
+              selectable: false,
+            },
+            {
+              id: "projects-zmail",
+              name: "Zmail",
+              path: "Projects/Zmail",
+              parentId: "projects",
+              unreadCount: 1,
+              totalCount: 2,
+              selectable: true,
+            },
           ],
         },
       ],
@@ -225,7 +410,16 @@ describe("mailbox tree sync", () => {
           emailAddress: "me@example.com",
           syncStatus: "synced",
           unreadCount: 1,
-          mailboxes: [{ id: "inbox", name: "Inbox", unreadCount: 1 }],
+          mailboxes: [
+            {
+              id: "inbox",
+              name: "Inbox",
+              path: "Inbox",
+              unreadCount: 1,
+              totalCount: 1,
+              selectable: true,
+            },
+          ],
         },
       ],
     });
@@ -238,7 +432,16 @@ describe("mailbox tree sync", () => {
           emailAddress: "me@example.com",
           syncStatus: "synced",
           unreadCount: 1,
-          mailboxes: [{ id: "inbox", name: "Inbox", unreadCount: 1 }],
+          mailboxes: [
+            {
+              id: "inbox",
+              name: "Inbox",
+              path: "Inbox",
+              unreadCount: 1,
+              totalCount: 1,
+              selectable: true,
+            },
+          ],
         },
       ],
     });
