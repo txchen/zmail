@@ -17,10 +17,23 @@ export type MailboxSyncClient = {
 export type ImapMessage = {
   id: string;
   stableIdentity: string;
+  threadId?: string;
   subject: string;
+  sender?: {
+    address: string;
+    displayName?: string;
+  };
+  recipients?: Array<{
+    address: string;
+    displayName?: string;
+  }>;
   receivedAt: string;
   unread: boolean;
+  snippet?: string;
   readableBody: string;
+  plainTextBody?: string;
+  blockedRemoteImageCount?: number;
+  updatedAt?: string;
   attachments: Array<AttachmentMetadata & { bytes?: unknown }>;
   mailboxIds: string[];
 };
@@ -131,12 +144,19 @@ export async function syncRecentMessages({
       mailDatabase.saveMessage({
         id: message.id,
         stableIdentity: message.stableIdentity,
+        threadId: message.threadId,
         subject: message.subject,
+        sender: message.sender,
+        recipients: message.recipients,
         receivedAt: message.receivedAt,
         unread: message.unread,
         starred: false,
         aiProcessed: false,
+        snippet: message.snippet,
         readableBody: message.readableBody,
+        plainTextBody: message.plainTextBody,
+        blockedRemoteImageCount: message.blockedRemoteImageCount,
+        updatedAt: message.updatedAt,
         attachments: message.attachments.map(({ id, filename, mimeType, sizeBytes }) => ({
           id,
           filename,

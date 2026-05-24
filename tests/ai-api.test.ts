@@ -24,14 +24,19 @@ describe("read-only AI API", () => {
     expect(await unreadResponse.json()).toEqual({
       messages: [
         {
-          mailAccountId: "personal",
+          accountId: "personal",
           id: "message-1",
           stableIdentity: "gmail:personal:message-1",
           subject: "Unread Message",
+          sender: { address: "" },
+          recipients: [],
           receivedAt: "2026-05-23T10:00:00.000Z",
           unread: true,
           starred: false,
-          attachments: [],
+          mailboxIds: [],
+          snippet: "",
+          attachmentCount: 0,
+          updatedAt: "2026-05-23T10:00:00.000Z",
         },
       ],
     });
@@ -40,14 +45,21 @@ describe("read-only AI API", () => {
     expect(messageResponse.status).toBe(200);
     expect(await messageResponse.json()).toEqual({
       message: {
-        mailAccountId: "personal",
+        accountId: "personal",
         id: "message-1",
         stableIdentity: "gmail:personal:message-1",
         subject: "Unread Message",
+        sender: { address: "" },
+        recipients: [],
         receivedAt: "2026-05-23T10:00:00.000Z",
         unread: true,
         starred: false,
+        mailboxIds: [],
+        snippet: "",
+        attachmentCount: 0,
+        updatedAt: "2026-05-23T10:00:00.000Z",
         readableBody: "<p>Hello AI reader</p>",
+        blockedRemoteImageCount: 0,
         attachments: [],
       },
     });

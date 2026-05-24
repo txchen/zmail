@@ -35,13 +35,25 @@ export type SystemMailboxRole =
 export type StoredMessage = {
   id: string;
   stableIdentity: string;
+  threadId?: string;
   subject: string;
+  sender?: MessageParticipant;
+  recipients?: MessageParticipant[];
   receivedAt: string;
   unread: boolean;
   starred: boolean;
   aiProcessed: boolean;
+  snippet?: string;
   readableBody: string;
+  plainTextBody?: string;
+  blockedRemoteImageCount?: number;
+  updatedAt?: string;
   attachments: AttachmentMetadata[];
+};
+
+export type MessageParticipant = {
+  address: string;
+  displayName?: string;
 };
 
 export type AttachmentMetadata = {
@@ -65,19 +77,35 @@ type MessageWithMailboxEntries = StoredMessage & {
   }>;
 };
 
-export type MailboxMessageSummary = Omit<StoredMessage, "aiProcessed" | "readableBody"> & {
-  mailboxEntryId: string;
+export type MessageSummary = {
+  accountId: string;
+  id: string;
+  stableIdentity: string;
+  threadId?: string;
+  subject: string;
+  sender: MessageParticipant;
+  recipients: MessageParticipant[];
+  receivedAt: string;
+  unread: boolean;
+  starred: boolean;
+  mailboxIds: string[];
+  snippet: string;
+  attachmentCount: number;
+  updatedAt: string;
 };
 
-export type MessageDetail = Omit<StoredMessage, "aiProcessed">;
+export type MailboxMessageSummary = MessageSummary;
 
-export type AiMessageSummary = Omit<StoredMessage, "aiProcessed" | "readableBody"> & {
-  mailAccountId: string;
+export type MessageDetail = MessageSummary & {
+  readableBody: string;
+  plainTextBody?: string;
+  blockedRemoteImageCount: number;
+  attachments: AttachmentMetadata[];
 };
 
-export type AiMessageDetail = MessageDetail & {
-  mailAccountId: string;
-};
+export type AiMessageSummary = MessageSummary;
+
+export type AiMessageDetail = MessageDetail;
 
 export function createHybridPersistence(): HybridPersistence {
   return new HybridPersistence(new DatabaseSync(":memory:"));
@@ -198,12 +226,19 @@ export class MailDatabase {
       CREATE TABLE IF NOT EXISTS messages (
         id TEXT PRIMARY KEY,
         stable_identity TEXT NOT NULL UNIQUE,
+        thread_id TEXT,
         subject TEXT NOT NULL,
+        sender_json TEXT NOT NULL DEFAULT '{"address":""}',
+        recipients_json TEXT NOT NULL DEFAULT '[]',
         received_at TEXT NOT NULL DEFAULT '',
         unread INTEGER NOT NULL,
         starred INTEGER NOT NULL DEFAULT 0,
         ai_processed INTEGER NOT NULL,
+        snippet TEXT NOT NULL DEFAULT '',
         readable_body TEXT NOT NULL DEFAULT '',
+        plain_text_body TEXT,
+        blocked_remote_image_count INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT '',
         attachments_json TEXT NOT NULL DEFAULT '[]'
       );
 
@@ -298,27 +333,45 @@ export class MailDatabase {
   saveMessage(message: StoredMessage): void {
     this.database
       .prepare(`
-        INSERT INTO messages (id, stable_identity, subject, received_at, unread, starred, ai_processed, readable_body, attachments_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (
+          id, stable_identity, thread_id, subject, sender_json, recipients_json, received_at,
+          unread, starred, ai_processed, snippet, readable_body, plain_text_body,
+          blocked_remote_image_count, updated_at, attachments_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           stable_identity = excluded.stable_identity,
+          thread_id = excluded.thread_id,
           subject = excluded.subject,
+          sender_json = excluded.sender_json,
+          recipients_json = excluded.recipients_json,
           received_at = excluded.received_at,
           unread = excluded.unread,
           starred = excluded.starred,
           ai_processed = excluded.ai_processed,
+          snippet = excluded.snippet,
           readable_body = excluded.readable_body,
+          plain_text_body = excluded.plain_text_body,
+          blocked_remote_image_count = excluded.blocked_remote_image_count,
+          updated_at = excluded.updated_at,
           attachments_json = excluded.attachments_json
       `)
       .run(
         message.id,
         message.stableIdentity,
+        message.threadId ?? null,
         message.subject,
+        JSON.stringify(message.sender ?? { address: "" }),
+        JSON.stringify(message.recipients ?? []),
         message.receivedAt,
         message.unread ? 1 : 0,
         message.starred ? 1 : 0,
         message.aiProcessed ? 1 : 0,
+        message.snippet ?? "",
         message.readableBody,
+        message.plainTextBody ?? null,
+        message.blockedRemoteImageCount ?? 0,
+        message.updatedAt ?? message.receivedAt,
         JSON.stringify(message.attachments),
       );
   }
@@ -397,58 +450,85 @@ export class MailDatabase {
     }));
   }
 
-  listMessagesForMailbox(mailboxId: string): MailboxMessageSummary[] {
+  listMessagesForMailbox(accountId: string, mailboxId?: string): MailboxMessageSummary[] {
+    const resolvedAccountId = mailboxId === undefined ? "" : accountId;
+    const resolvedMailboxId = mailboxId ?? accountId;
+
     return this.database
       .prepare(`
-        SELECT messages.id, messages.stable_identity, messages.subject, messages.received_at,
-          messages.unread, messages.starred, messages.attachments_json, mailbox_entries.id AS mailbox_entry_id
+        SELECT messages.id, messages.stable_identity, messages.thread_id, messages.subject,
+          messages.sender_json, messages.recipients_json, messages.received_at,
+          messages.unread, messages.starred, messages.snippet, messages.updated_at,
+          messages.attachments_json
         FROM mailbox_entries
         JOIN messages ON messages.id = mailbox_entries.message_id
         WHERE mailbox_entries.mailbox_id = ?
         ORDER BY messages.received_at DESC, messages.id
       `)
-      .all(mailboxId)
+      .all(resolvedMailboxId)
       .map((row) => {
         const message = row as {
           id: string;
           stable_identity: string;
+          thread_id: string | null;
           subject: string;
+          sender_json: string;
+          recipients_json: string;
           received_at: string;
           unread: number;
           starred: number;
+          snippet: string;
+          updated_at: string;
           attachments_json: string;
-          mailbox_entry_id: string;
         };
+        const attachments = JSON.parse(message.attachments_json) as AttachmentMetadata[];
 
         return {
+          accountId: resolvedAccountId,
           id: message.id,
           stableIdentity: message.stable_identity,
+          ...(message.thread_id ? { threadId: message.thread_id } : {}),
           subject: message.subject,
+          sender: JSON.parse(message.sender_json) as MessageParticipant,
+          recipients: JSON.parse(message.recipients_json) as MessageParticipant[],
           receivedAt: message.received_at,
           unread: Boolean(message.unread),
           starred: Boolean(message.starred),
-          attachments: JSON.parse(message.attachments_json) as AttachmentMetadata[],
-          mailboxEntryId: message.mailbox_entry_id,
+          mailboxIds: this.listMailboxIdsForMessage(message.id),
+          snippet: message.snippet,
+          attachmentCount: attachments.length,
+          updatedAt: message.updated_at || message.received_at,
         };
       });
   }
 
-  getMessage(messageId: string): MessageDetail | null {
+  getMessage(accountId: string, messageId?: string): MessageDetail | null {
+    const resolvedAccountId = messageId === undefined ? "" : accountId;
+    const resolvedMessageId = messageId ?? accountId;
     const row = this.database
       .prepare(`
-        SELECT id, stable_identity, subject, received_at, unread, starred, readable_body, attachments_json
+        SELECT id, stable_identity, thread_id, subject, sender_json, recipients_json, received_at,
+          unread, starred, snippet, readable_body, plain_text_body, blocked_remote_image_count,
+          updated_at, attachments_json
         FROM messages
         WHERE id = ?
       `)
-      .get(messageId) as
+      .get(resolvedMessageId) as
       | {
           id: string;
           stable_identity: string;
+          thread_id: string | null;
           subject: string;
+          sender_json: string;
+          recipients_json: string;
           received_at: string;
           unread: number;
           starred: number;
+          snippet: string;
           readable_body: string;
+          plain_text_body: string | null;
+          blocked_remote_image_count: number;
+          updated_at: string;
           attachments_json: string;
         }
       | undefined;
@@ -457,22 +537,35 @@ export class MailDatabase {
       return null;
     }
 
+    const attachments = JSON.parse(row.attachments_json) as AttachmentMetadata[];
+
     return {
+      accountId: resolvedAccountId,
       id: row.id,
       stableIdentity: row.stable_identity,
+      ...(row.thread_id ? { threadId: row.thread_id } : {}),
       subject: row.subject,
+      sender: JSON.parse(row.sender_json) as MessageParticipant,
+      recipients: JSON.parse(row.recipients_json) as MessageParticipant[],
       receivedAt: row.received_at,
       unread: Boolean(row.unread),
       starred: Boolean(row.starred),
+      mailboxIds: this.listMailboxIdsForMessage(row.id),
+      snippet: row.snippet,
+      attachmentCount: attachments.length,
+      updatedAt: row.updated_at || row.received_at,
       readableBody: row.readable_body,
-      attachments: JSON.parse(row.attachments_json) as AttachmentMetadata[],
+      ...(row.plain_text_body ? { plainTextBody: row.plain_text_body } : {}),
+      blockedRemoteImageCount: row.blocked_remote_image_count,
+      attachments,
     };
   }
 
   listUnreadMessages(mailAccountId: string): AiMessageSummary[] {
     return this.database
       .prepare(`
-        SELECT id, stable_identity, subject, received_at, unread, starred, attachments_json
+        SELECT id, stable_identity, thread_id, subject, sender_json, recipients_json, received_at,
+          unread, starred, snippet, updated_at, attachments_json
         FROM messages
         WHERE unread = 1
         ORDER BY received_at DESC, id
@@ -482,22 +575,34 @@ export class MailDatabase {
         const message = row as {
           id: string;
           stable_identity: string;
+          thread_id: string | null;
           subject: string;
+          sender_json: string;
+          recipients_json: string;
           received_at: string;
           unread: number;
           starred: number;
+          snippet: string;
+          updated_at: string;
           attachments_json: string;
         };
+        const attachments = JSON.parse(message.attachments_json) as AttachmentMetadata[];
 
         return {
-          mailAccountId,
+          accountId: mailAccountId,
           id: message.id,
           stableIdentity: message.stable_identity,
+          ...(message.thread_id ? { threadId: message.thread_id } : {}),
           subject: message.subject,
+          sender: JSON.parse(message.sender_json) as MessageParticipant,
+          recipients: JSON.parse(message.recipients_json) as MessageParticipant[],
           receivedAt: message.received_at,
           unread: Boolean(message.unread),
           starred: Boolean(message.starred),
-          attachments: JSON.parse(message.attachments_json) as AttachmentMetadata[],
+          mailboxIds: this.listMailboxIdsForMessage(message.id),
+          snippet: message.snippet,
+          attachmentCount: attachments.length,
+          updatedAt: message.updated_at || message.received_at,
         };
       });
   }
@@ -508,7 +613,9 @@ export class MailDatabase {
   ): AiMessageDetail | null {
     const row = this.database
       .prepare(`
-        SELECT id, stable_identity, subject, received_at, unread, starred, readable_body, attachments_json
+        SELECT id, stable_identity, thread_id, subject, sender_json, recipients_json, received_at,
+          unread, starred, snippet, readable_body, plain_text_body, blocked_remote_image_count,
+          updated_at, attachments_json
         FROM messages
         WHERE stable_identity = ?
       `)
@@ -516,11 +623,18 @@ export class MailDatabase {
       | {
           id: string;
           stable_identity: string;
+          thread_id: string | null;
           subject: string;
+          sender_json: string;
+          recipients_json: string;
           received_at: string;
           unread: number;
           starred: number;
+          snippet: string;
           readable_body: string;
+          plain_text_body: string | null;
+          blocked_remote_image_count: number;
+          updated_at: string;
           attachments_json: string;
         }
       | undefined;
@@ -529,16 +643,39 @@ export class MailDatabase {
       return null;
     }
 
+    const attachments = JSON.parse(row.attachments_json) as AttachmentMetadata[];
+
     return {
-      mailAccountId,
+      accountId: mailAccountId,
       id: row.id,
       stableIdentity: row.stable_identity,
+      ...(row.thread_id ? { threadId: row.thread_id } : {}),
       subject: row.subject,
+      sender: JSON.parse(row.sender_json) as MessageParticipant,
+      recipients: JSON.parse(row.recipients_json) as MessageParticipant[],
       receivedAt: row.received_at,
       unread: Boolean(row.unread),
       starred: Boolean(row.starred),
+      mailboxIds: this.listMailboxIdsForMessage(row.id),
+      snippet: row.snippet,
+      attachmentCount: attachments.length,
+      updatedAt: row.updated_at || row.received_at,
       readableBody: row.readable_body,
-      attachments: JSON.parse(row.attachments_json) as AttachmentMetadata[],
+      ...(row.plain_text_body ? { plainTextBody: row.plain_text_body } : {}),
+      blockedRemoteImageCount: row.blocked_remote_image_count,
+      attachments,
     };
+  }
+
+  private listMailboxIdsForMessage(messageId: string): string[] {
+    return this.database
+      .prepare(`
+        SELECT mailbox_id
+        FROM mailbox_entries
+        WHERE message_id = ?
+        ORDER BY mailbox_id
+      `)
+      .all(messageId)
+      .map((row) => (row as { mailbox_id: string }).mailbox_id);
   }
 }

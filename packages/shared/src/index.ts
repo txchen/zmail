@@ -55,26 +55,32 @@ export type AttachmentMetadata = {
   sizeBytes: number;
 };
 
-export type MailboxMessageSummary = {
-  id: string;
-  stableIdentity: string;
-  subject: string;
-  receivedAt: string;
-  unread: boolean;
-  starred: boolean;
-  mailboxEntryId: string;
-  attachments: AttachmentMetadata[];
+export type MessageParticipant = {
+  address: string;
+  displayName?: string;
 };
 
-export type MessageDetail = {
+export type MailboxMessageSummary = {
+  accountId: string;
   id: string;
   stableIdentity: string;
+  threadId?: string;
   subject: string;
+  sender: MessageParticipant;
+  recipients: MessageParticipant[];
   receivedAt: string;
   unread: boolean;
   starred: boolean;
+  mailboxIds: string[];
+  snippet: string;
+  attachmentCount: number;
+  updatedAt: string;
+};
+
+export type MessageDetail = MailboxMessageSummary & {
   readableBody: string;
   plainTextBody?: string;
+  blockedRemoteImageCount: number;
   attachments: AttachmentMetadata[];
 };
 

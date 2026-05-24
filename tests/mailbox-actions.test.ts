@@ -101,7 +101,7 @@ describe("MVP Mailbox actions", () => {
     expect(persistence.mailDatabaseFor("personal").listMessagesForMailbox("trash")).toEqual([
       expect.objectContaining({
         id: "message-1",
-        mailboxEntryId: "message-1:trash",
+        mailboxIds: ["trash"],
       }),
     ]);
   });

@@ -105,12 +105,19 @@ describe("recent Message sync", () => {
     mailDatabase.saveMessage({
       id: "message-1",
       stableIdentity: "gmail:personal:message-1",
+      threadId: "thread-1",
       subject: "Readable Message",
+      sender: { address: "sender@example.com", displayName: "Sender" },
+      recipients: [{ address: "reader@example.com" }],
       receivedAt: "2026-05-23T10:00:00.000Z",
       unread: true,
       starred: false,
       aiProcessed: false,
+      snippet: "Hello from the readable Message",
       readableBody: "<p>Hello</p>",
+      plainTextBody: "Hello",
+      blockedRemoteImageCount: 2,
+      updatedAt: "2026-05-23T10:05:00.000Z",
       attachments: [
         {
           id: "attachment-1",
@@ -145,20 +152,19 @@ describe("recent Message sync", () => {
       messages: [
         {
           id: "message-1",
+          accountId: "personal",
           stableIdentity: "gmail:personal:message-1",
+          threadId: "thread-1",
           subject: "Readable Message",
+          sender: { address: "sender@example.com", displayName: "Sender" },
+          recipients: [{ address: "reader@example.com" }],
           receivedAt: "2026-05-23T10:00:00.000Z",
           unread: true,
           starred: false,
-          mailboxEntryId: "message-1:inbox",
-          attachments: [
-            {
-              id: "attachment-1",
-              filename: "agenda.pdf",
-              mimeType: "application/pdf",
-              sizeBytes: 42,
-            },
-          ],
+          mailboxIds: ["inbox"],
+          snippet: "Hello from the readable Message",
+          attachmentCount: 1,
+          updatedAt: "2026-05-23T10:05:00.000Z",
         },
       ],
     });
@@ -170,12 +176,22 @@ describe("recent Message sync", () => {
     expect(await messageResponse.json()).toEqual({
       message: {
         id: "message-1",
+        accountId: "personal",
         stableIdentity: "gmail:personal:message-1",
+        threadId: "thread-1",
         subject: "Readable Message",
+        sender: { address: "sender@example.com", displayName: "Sender" },
+        recipients: [{ address: "reader@example.com" }],
         receivedAt: "2026-05-23T10:00:00.000Z",
         unread: true,
         starred: false,
+        mailboxIds: ["inbox"],
+        snippet: "Hello from the readable Message",
+        attachmentCount: 1,
+        updatedAt: "2026-05-23T10:05:00.000Z",
         readableBody: "<p>Hello</p>",
+        plainTextBody: "Hello",
+        blockedRemoteImageCount: 2,
         attachments: [
           {
             id: "attachment-1",

@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Standardize Message summary and detail
 
@@ -8,13 +8,13 @@ Define and implement the full-reader Message summary/detail shapes used by mailb
 
 ## Acceptance criteria
 
-- [ ] Message summaries include `accountId`, `id`, `stableIdentity`, optional `threadId`, `subject`, sender, recipients, `receivedAt`, `unread`, `starred`, `mailboxIds`, snippet, `attachmentCount`, and `updatedAt`.
-- [ ] Message participant values include address and optional display name.
-- [ ] Message detail includes summary fields plus `readableBody`, optional `plainTextBody`, `blockedRemoteImageCount`, and attachment metadata.
-- [ ] Attachment bytes are not stored in Message detail.
-- [ ] Existing mailbox message list and message detail endpoints return the standardized shapes.
-- [ ] AI read APIs share the core message shapes without UI-only workflow fields.
-- [ ] Tests cover summary serialization, detail serialization, thread metadata, participant fields, snippets, attachment counts, and `updatedAt`.
+- [x] Message summaries include `accountId`, `id`, `stableIdentity`, optional `threadId`, `subject`, sender, recipients, `receivedAt`, `unread`, `starred`, `mailboxIds`, snippet, `attachmentCount`, and `updatedAt`.
+- [x] Message participant values include address and optional display name.
+- [x] Message detail includes summary fields plus `readableBody`, optional `plainTextBody`, `blockedRemoteImageCount`, and attachment metadata.
+- [x] Attachment bytes are not stored in Message detail.
+- [x] Existing mailbox message list and message detail endpoints return the standardized shapes.
+- [x] AI read APIs share the core message shapes without UI-only workflow fields.
+- [x] Tests cover summary serialization, detail serialization, thread metadata, participant fields, snippets, attachment counts, and `updatedAt`.
 
 ## Blocked by
 
