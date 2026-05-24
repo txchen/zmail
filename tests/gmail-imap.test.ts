@@ -58,13 +58,17 @@ describe("Gmail IMAP mailbox sync client", () => {
     connect.mockResolvedValue(undefined);
     list.mockResolvedValue([
       { path: "INBOX", status: { unseen: 1 } },
+      { path: "INBOX/Project", status: { unseen: 1 } },
+      { path: "[Gmail]/All Mail", status: { unseen: 0 } },
       { path: "[Gmail]", flags: new Set(["\\Noselect"]), status: { unseen: 0 } },
     ]);
     mailboxOpen.mockResolvedValue({ exists: 42 });
     fetch.mockImplementation(async function* () {
+      const mailboxId = mailboxOpen.mock.lastCall?.[0] ?? "INBOX";
+
       yield {
         uid: 42,
-        emailId: "178abc",
+        emailId: `178abc-${mailboxId}`,
         threadId: "thread-1",
         flags: new Set(["\\Seen"]),
         envelope: {
@@ -88,33 +92,23 @@ describe("Gmail IMAP mailbox sync client", () => {
 
     const client = createGmailImapMailboxSyncClient(imapFlow);
 
-    await expect(
-      client.listRecentMessages({
-        account: {
-          id: "personal",
-          emailAddress: "me@example.com",
-          appPassword: "gmail-app-password",
-        },
-        mailboxes: [{ id: "INBOX", since: new Date("2026-05-01T00:00:00.000Z") }],
-      }),
-    ).resolves.toEqual([
-      {
-        id: "178abc",
-        stableIdentity: "gmail:personal:178abc",
-        threadId: "thread-1",
-        subject: "Hello",
-        sender: { address: "sender@example.com", displayName: "Sender" },
-        recipients: [{ address: "me@example.com" }],
-        receivedAt: "2026-05-23T10:00:00.000Z",
-        unread: false,
-        snippet: "Plain body",
-        readableBody: "Plain body",
-        plainTextBody: "Plain body",
-        attachments: [],
-        mailboxIds: ["INBOX"],
+    const messages = await client.listRecentMessages({
+      account: {
+        id: "personal",
+        emailAddress: "me@example.com",
+        appPassword: "gmail-app-password",
       },
-    ]);
+      mailboxes: [
+        { id: "INBOX", since: new Date("2026-05-01T00:00:00.000Z") },
+        { id: "INBOX/Project", since: new Date("2026-05-01T00:00:00.000Z") },
+        { id: "[Gmail]/All Mail", since: new Date("2026-05-01T00:00:00.000Z") },
+      ],
+    });
+
+    expect(messages.map((message) => message.mailboxIds)).toEqual([["INBOX"], ["INBOX/Project"]]);
     expect(mailboxOpen).toHaveBeenCalledWith("INBOX");
+    expect(mailboxOpen).toHaveBeenCalledWith("INBOX/Project");
+    expect(mailboxOpen).not.toHaveBeenCalledWith("[Gmail]/All Mail");
     expect(mailboxOpen).not.toHaveBeenCalledWith("[Gmail]");
     expect(fetch).toHaveBeenCalledWith(
       "33:*",
