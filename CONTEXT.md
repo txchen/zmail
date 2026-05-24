@@ -16,16 +16,28 @@ _Avoid_: User account, inbox
 An IMAP-visible folder or Gmail label within a **Mail account**. A **Mailbox** is a view over messages, not the owner of those messages, so one message can appear in multiple **Mailboxes**.
 _Avoid_: Folder
 
+**System mailbox role**:
+A well-known role for a **Mailbox**, such as inbox, sent, drafts, spam, trash, all mail, archive, or flagged. Custom **Mailboxes** may not have a **System mailbox role**.
+_Avoid_: Mailbox name, label type
+
 **Message**:
 One logical email item in a **Mail account**, independent of which **Mailboxes** expose it.
 _Avoid_: Email, mail item
+
+**Message participant**:
+A sender or recipient address associated with a **Message**, optionally with a display name from the mail headers.
+_Avoid_: Contact, user
+
+**Message snippet**:
+A short preview of a **Message** body used in **Message lists** and **Search** results. A **Message snippet** is derived from synced content and is not a separate source of truth.
+_Avoid_: Summary, excerpt
 
 **Mailbox entry**:
 The appearance of a **Message** inside one specific **Mailbox**. A single **Message** can have many **Mailbox entries**.
 _Avoid_: Message copy, duplicate message
 
 **Full-message sync**:
-A sync mode where Zmail stores each synced **Message**'s readable body and attachment metadata locally so the UI and AI API can read recent mail without waiting on Gmail. Attachment file bytes are outside the first sync boundary.
+A sync mode where Zmail stores each synced **Message**'s readable body and attachment metadata locally so the UI and AI API can read recent mail without waiting on Gmail. Attachment file bytes are not part of the **Local read model** and can be fetched from Gmail on demand.
 _Avoid_: Header-only sync, lazy sync
 
 **Readable body**:
@@ -37,7 +49,7 @@ Zmail's local database projection of Gmail state, optimized for reading and AI a
 _Avoid_: Mail store, source of truth
 
 **Mailbox action**:
-A Gmail-mutating action on an existing **Message** or **Mailbox entry**. MVP **Mailbox actions** are mark read/unread, archive, delete, and star/unstar; move and label changes can follow after the MVP.
+A Gmail-mutating action on an existing **Message** or **Mailbox entry**. Zmail **Mailbox actions** are mark read/unread, archive, delete, and star/unstar; Gmail remains the place for label management.
 _Avoid_: Composition action
 
 **Delete**:
@@ -76,8 +88,12 @@ _Avoid_: Single mail store, account-only database
 The simple username/password gate for the single **App user**. The **App login** credential can be provided by environment variable or config file and is separate from **Mail account** credentials.
 _Avoid_: Gmail login, signup
 
+**App session**:
+A signed browser session for the **App user** created after **App login**. **App sessions** survive API restarts and can be revoked by rotating the server-side signing secret.
+_Avoid_: Mail account session, Gmail session
+
 **App configuration**:
-Server-side settings that declare the **App login** and **Configured Mail accounts** for one Zmail installation. **App configuration** is controlled by the operator, not edited by the **App user** in the UI.
+Server-side settings that declare the **App login**, **Configured Mail accounts**, and operator-controlled sync settings for one Zmail installation. **App configuration** is controlled by the operator, not edited by the **App user** in the UI.
 _Avoid_: User settings, account settings, preferences
 
 **Mail account credential**:
@@ -91,6 +107,10 @@ _Avoid_: User-added account
 **Sync freshness**:
 The expectation that Zmail refreshes each **Mail account** through background polling and App user-triggered manual refresh. Near-real-time IMAP IDLE is outside the MVP boundary.
 _Avoid_: Push sync, live sync
+
+**Mail account diagnostics**:
+An authenticated operator check of a **Mail account credential** and Gmail connectivity that does not change the **Local read model**. **Mail account diagnostics** can expose raw provider errors to the **App user** for troubleshooting.
+_Avoid_: Sync, health check
 
 **Sync window**:
 The configurable recent time range of Gmail mail that Zmail syncs for each **Mail account**. The MVP default **Sync window** is 90 days.
@@ -108,12 +128,16 @@ _Avoid_: Global sync status
 The sidebar navigation model where each **Mail account** appears with its own **Mailboxes** and unread counts. Zmail does not need unified cross-account views in the MVP.
 _Avoid_: Unified inbox, smart view
 
+**Account unread view**:
+A per-**Mail account** view of unread **Messages** across that account's **Mailboxes**, deduplicated by **Message**. **Account unread view** is not a cross-account unified inbox.
+_Avoid_: Unified inbox, global unread
+
 **Message list**:
-The middle-column view of individual **Messages** in the selected **Mailbox**. Conversation or thread grouping is outside the MVP UI boundary, though thread identity can be preserved as metadata.
+The middle-column view of individual **Messages** in the selected **Mailbox**. Thread identity can be preserved as **Message** metadata, but threads are not first-class UI or API aggregates.
 _Avoid_: Conversation list, thread list
 
 **Search**:
-Finding **Messages** by query across synced mail. **Search** is outside the MVP boundary.
+Finding **Messages** by query across synced mail in the **Local read model**. **Search** is outside the MVP boundary but belongs to the eventual full **Mail reader** UI.
 _Avoid_: Browse, filter
 
 **App user**:
@@ -160,7 +184,7 @@ Domain expert: "No. Those are Mailbox actions, and they are part of the Mail rea
 
 Developer: "Which Mailbox actions are first-class for the MVP?"
 
-Domain expert: "Mark read/unread, archive, delete, and star/unstar. Move and label changes can follow after the MVP."
+Domain expert: "Mark read/unread, archive, delete, and star/unstar. Label management stays in Gmail."
 
 Developer: "When Zmail deletes a Message, is it gone forever?"
 
