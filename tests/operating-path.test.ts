@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import { loadConfigFromEnv } from "../apps/api/src/config";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { loadConfigFromFile } from "../apps/api/src/config";
 import type { ConfiguredMailAccount } from "../apps/api/src/config";
 import { createApp } from "../apps/api/src/app";
 import { createHybridPersistence } from "../apps/api/src/persistence";
@@ -8,35 +11,52 @@ import { createSyncScheduler } from "../apps/api/src/scheduler";
 
 describe("MVP operating path", () => {
   it("reports missing and invalid startup configuration clearly", () => {
-    expect(() => loadConfigFromEnv({})).toThrow(
-      "Missing ZMAIL_APP_USERNAME, ZMAIL_APP_PASSWORD, and ZMAIL_MAIL_ACCOUNTS",
+    expect(() => loadConfigFromFile("/missing/zmail.toml")).toThrow(
+      "Missing App configuration file at /missing/zmail.toml",
     );
     expect(() =>
-      loadConfigFromEnv({
-        ZMAIL_APP_USERNAME: "reader",
-        ZMAIL_APP_PASSWORD: "secret",
-        ZMAIL_MAIL_ACCOUNTS: "not json",
-      }),
-    ).toThrow("Invalid ZMAIL_MAIL_ACCOUNTS: expected JSON array");
+      loadConfigFromFile(
+        writeConfig(`
+          [app_login]
+          username = "reader"
+          password = "secret"
+        `),
+      ),
+    ).toThrow("Invalid App configuration: missing mail_accounts");
     expect(() =>
-      loadConfigFromEnv({
-        ZMAIL_APP_USERNAME: "reader",
-        ZMAIL_APP_PASSWORD: "secret",
-        ZMAIL_MAIL_ACCOUNTS: JSON.stringify([
-          {
-            id: "personal",
-            displayName: "Personal Gmail",
-            emailAddress: "me@example.com",
-          },
-        ]),
-      }),
-    ).toThrow("Invalid ZMAIL_MAIL_ACCOUNTS[0]: missing appPassword");
+      loadConfigFromFile(
+        writeConfig(`
+          [app_login]
+          username = "reader"
+          password = "secret"
+
+          [[mail_accounts]]
+          id = "Personal"
+          email_address = "me@example.com"
+          app_password = "personal-app-password"
+        `),
+      ),
+    ).toThrow("Invalid mail_accounts[0].id: expected lowercase slug");
+    expect(() =>
+      loadConfigFromFile(
+        writeConfig(`
+          [app_login]
+          username = "reader"
+          password = "secret"
+          password_hint = "local"
+
+          [[mail_accounts]]
+          id = "personal"
+          email_address = "me@example.com"
+          app_password = "personal-app-password"
+        `),
+      ),
+    ).toThrow("Invalid app_login: unknown password_hint");
   });
 
   it("polls configured Mail accounts and prevents overlapping sync for the same account", async () => {
     const account: ConfiguredMailAccount = {
       id: "personal",
-      displayName: "Personal Gmail",
       emailAddress: "me@example.com",
       appPassword: "personal-app-password",
     };
@@ -77,7 +97,6 @@ describe("MVP operating path", () => {
   it("covers the main home-network flow from login through AI unread access", async () => {
     const account: ConfiguredMailAccount = {
       id: "personal",
-      displayName: "Personal Gmail",
       emailAddress: "me@example.com",
       appPassword: "personal-app-password",
     };
@@ -86,7 +105,6 @@ describe("MVP operating path", () => {
 
     persistence.app.saveMailAccount({
       id: "personal",
-      displayName: "Personal Gmail",
       emailAddress: "me@example.com",
       syncStatus: "synced",
     });
@@ -125,7 +143,6 @@ describe("MVP operating path", () => {
       mailAccounts: [
         {
           id: "personal",
-          displayName: "Personal Gmail",
           emailAddress: "me@example.com",
           syncStatus: "synced",
           unreadCount: 1,
@@ -156,3 +173,10 @@ describe("MVP operating path", () => {
     });
   });
 });
+
+function writeConfig(contents: string): string {
+  const path = join(mkdtempSync(join(tmpdir(), "zmail-config-")), "zmail.toml");
+  writeFileSync(path, contents);
+
+  return path;
+}

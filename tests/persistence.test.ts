@@ -7,13 +7,11 @@ describe("hybrid SQLite persistence", () => {
 
     persistence.app.saveMailAccount({
       id: "personal",
-      displayName: "Personal Gmail",
       emailAddress: "me@example.com",
       syncStatus: "syncing",
     });
     persistence.app.saveMailAccount({
       id: "work",
-      displayName: "Work Gmail",
       emailAddress: "me@work.example",
       syncStatus: "stale",
     });
@@ -48,13 +46,11 @@ describe("hybrid SQLite persistence", () => {
     expect(persistence.app.listMailAccounts()).toEqual([
       {
         id: "personal",
-        displayName: "Personal Gmail",
         emailAddress: "me@example.com",
         syncStatus: "syncing",
       },
       {
         id: "work",
-        displayName: "Work Gmail",
         emailAddress: "me@work.example",
         syncStatus: "stale",
       },

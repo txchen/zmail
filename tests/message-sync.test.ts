@@ -10,7 +10,6 @@ describe("recent Message sync", () => {
     const persistence = createHybridPersistence();
     const account: ConfiguredMailAccount = {
       id: "personal",
-      displayName: "Personal Gmail",
       emailAddress: "me@example.com",
       appPassword: "personal-app-password",
     };
@@ -93,14 +92,12 @@ describe("recent Message sync", () => {
     const persistence = createHybridPersistence();
     const account: ConfiguredMailAccount = {
       id: "personal",
-      displayName: "Personal Gmail",
       emailAddress: "me@example.com",
       appPassword: "personal-app-password",
     };
     const mailDatabase = persistence.mailDatabaseFor("personal");
     persistence.app.saveMailAccount({
       id: "personal",
-      displayName: "Personal Gmail",
       emailAddress: "me@example.com",
       syncStatus: "synced",
     });

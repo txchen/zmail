@@ -12,13 +12,11 @@ describe("mailbox tree sync", () => {
     const accounts: ConfiguredMailAccount[] = [
       {
         id: "personal",
-        displayName: "Personal Gmail",
         emailAddress: "me@example.com",
         appPassword: "personal-app-password",
       },
       {
         id: "work",
-        displayName: "Work Gmail",
         emailAddress: "me@work.example",
         appPassword: "work-app-password",
       },
@@ -52,13 +50,11 @@ describe("mailbox tree sync", () => {
     expect(persistence.app.listMailAccounts()).toEqual([
       {
         id: "personal",
-        displayName: "Personal Gmail",
         emailAddress: "me@example.com",
         syncStatus: "synced",
       },
       {
         id: "work",
-        displayName: "Work Gmail",
         emailAddress: "me@work.example",
         syncStatus: "failing",
       },
@@ -76,7 +72,6 @@ describe("mailbox tree sync", () => {
     const accounts: ConfiguredMailAccount[] = [
       {
         id: "personal",
-        displayName: "Personal Gmail",
         emailAddress: "me@example.com",
         appPassword: "personal-app-password",
       },
@@ -117,7 +112,6 @@ describe("mailbox tree sync", () => {
       mailAccounts: [
         {
           id: "personal",
-          displayName: "Personal Gmail",
           emailAddress: "me@example.com",
           syncStatus: "synced",
           unreadCount: 4,
@@ -136,7 +130,6 @@ describe("mailbox tree sync", () => {
       mailAccounts: [
         {
           id: "personal",
-          displayName: "Personal Gmail",
           emailAddress: "me@example.com",
           syncStatus: "synced",
           unreadCount: 4,
@@ -150,12 +143,50 @@ describe("mailbox tree sync", () => {
     });
   });
 
+  it("shows configured Mail accounts before their first successful sync", async () => {
+    const persistence = createHybridPersistence();
+    const accounts: ConfiguredMailAccount[] = [
+      {
+        id: "personal",
+        emailAddress: "me@example.com",
+        appPassword: "personal-app-password",
+      },
+    ];
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret" },
+      mailAccounts: accounts,
+      persistence,
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+    const cookie = loginResponse.headers.get("set-cookie") ?? "";
+
+    const response = await app.request("/api/mailbox-tree", {
+      headers: { cookie },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      mailAccounts: [
+        {
+          id: "personal",
+          emailAddress: "me@example.com",
+          syncStatus: "stale",
+          unreadCount: 0,
+          mailboxes: [],
+        },
+      ],
+    });
+  });
+
   it("lets the App user trigger manual refresh for one Mail account", async () => {
     const persistence = createHybridPersistence();
     const accounts: ConfiguredMailAccount[] = [
       {
         id: "personal",
-        displayName: "Personal Gmail",
         emailAddress: "me@example.com",
         appPassword: "personal-app-password",
       },
@@ -186,7 +217,6 @@ describe("mailbox tree sync", () => {
       mailAccounts: [
         {
           id: "personal",
-          displayName: "Personal Gmail",
           emailAddress: "me@example.com",
           syncStatus: "synced",
           unreadCount: 1,
@@ -200,7 +230,6 @@ describe("mailbox tree sync", () => {
       mailAccounts: [
         {
           id: "personal",
-          displayName: "Personal Gmail",
           emailAddress: "me@example.com",
           syncStatus: "synced",
           unreadCount: 1,

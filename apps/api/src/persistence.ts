@@ -4,7 +4,6 @@ export type AccountSyncStatus = "synced" | "syncing" | "stale" | "failing";
 
 export type StoredMailAccount = {
   id: string;
-  displayName: string;
   emailAddress: string;
   syncStatus: AccountSyncStatus;
 };
@@ -94,7 +93,6 @@ export class AppDatabase {
     database.exec(`
       CREATE TABLE IF NOT EXISTS mail_accounts (
         id TEXT PRIMARY KEY,
-        display_name TEXT NOT NULL,
         email_address TEXT NOT NULL,
         sync_status TEXT NOT NULL
       )
@@ -104,20 +102,19 @@ export class AppDatabase {
   saveMailAccount(account: StoredMailAccount): void {
     this.database
       .prepare(`
-        INSERT INTO mail_accounts (id, display_name, email_address, sync_status)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO mail_accounts (id, email_address, sync_status)
+        VALUES (?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
-          display_name = excluded.display_name,
           email_address = excluded.email_address,
           sync_status = excluded.sync_status
       `)
-      .run(account.id, account.displayName, account.emailAddress, account.syncStatus);
+      .run(account.id, account.emailAddress, account.syncStatus);
   }
 
   listMailAccounts(): StoredMailAccount[] {
     return this.database
       .prepare(`
-        SELECT id, display_name, email_address, sync_status
+        SELECT id, email_address, sync_status
         FROM mail_accounts
         ORDER BY id
       `)
@@ -125,14 +122,12 @@ export class AppDatabase {
       .map((row) => {
         const account = row as {
           id: string;
-          display_name: string;
           email_address: string;
           sync_status: AccountSyncStatus;
         };
 
         return {
           id: account.id,
-          displayName: account.display_name,
           emailAddress: account.email_address,
           syncStatus: account.sync_status,
         };

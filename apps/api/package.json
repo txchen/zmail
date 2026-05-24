@@ -9,7 +9,9 @@
   "dependencies": {
     "@hono/node-server": "^1.13.8",
     "@zmail/shared": "workspace:*",
-    "hono": "^4.6.14"
+    "hono": "^4.6.14",
+    "imapflow": "catalog:",
+    "smol-toml": "catalog:"
   },
   "devDependencies": {
     "tsx": "^4.19.2"

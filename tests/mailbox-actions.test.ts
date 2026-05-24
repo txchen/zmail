@@ -194,7 +194,6 @@ describe("MVP Mailbox actions", () => {
 async function createActionFixture(overrides: Partial<MailboxActionClient> = {}) {
   const account: ConfiguredMailAccount = {
     id: "personal",
-    displayName: "Personal Gmail",
     emailAddress: "me@example.com",
     appPassword: "personal-app-password",
   };

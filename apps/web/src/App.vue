@@ -21,6 +21,7 @@ import { renderReadableMessage } from "./message-rendering";
 const health = ref<HealthStatus | null>(null);
 const username = ref("");
 const password = ref("");
+const authenticated = ref(false);
 const loginError = ref("");
 const mailAccounts = ref<MailAccountMailboxTree[]>([]);
 const selectedMailAccountId = ref("");
@@ -52,6 +53,7 @@ async function submitLogin() {
   try {
     await login({ username: username.value, password: password.value });
     mailAccounts.value = (await fetchMailboxTree()).mailAccounts;
+    authenticated.value = true;
   } catch {
     loginError.value = "Login failed";
   }
@@ -103,7 +105,7 @@ async function runMailboxAction(action: MailboxAction) {
     <p v-if="health">API {{ health.status }}</p>
     <p v-else>Checking API...</p>
 
-    <form @submit.prevent="submitLogin">
+    <form v-if="!authenticated" @submit.prevent="submitLogin">
       <label>
         Username
         <input v-model="username" autocomplete="username" name="username" />
@@ -116,14 +118,17 @@ async function runMailboxAction(action: MailboxAction) {
       <p v-if="loginError">{{ loginError }}</p>
     </form>
 
-    <section class="reader-columns">
+    <p v-if="authenticated && mailAccounts.length === 0">No mail accounts synced yet.</p>
+
+    <section v-if="authenticated" class="reader-columns">
       <aside aria-label="Account mailbox tree">
         <ul>
           <li v-for="account in mailAccounts" :key="account.id">
             <div>
-              {{ account.displayName }} ({{ account.unreadCount }})
+              {{ account.id }} ({{ account.unreadCount }})
               <button type="button" @click="refreshAccount(account.id)">Refresh</button>
             </div>
+            <div>{{ account.emailAddress }}</div>
             <div>{{ account.syncStatus }}</div>
             <ul>
               <li v-for="mailbox in account.mailboxes" :key="mailbox.id">

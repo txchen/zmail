@@ -47,14 +47,12 @@ export async function syncMailboxTrees({
 
       persistence.app.saveMailAccount({
         id: account.id,
-        displayName: account.displayName,
         emailAddress: account.emailAddress,
         syncStatus: "synced",
       });
     } catch {
       persistence.app.saveMailAccount({
         id: account.id,
-        displayName: account.displayName,
         emailAddress: account.emailAddress,
         syncStatus: "failing",
       });

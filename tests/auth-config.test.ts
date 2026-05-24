@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createApp } from "../apps/api/src/app";
-import { loadConfigFromEnv } from "../apps/api/src/config";
+import { loadConfig, loadConfigFromFile, resolveConfigPath } from "../apps/api/src/config";
 import { fetchMailAccounts, login } from "../apps/web/src/api";
 
 describe("App login and configured Mail accounts", () => {
@@ -13,7 +16,6 @@ describe("App login and configured Mail accounts", () => {
       mailAccounts: [
         {
           id: "personal",
-          displayName: "Personal Gmail",
           emailAddress: "me@example.com",
           appPassword: "gmail-app-password",
         },
@@ -42,32 +44,30 @@ describe("App login and configured Mail accounts", () => {
       mailAccounts: [
         {
           id: "personal",
-          displayName: "Personal Gmail",
           emailAddress: "me@example.com",
         },
       ],
     });
   });
 
-  it("loads App login and multiple Configured Mail accounts from environment variables", () => {
-    const config = loadConfigFromEnv({
-      ZMAIL_APP_USERNAME: "reader",
-      ZMAIL_APP_PASSWORD: "secret",
-      ZMAIL_MAIL_ACCOUNTS: JSON.stringify([
-        {
-          id: "personal",
-          displayName: "Personal Gmail",
-          emailAddress: "me@example.com",
-          appPassword: "personal-app-password",
-        },
-        {
-          id: "work",
-          displayName: "Work Gmail",
-          emailAddress: "me@work.example",
-          appPassword: "work-app-password",
-        },
-      ]),
-    });
+  it("loads App login and multiple Configured Mail accounts from a TOML file", () => {
+    const config = loadConfigFromFile(
+      writeConfig(`
+        [app_login]
+        username = "reader"
+        password = "secret"
+
+        [[mail_accounts]]
+        id = "personal"
+        email_address = "me@example.com"
+        app_password = "personal-app-password"
+
+        [[mail_accounts]]
+        id = "work"
+        email_address = "me@work.example"
+        app_password = "work-app-password"
+      `),
+    );
 
     expect(config).toEqual({
       appLogin: {
@@ -77,18 +77,52 @@ describe("App login and configured Mail accounts", () => {
       mailAccounts: [
         {
           id: "personal",
-          displayName: "Personal Gmail",
           emailAddress: "me@example.com",
           appPassword: "personal-app-password",
         },
         {
           id: "work",
-          displayName: "Work Gmail",
           emailAddress: "me@work.example",
           appPassword: "work-app-password",
         },
       ],
     });
+  });
+
+  it("loads the config path selected by ZMAIL_CONFIG_PATH", () => {
+    const path = writeConfig(`
+      mail_accounts = []
+
+      [app_login]
+      username = "reader"
+      password = "secret"
+    `);
+
+    expect(loadConfig({ ZMAIL_CONFIG_PATH: path })).toEqual({
+      appLogin: {
+        username: "reader",
+        password: "secret",
+      },
+      mailAccounts: [],
+    });
+  });
+
+  it("resolves the default config path from the workspace root when package scripts change cwd", () => {
+    expect(resolveConfigPath({}, "apps/api")).toBe(`${process.cwd()}/zmail.toml`);
+  });
+
+  it("allows an explicit empty Mail account list", () => {
+    const config = loadConfigFromFile(
+      writeConfig(`
+        mail_accounts = []
+
+        [app_login]
+        username = "reader"
+        password = "secret"
+      `),
+    );
+
+    expect(config.mailAccounts).toEqual([]);
   });
 
   it("rejects invalid App login credentials without issuing a session", async () => {
@@ -139,7 +173,6 @@ describe("App login and configured Mail accounts", () => {
         mailAccounts: [
           {
             id: "personal",
-            displayName: "Personal Gmail",
             emailAddress: "me@example.com",
           },
         ],
@@ -151,7 +184,6 @@ describe("App login and configured Mail accounts", () => {
       mailAccounts: [
         {
           id: "personal",
-          displayName: "Personal Gmail",
           emailAddress: "me@example.com",
         },
       ],
@@ -173,3 +205,10 @@ describe("App login and configured Mail accounts", () => {
     ]);
   });
 });
+
+function writeConfig(contents: string): string {
+  const path = join(mkdtempSync(join(tmpdir(), "zmail-config-")), "zmail.toml");
+  writeFileSync(path, contents);
+
+  return path;
+}

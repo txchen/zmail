@@ -1,0 +1,13 @@
+# To start with no Mail accounts, replace the [[mail_accounts]] block below with:
+# mail_accounts = []
+#
+# Keep mail_accounts at the top level, before [app_login].
+
+[app_login]
+username = "reader"
+password = "change-me"
+
+[[mail_accounts]]
+id = "personal"
+email_address = "me@example.com"
+app_password = "replace-with-gmail-app-password"

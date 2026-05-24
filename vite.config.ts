@@ -2,7 +2,7 @@ import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vite-plus";
 
 export default defineConfig(({ command }) => {
-  if (command === "serve") {
+  if (command === "serve" && process.argv.includes("dev")) {
     throw new Error("This repo has no root Vite app. Use `vp run dev` to start Zmail.");
   }
 

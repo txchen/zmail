@@ -1,4 +1,7 @@
 import type { MailAccountSummary } from "@zmail/shared";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, parse, resolve } from "node:path";
+import { parse as parseToml } from "smol-toml";
 import type { MailboxActionClient } from "./mailbox-actions.js";
 import type { HybridPersistence } from "./persistence.js";
 import type { MailboxSyncClient } from "./sync.js";
@@ -22,20 +25,62 @@ export type AppConfig = {
 
 type Env = Record<string, string | undefined>;
 
-export function loadConfigFromEnv(env: Env = process.env): AppConfig {
-  const missing = ["ZMAIL_APP_USERNAME", "ZMAIL_APP_PASSWORD", "ZMAIL_MAIL_ACCOUNTS"].filter(
-    (name) => !env[name],
-  );
+type ConfigFileMailAccount = {
+  id: string;
+  email_address: string;
+  app_password: string;
+};
 
-  if (missing.length) {
-    throw new Error(`Missing ${formatList(missing)}`);
+export function loadConfig(env: Env = process.env): AppConfig {
+  return loadConfigFromFile(resolveConfigPath(env));
+}
+
+export function loadConfigFromFile(path: string): AppConfig {
+  let parsed: unknown;
+
+  if (!existsSync(path)) {
+    throw new Error(`Missing App configuration file at ${path}. Copy zmail.toml.example to zmail.toml.`);
   }
 
-  const username = env.ZMAIL_APP_USERNAME;
-  const password = env.ZMAIL_APP_PASSWORD;
+  try {
+    parsed = parseToml(readFileSync(path, "utf8"));
+  } catch (error) {
+    throw new Error(`Invalid App configuration file at ${path}: ${errorMessage(error)}`);
+  }
 
-  if (!username || !password) {
-    throw new Error("Missing ZMAIL_APP_USERNAME or ZMAIL_APP_PASSWORD");
+  return parseConfigFile(parsed);
+}
+
+export function resolveConfigPath(env: Env = process.env, cwd = process.cwd()): string {
+  if (env.ZMAIL_CONFIG_PATH) {
+    return resolve(env.ZMAIL_CONFIG_PATH);
+  }
+
+  return join(findWorkspaceRoot(cwd), "zmail.toml");
+}
+
+function parseConfigFile(value: unknown): AppConfig {
+  if (!isRecord(value)) {
+    throw new Error("Invalid App configuration: expected TOML table");
+  }
+
+  assertKnownKeys(value, "App configuration", ["app_login", "mail_accounts"]);
+
+  if (!isRecord(value.app_login)) {
+    throw new Error("Invalid App configuration: missing app_login table");
+  }
+
+  assertKnownKeys(value.app_login, "app_login", ["username", "password"]);
+
+  const username = requireString(value.app_login.username, "app_login.username");
+  const password = requireString(value.app_login.password, "app_login.password");
+
+  if (!("mail_accounts" in value)) {
+    throw new Error("Invalid App configuration: missing mail_accounts");
+  }
+
+  if (!Array.isArray(value.mail_accounts)) {
+    throw new Error("Invalid mail_accounts: expected array");
   }
 
   return {
@@ -43,46 +88,67 @@ export function loadConfigFromEnv(env: Env = process.env): AppConfig {
       username,
       password,
     },
-    mailAccounts: parseMailAccounts(env.ZMAIL_MAIL_ACCOUNTS),
+    mailAccounts: value.mail_accounts.map(parseMailAccount),
   };
 }
 
-function parseMailAccounts(value: string | undefined): ConfiguredMailAccount[] {
-  let parsed: unknown;
+function parseMailAccount(value: unknown, index: number): ConfiguredMailAccount {
+  const path = `mail_accounts[${index}]`;
 
-  try {
-    parsed = JSON.parse(value ?? "");
-  } catch {
-    throw new Error("Invalid ZMAIL_MAIL_ACCOUNTS: expected JSON array");
+  if (!isRecord(value)) {
+    throw new Error(`Invalid ${path}: expected table`);
   }
 
-  if (!Array.isArray(parsed)) {
-    throw new Error("Invalid ZMAIL_MAIL_ACCOUNTS: expected JSON array");
+  assertKnownKeys(value, path, ["id", "email_address", "app_password"]);
+
+  const id = requireString(value.id, `${path}.id`);
+
+  if (!/^[a-z][a-z0-9-]*$/.test(id)) {
+    throw new Error(`Invalid ${path}.id: expected lowercase slug`);
   }
 
-  return parsed.map((account, index) => {
-    if (!isRecord(account)) {
-      throw new Error(`Invalid ZMAIL_MAIL_ACCOUNTS[${index}]: expected object`);
-    }
-
-    for (const field of ["id", "displayName", "emailAddress", "appPassword"]) {
-      if (typeof account[field] !== "string" || !account[field]) {
-        throw new Error(`Invalid ZMAIL_MAIL_ACCOUNTS[${index}]: missing ${field}`);
-      }
-    }
-
-    return account as ConfiguredMailAccount;
-  });
+  return {
+    id,
+    emailAddress: requireString(value.email_address, `${path}.email_address`),
+    appPassword: requireString(value.app_password, `${path}.app_password`),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function formatList(values: string[]): string {
-  if (values.length === 1) {
-    return values[0];
+function requireString(value: unknown, path: string): string {
+  if (typeof value !== "string" || !value) {
+    throw new Error(`Invalid ${path}: expected non-empty string`);
   }
 
-  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+  return value;
+}
+
+function assertKnownKeys(value: Record<string, unknown>, path: string, keys: string[]): void {
+  for (const key of Object.keys(value)) {
+    if (!keys.includes(key)) {
+      throw new Error(`Invalid ${path}: unknown ${key}`);
+    }
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function findWorkspaceRoot(start: string): string {
+  let current = resolve(start);
+  const root = parse(current).root;
+
+  while (current !== root) {
+    if (existsSync(join(current, "pnpm-workspace.yaml"))) {
+      return current;
+    }
+
+    current = dirname(current);
+  }
+
+  return start;
 }

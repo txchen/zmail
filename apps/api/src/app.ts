@@ -20,12 +20,19 @@ export function createApp(config: AppConfig): Hono {
   }
 
   function mailboxTreeResponse() {
+    const persistedAccountsById = new Map(
+      persistence.app.listMailAccounts().map((account) => [account.id, account]),
+    );
+
     return {
-      mailAccounts: persistence.app.listMailAccounts().map((account) => {
-        const mailboxes = persistence.mailDatabaseFor(account.id).listMailboxes();
+      mailAccounts: config.mailAccounts.map((configuredAccount) => {
+        const persistedAccount = persistedAccountsById.get(configuredAccount.id);
+        const mailboxes = persistence.mailDatabaseFor(configuredAccount.id).listMailboxes();
 
         return {
-          ...account,
+          id: configuredAccount.id,
+          emailAddress: configuredAccount.emailAddress,
+          syncStatus: persistedAccount?.syncStatus ?? "stale",
           unreadCount: mailboxes.reduce((total, mailbox) => total + mailbox.unreadCount, 0),
           mailboxes,
         };
@@ -34,6 +41,7 @@ export function createApp(config: AppConfig): Hono {
   }
 
   app.get("/health", (c) => c.json(healthy));
+  app.get("/api/health", (c) => c.json(healthy));
 
   app.post("/api/login", async (c) => {
     const body = await c.req.json<AppLogin>();
@@ -53,9 +61,8 @@ export function createApp(config: AppConfig): Hono {
     }
 
     return c.json({
-      mailAccounts: config.mailAccounts.map(({ id, displayName, emailAddress }) => ({
+      mailAccounts: config.mailAccounts.map(({ id, emailAddress }) => ({
         id,
-        displayName,
         emailAddress,
       })),
     });

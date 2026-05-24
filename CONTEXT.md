@@ -9,7 +9,7 @@ A read-focused application for browsing, searching, inspecting, and managing exi
 _Avoid_: Mail client, Gmail replacement
 
 **Mail account**:
-A Gmail account whose mail is synced into Zmail. A single Zmail installation can contain multiple **Mail accounts**.
+A Gmail account whose mail is synced into Zmail. A **Mail account** has an operator-chosen stable ID and a Gmail email address; a single Zmail installation can contain multiple **Mail accounts**.
 _Avoid_: User account, inbox
 
 **Mailbox**:
@@ -75,6 +75,10 @@ _Avoid_: Single mail store, account-only database
 **App login**:
 The simple username/password gate for the single **App user**. The **App login** credential can be provided by environment variable or config file and is separate from **Mail account** credentials.
 _Avoid_: Gmail login, signup
+
+**App configuration**:
+Server-side settings that declare the **App login** and **Configured Mail accounts** for one Zmail installation. **App configuration** is controlled by the operator, not edited by the **App user** in the UI.
+_Avoid_: User settings, account settings, preferences
 
 **Mail account credential**:
 The Gmail app password Zmail uses server-side to sync a **Mail account**. **Mail account credentials** are never exposed to the browser.

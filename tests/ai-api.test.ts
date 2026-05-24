@@ -13,7 +13,6 @@ describe("read-only AI API", () => {
       mailAccounts: [
         {
           id: "personal",
-          displayName: "Personal Gmail",
           emailAddress: "me@example.com",
           syncStatus: "synced",
         },
@@ -73,7 +72,6 @@ describe("read-only AI API", () => {
 function createAiApiFixture() {
   const account: ConfiguredMailAccount = {
     id: "personal",
-    displayName: "Personal Gmail",
     emailAddress: "me@example.com",
     appPassword: "personal-app-password",
   };
@@ -82,7 +80,6 @@ function createAiApiFixture() {
 
   persistence.app.saveMailAccount({
     id: "personal",
-    displayName: "Personal Gmail",
     emailAddress: "me@example.com",
     syncStatus: "synced",
   });

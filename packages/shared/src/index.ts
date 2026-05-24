@@ -10,7 +10,6 @@ export const healthy: HealthStatus = {
 
 export type MailAccountSummary = {
   id: string;
-  displayName: string;
   emailAddress: string;
 };
 
