@@ -1,6 +1,6 @@
 # Scaffold the Vite+ Zmail monorepo
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -12,13 +12,13 @@ Create the initial Zmail monorepo shape with a runnable Vue web app, Hono API on
 
 ## Acceptance criteria
 
-- [ ] The repo has a Vite+ monorepo with `apps/web`, `apps/api`, and `packages/shared`.
-- [ ] `apps/web` runs a Vue app with frontend HMR in development.
-- [ ] `apps/api` runs a Hono API on Node.js.
-- [ ] `packages/shared` can export a small shared type or schema consumed by both apps.
-- [ ] One documented development command starts both frontend and backend.
-- [ ] The web app can call an API health endpoint and render its result.
-- [ ] Type checking and tests can run from the monorepo root.
+- [x] The repo has a Vite+ monorepo with `apps/web`, `apps/api`, and `packages/shared`.
+- [x] `apps/web` runs a Vue app with frontend HMR in development.
+- [x] `apps/api` runs a Hono API on Node.js.
+- [x] `packages/shared` can export a small shared type or schema consumed by both apps.
+- [x] One documented development command starts both frontend and backend.
+- [x] The web app can call an API health endpoint and render its result.
+- [x] Type checking and tests can run from the monorepo root.
 
 ## Blocked by
 
