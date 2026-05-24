@@ -101,11 +101,6 @@ describe("recent Message sync", () => {
       appPassword: "personal-app-password",
     };
     const mailDatabase = persistence.mailDatabaseFor("personal");
-    persistence.app.saveMailAccount({
-      id: "personal",
-      emailAddress: "me@example.com",
-      syncStatus: "synced",
-    });
     mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 1 });
     mailDatabase.saveMessage({
       id: "message-1",

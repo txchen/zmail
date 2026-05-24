@@ -106,11 +106,6 @@ describe("MVP operating path", () => {
     const persistence = createHybridPersistence();
     const mailDatabase = persistence.mailDatabaseFor("personal");
 
-    persistence.app.saveMailAccount({
-      id: "personal",
-      emailAddress: "me@example.com",
-      syncStatus: "synced",
-    });
     mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 1 });
     mailDatabase.saveMessage({
       id: "message-1",
@@ -147,7 +142,7 @@ describe("MVP operating path", () => {
         {
           id: "personal",
           emailAddress: "me@example.com",
-          syncStatus: "synced",
+          syncStatus: "stale",
           unreadCount: 1,
           mailboxes: [
             {

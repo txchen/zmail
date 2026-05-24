@@ -4,15 +4,6 @@ import { join } from "node:path";
 
 export type AccountSyncStatus = "synced" | "syncing" | "stale" | "failing";
 
-export type StoredMailAccount = {
-  id: string;
-  emailAddress: string;
-  syncStatus: AccountSyncStatus;
-  lastSyncStartedAt?: string;
-  lastSyncFinishedAt?: string;
-  lastError?: string;
-};
-
 export type StoredMailbox = {
   id: string;
   name: string;
@@ -133,13 +124,13 @@ export type AiMessageSummary = MessageSummary;
 export type AiMessageDetail = MessageDetail;
 
 export function createHybridPersistence(): HybridPersistence {
-  return new HybridPersistence(new DatabaseSync(":memory:"));
+  return new HybridPersistence();
 }
 
 export function createFileBackedHybridPersistence(databaseDir: string): HybridPersistence {
   mkdirSync(join(databaseDir, "mail"), { recursive: true });
 
-  return new HybridPersistence(new DatabaseSync(join(databaseDir, "app.sqlite")), {
+  return new HybridPersistence({
     mailDatabasePath(mailAccountId) {
       return join(databaseDir, "mail", `${mailAccountId}.sqlite`);
     },
@@ -151,16 +142,9 @@ type HybridPersistenceOptions = {
 };
 
 export class HybridPersistence {
-  readonly app: AppDatabase;
-
   private readonly mailDatabases = new Map<string, MailDatabase>();
 
-  constructor(
-    appDatabase: DatabaseSync,
-    private readonly options: HybridPersistenceOptions = {},
-  ) {
-    this.app = new AppDatabase(appDatabase);
-  }
+  constructor(private readonly options: HybridPersistenceOptions = {}) {}
 
   mailDatabaseFor(mailAccountId: string): MailDatabase {
     const existing = this.mailDatabases.get(mailAccountId);
@@ -175,83 +159,6 @@ export class HybridPersistence {
     this.mailDatabases.set(mailAccountId, database);
 
     return database;
-  }
-}
-
-export class AppDatabase {
-  constructor(private readonly database: DatabaseSync) {
-    database.exec(`
-      CREATE TABLE IF NOT EXISTS mail_accounts (
-        id TEXT PRIMARY KEY,
-        email_address TEXT NOT NULL,
-        sync_status TEXT NOT NULL,
-        last_sync_started_at TEXT,
-        last_sync_finished_at TEXT,
-        last_error TEXT
-      )
-    `);
-  }
-
-  saveMailAccount(account: StoredMailAccount): void {
-    this.database
-      .prepare(`
-        INSERT INTO mail_accounts (
-          id,
-          email_address,
-          sync_status,
-          last_sync_started_at,
-          last_sync_finished_at,
-          last_error
-        )
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          email_address = excluded.email_address,
-          sync_status = excluded.sync_status,
-          last_sync_started_at = excluded.last_sync_started_at,
-          last_sync_finished_at = excluded.last_sync_finished_at,
-          last_error = excluded.last_error
-      `)
-      .run(
-        account.id,
-        account.emailAddress,
-        account.syncStatus,
-        account.lastSyncStartedAt ?? null,
-        account.lastSyncFinishedAt ?? null,
-        account.lastError ?? null,
-      );
-  }
-
-  listMailAccounts(): StoredMailAccount[] {
-    return this.database
-      .prepare(`
-        SELECT id, email_address, sync_status, last_sync_started_at, last_sync_finished_at, last_error
-        FROM mail_accounts
-        ORDER BY id
-      `)
-      .all()
-      .map((row) => {
-        const account = row as {
-          id: string;
-          email_address: string;
-          sync_status: AccountSyncStatus;
-          last_sync_started_at: string | null;
-          last_sync_finished_at: string | null;
-          last_error: string | null;
-        };
-
-        return {
-          id: account.id,
-          emailAddress: account.email_address,
-          syncStatus: account.sync_status,
-          ...(account.last_sync_started_at
-            ? { lastSyncStartedAt: account.last_sync_started_at }
-            : {}),
-          ...(account.last_sync_finished_at
-            ? { lastSyncFinishedAt: account.last_sync_finished_at }
-            : {}),
-          ...(account.last_error ? { lastError: account.last_error } : {}),
-        };
-      });
   }
 }
 

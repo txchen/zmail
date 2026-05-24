@@ -1,5 +1,6 @@
 import type { ConfiguredMailAccount } from "./config.js";
 import type {
+  AccountSyncStatus,
   AttachmentMetadata,
   HybridPersistence,
   StoredMailbox,
@@ -51,11 +52,21 @@ export type SyncMailboxTreesOptions = {
   client: MailboxSyncClient;
 };
 
+export type MailAccountSyncState = {
+  accountId: string;
+  syncStatus: AccountSyncStatus;
+  lastSyncStartedAt?: string;
+  lastSyncFinishedAt?: string;
+  lastError?: string;
+};
+
 export async function syncMailboxTrees({
   accounts,
   persistence,
   client,
-}: SyncMailboxTreesOptions): Promise<void> {
+}: SyncMailboxTreesOptions): Promise<MailAccountSyncState[]> {
+  const results: MailAccountSyncState[] = [];
+
   for (const account of accounts) {
     const lastSyncStartedAt = new Date().toISOString();
 
@@ -71,17 +82,15 @@ export async function syncMailboxTrees({
         });
       }
 
-      persistence.app.saveMailAccount({
-        id: account.id,
-        emailAddress: account.emailAddress,
+      results.push({
+        accountId: account.id,
         syncStatus: "synced",
         lastSyncStartedAt,
         lastSyncFinishedAt,
       });
     } catch (error) {
-      persistence.app.saveMailAccount({
-        id: account.id,
-        emailAddress: account.emailAddress,
+      results.push({
+        accountId: account.id,
         syncStatus: "failing",
         lastSyncStartedAt,
         lastSyncFinishedAt: new Date().toISOString(),
@@ -89,6 +98,8 @@ export async function syncMailboxTrees({
       });
     }
   }
+
+  return results;
 }
 
 function normalizeSystemMailboxRole(specialUse: string | undefined): SystemMailboxRole | undefined {

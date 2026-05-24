@@ -8,7 +8,7 @@ import {
   createHybridPersistence,
   type MailDatabase,
 } from "./persistence.js";
-import { syncMailboxTrees } from "./sync.js";
+import { syncMailboxTrees, type MailAccountSyncState } from "./sync.js";
 
 const sessionCookieName = "zmail_session";
 
@@ -23,6 +23,17 @@ export function createApp(config: AppConfig): Hono {
   const mailboxActionClient = config.mailboxActionClient;
   const attachmentDownloadClient = config.attachmentDownloadClient;
   const sessionTtlDays = config.appLogin.sessionTtlDays ?? 365;
+  const syncStates = new Map<string, MailAccountSyncState>();
+
+  function syncStateFor(accountId: string): MailAccountSyncState {
+    return syncStates.get(accountId) ?? { accountId, syncStatus: "stale" };
+  }
+
+  function saveSyncStates(states: MailAccountSyncState[]): void {
+    for (const state of states) {
+      syncStates.set(state.accountId, state);
+    }
+  }
 
   function sessionFromCookie(cookie: string | undefined): AppSession | undefined {
     const token = cookie
@@ -43,19 +54,14 @@ export function createApp(config: AppConfig): Hono {
   }
 
   function mailboxTreeResponse() {
-    const persistedAccountsById = new Map(
-      persistence.app.listMailAccounts().map((account) => [account.id, account]),
-    );
-
     return {
       mailAccounts: config.mailAccounts.map((configuredAccount) => {
-        const persistedAccount = persistedAccountsById.get(configuredAccount.id);
         const mailboxes = persistence.mailDatabaseFor(configuredAccount.id).listMailboxes();
 
         return {
           id: configuredAccount.id,
           emailAddress: configuredAccount.emailAddress,
-          syncStatus: persistedAccount?.syncStatus ?? "stale",
+          syncStatus: syncStateFor(configuredAccount.id).syncStatus,
           unreadCount: mailboxes.reduce((total, mailbox) => total + mailbox.unreadCount, 0),
           mailboxes,
         };
@@ -122,28 +128,26 @@ export function createApp(config: AppConfig): Hono {
 
   app.get("/ai-api/mail-accounts", (c) =>
     c.json({
-      mailAccounts: persistence.app.listMailAccounts().map(({ id, emailAddress, syncStatus }) => ({
+      mailAccounts: config.mailAccounts.map(({ id, emailAddress }) => ({
         id,
         emailAddress,
-        syncStatus,
+        syncStatus: syncStateFor(id).syncStatus,
       })),
     }),
   );
 
   app.get("/ai-api/messages/unread", (c) =>
     c.json({
-      messages: persistence.app
-        .listMailAccounts()
-        .flatMap((account) =>
-          persistence.mailDatabaseFor(account.id).listUnreadMessages(account.id),
-        ),
+      messages: config.mailAccounts.flatMap((account) =>
+        persistence.mailDatabaseFor(account.id).listUnreadMessages(account.id),
+      ),
     }),
   );
 
   app.get("/ai-api/messages/:stableIdentity", (c) => {
     const stableIdentity = c.req.param("stableIdentity");
 
-    for (const account of persistence.app.listMailAccounts()) {
+    for (const account of config.mailAccounts) {
       const message = persistence
         .mailDatabaseFor(account.id)
         .getMessageByStableIdentity(account.id, stableIdentity);
@@ -179,11 +183,12 @@ export function createApp(config: AppConfig): Hono {
       return c.json({ error: "Mail account not found" }, 404);
     }
 
-    await syncMailboxTrees({
+    const syncResults = await syncMailboxTrees({
       accounts: [account],
       persistence,
       client: mailboxSyncClient,
     });
+    saveSyncStates(syncResults);
 
     return c.json(mailboxTreeResponse());
   });
@@ -200,20 +205,14 @@ export function createApp(config: AppConfig): Hono {
       return c.json({ error: "Mail account not found" }, 404);
     }
 
-    const persistedAccount = persistence.app
-      .listMailAccounts()
-      .find((candidate) => candidate.id === accountId);
+    const syncState = syncStateFor(accountId);
 
     return c.json({
       accountId,
-      syncStatus: persistedAccount?.syncStatus ?? "stale",
-      ...(persistedAccount?.lastSyncStartedAt
-        ? { lastSyncStartedAt: persistedAccount.lastSyncStartedAt }
-        : {}),
-      ...(persistedAccount?.lastSyncFinishedAt
-        ? { lastSyncFinishedAt: persistedAccount.lastSyncFinishedAt }
-        : {}),
-      ...(persistedAccount?.lastError ? { lastError: persistedAccount.lastError } : {}),
+      syncStatus: syncState.syncStatus,
+      ...(syncState.lastSyncStartedAt ? { lastSyncStartedAt: syncState.lastSyncStartedAt } : {}),
+      ...(syncState.lastSyncFinishedAt ? { lastSyncFinishedAt: syncState.lastSyncFinishedAt } : {}),
+      ...(syncState.lastError ? { lastError: syncState.lastError } : {}),
     });
   });
 

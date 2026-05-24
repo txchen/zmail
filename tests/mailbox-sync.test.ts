@@ -46,23 +46,21 @@ describe("mailbox tree sync", () => {
       },
     };
 
-    await syncMailboxTrees({ accounts, persistence, client });
+    const syncResults = await syncMailboxTrees({ accounts, persistence, client });
 
     expect(connections).toEqual([
       { emailAddress: "me@example.com", appPassword: "personal-app-password" },
       { emailAddress: "me@work.example", appPassword: "work-app-password" },
     ]);
-    expect(persistence.app.listMailAccounts()).toMatchObject([
+    expect(syncResults).toMatchObject([
       {
-        id: "personal",
-        emailAddress: "me@example.com",
+        accountId: "personal",
         syncStatus: "synced",
         lastSyncStartedAt: expect.any(String),
         lastSyncFinishedAt: expect.any(String),
       },
       {
-        id: "work",
-        emailAddress: "me@work.example",
+        accountId: "work",
         syncStatus: "failing",
         lastSyncStartedAt: expect.any(String),
         lastSyncFinishedAt: expect.any(String),
@@ -165,7 +163,7 @@ describe("mailbox tree sync", () => {
         {
           id: "personal",
           emailAddress: "me@example.com",
-          syncStatus: "synced",
+          syncStatus: "stale",
           unreadCount: 4,
           mailboxes: [
             {
@@ -204,7 +202,7 @@ describe("mailbox tree sync", () => {
         {
           id: "personal",
           emailAddress: "me@example.com",
-          syncStatus: "synced",
+          syncStatus: "stale",
           unreadCount: 4,
           mailboxes: [
             {
@@ -593,7 +591,13 @@ describe("mailbox tree sync", () => {
     });
 
     expect(await (await app.request("/ai-api/mail-accounts")).json()).toEqual({
-      mailAccounts: [],
+      mailAccounts: [
+        {
+          id: "personal",
+          emailAddress: "me@example.com",
+          syncStatus: "stale",
+        },
+      ],
     });
   });
 

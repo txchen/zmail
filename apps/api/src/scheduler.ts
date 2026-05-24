@@ -37,9 +37,11 @@ export function createSyncScheduler({
       accounts: [account],
       persistence,
       client,
-    }).finally(() => {
-      activeSyncs.delete(account.id);
-    });
+    })
+      .then(() => undefined)
+      .finally(() => {
+        activeSyncs.delete(account.id);
+      });
     activeSyncs.set(account.id, sync);
 
     return sync;

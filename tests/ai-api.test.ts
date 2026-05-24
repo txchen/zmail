@@ -14,7 +14,7 @@ describe("read-only AI API", () => {
         {
           id: "personal",
           emailAddress: "me@example.com",
-          syncStatus: "synced",
+          syncStatus: "stale",
         },
       ],
     });
@@ -90,11 +90,6 @@ function createAiApiFixture() {
   const persistence = createHybridPersistence();
   const mailDatabase = persistence.mailDatabaseFor("personal");
 
-  persistence.app.saveMailAccount({
-    id: "personal",
-    emailAddress: "me@example.com",
-    syncStatus: "synced",
-  });
   mailDatabase.saveMessage({
     id: "message-1",
     stableIdentity: "gmail:personal:message-1",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../apps/api/src/app";
@@ -8,21 +8,9 @@ import {
   createHybridPersistence,
 } from "../apps/api/src/persistence";
 
-describe("hybrid SQLite persistence", () => {
-  it("stores app state once and keeps each Mail account in its own mail database", () => {
+describe("per-account SQLite persistence", () => {
+  it("keeps each Mail account in its own mail database", () => {
     const persistence = createHybridPersistence();
-
-    persistence.app.saveMailAccount({
-      id: "personal",
-      emailAddress: "me@example.com",
-      syncStatus: "syncing",
-    });
-    persistence.app.saveMailAccount({
-      id: "work",
-      emailAddress: "me@work.example",
-      syncStatus: "stale",
-    });
-
     const personal = persistence.mailDatabaseFor("personal");
     const work = persistence.mailDatabaseFor("work");
 
@@ -50,18 +38,6 @@ describe("hybrid SQLite persistence", () => {
       messageId: "message-1",
     });
 
-    expect(persistence.app.listMailAccounts()).toEqual([
-      {
-        id: "personal",
-        emailAddress: "me@example.com",
-        syncStatus: "syncing",
-      },
-      {
-        id: "work",
-        emailAddress: "me@work.example",
-        syncStatus: "stale",
-      },
-    ]);
     expect(personal.listMessagesWithMailboxEntries()).toEqual([
       {
         id: "message-1",
@@ -82,15 +58,10 @@ describe("hybrid SQLite persistence", () => {
     expect(work.listMessagesWithMailboxEntries()).toEqual([]);
   });
 
-  it("persists app state and per-account mail data to SQLite files", () => {
+  it("persists per-account mail data to SQLite files without app.sqlite", () => {
     const databaseDir = mkdtempSync(join(tmpdir(), "zmail-db-"));
     const persistence = createFileBackedHybridPersistence(databaseDir);
 
-    persistence.app.saveMailAccount({
-      id: "personal",
-      emailAddress: "me@example.com",
-      syncStatus: "synced",
-    });
     persistence.mailDatabaseFor("personal").saveMailbox({
       id: "inbox",
       name: "Inbox",
@@ -99,13 +70,7 @@ describe("hybrid SQLite persistence", () => {
 
     const reopened = createFileBackedHybridPersistence(databaseDir);
 
-    expect(reopened.app.listMailAccounts()).toEqual([
-      {
-        id: "personal",
-        emailAddress: "me@example.com",
-        syncStatus: "synced",
-      },
-    ]);
+    expect(existsSync(join(databaseDir, "app.sqlite"))).toBe(false);
     expect(reopened.mailDatabaseFor("personal").listMailboxes()).toEqual([
       {
         id: "inbox",
@@ -148,12 +113,7 @@ describe("hybrid SQLite persistence", () => {
     });
 
     const reopened = createFileBackedHybridPersistence(databaseDir);
-    expect(reopened.app.listMailAccounts()).toMatchObject([
-      {
-        id: "personal",
-        syncStatus: "synced",
-      },
-    ]);
+    expect(existsSync(join(databaseDir, "app.sqlite"))).toBe(false);
     expect(reopened.mailDatabaseFor("personal").listMailboxes()).toEqual([
       {
         id: "inbox",
