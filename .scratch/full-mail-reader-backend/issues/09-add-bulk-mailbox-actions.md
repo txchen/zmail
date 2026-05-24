@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Add bulk Mailbox actions
 
@@ -8,12 +8,12 @@ Add bulk execution for the existing six Mailbox actions: mark read, mark unread,
 
 ## Acceptance criteria
 
-- [ ] `POST /api/mail-accounts/:accountId/messages/actions` accepts an action and Message IDs.
-- [ ] Supported actions are exactly mark read, mark unread, archive, delete, star, and unstar.
-- [ ] Bulk action returns partial-success results with succeeded IDs and failed items.
-- [ ] Successful actions update the Local read model consistently with existing single-message actions.
-- [ ] Label management and move-to-mailbox actions are rejected.
-- [ ] Tests cover all six actions, partial failure, invalid action, unknown Message IDs, and unauthenticated access.
+- [x] `POST /api/mail-accounts/:accountId/messages/actions` accepts an action and Message IDs.
+- [x] Supported actions are exactly mark read, mark unread, archive, delete, star, and unstar.
+- [x] Bulk action returns partial-success results with succeeded IDs and failed items.
+- [x] Successful actions update the Local read model consistently with existing single-message actions.
+- [x] Label management and move-to-mailbox actions are rejected.
+- [x] Tests cover all six actions, partial failure, invalid action, unknown Message IDs, and unauthenticated access.
 
 ## Blocked by
 

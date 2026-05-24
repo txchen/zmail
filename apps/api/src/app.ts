@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { AppConfig, AppLogin } from "./config.js";
 import type { MailboxAction } from "./mailbox-actions.js";
-import { createHybridPersistence } from "./persistence.js";
+import { createHybridPersistence, type MailDatabase } from "./persistence.js";
 import { syncMailboxTrees } from "./sync.js";
 
 const sessionCookieName = "zmail_session";
@@ -401,6 +401,38 @@ export function createApp(config: AppConfig): Hono {
     }
   });
 
+  app.post("/api/mail-accounts/:accountId/messages/actions", async (c) => {
+    if (!isAuthenticated(c.req.header("cookie"))) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    if (!mailboxActionClient) {
+      return c.json({ error: "Mailbox actions are not configured" }, 503);
+    }
+
+    const accountId = c.req.param("accountId");
+    const body = await c.req.json<{ action: string; messageIds: string[] }>();
+
+    if (!isMailboxAction(body.action)) {
+      return c.json({ error: "Unsupported Mailbox action" }, 400);
+    }
+
+    const succeededIds: string[] = [];
+    const failed: Array<{ id: string; error: string }> = [];
+
+    for (const messageId of body.messageIds ?? []) {
+      const result = await performMailboxActionForMessage(accountId, messageId, body.action);
+
+      if (result.ok) {
+        succeededIds.push(messageId);
+      } else {
+        failed.push({ id: messageId, error: result.error });
+      }
+    }
+
+    return c.json({ succeededIds, failed });
+  });
+
   app.post("/api/mail-accounts/:accountId/messages/:messageId/actions", async (c) => {
     if (!isAuthenticated(c.req.header("cookie"))) {
       return c.json({ error: "Authentication required" }, 401);
@@ -462,6 +494,69 @@ export function createApp(config: AppConfig): Hono {
   });
 
   return app;
+
+  async function performMailboxActionForMessage(
+    accountId: string,
+    messageId: string,
+    action: MailboxAction,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const mailDatabase = persistence.mailDatabaseFor(accountId);
+
+    if (!mailDatabase.getMessage(accountId, messageId)) {
+      return { ok: false, error: "Message not found" };
+    }
+
+    const target = { accountId, messageId };
+
+    try {
+      await mailboxActionClient?.[action](target);
+    } catch {
+      return { ok: false, error: "Mailbox action failed" };
+    }
+
+    applyLocalMailboxAction(mailDatabase, messageId, action);
+
+    return { ok: true };
+  }
+}
+
+function isMailboxAction(action: string): action is MailboxAction {
+  return ["markRead", "markUnread", "archive", "delete", "star", "unstar"].includes(action);
+}
+
+function applyLocalMailboxAction(
+  mailDatabase: MailDatabase,
+  messageId: string,
+  action: MailboxAction,
+): void {
+  if (action === "markRead") {
+    mailDatabase.setMessageUnread(messageId, false);
+  }
+
+  if (action === "markUnread") {
+    mailDatabase.setMessageUnread(messageId, true);
+  }
+
+  if (action === "star") {
+    mailDatabase.setMessageStarred(messageId, true);
+  }
+
+  if (action === "unstar") {
+    mailDatabase.setMessageStarred(messageId, false);
+  }
+
+  if (action === "archive") {
+    mailDatabase.removeMailboxEntry(messageId, "inbox");
+  }
+
+  if (action === "delete") {
+    mailDatabase.removeMailboxEntry(messageId, "inbox");
+    mailDatabase.saveMailboxEntry({
+      id: `${messageId}:trash`,
+      mailboxId: "trash",
+      messageId,
+    });
+  }
 }
 
 export const app = createApp({

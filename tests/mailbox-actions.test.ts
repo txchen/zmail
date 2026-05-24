@@ -189,6 +189,69 @@ describe("MVP Mailbox actions", () => {
       { action: "unstar" },
     ]);
   });
+
+  it("performs bulk Mailbox actions with partial-success results", async () => {
+    const { app, cookie, persistence, actions } = await createActionFixture({
+      async archive(target) {
+        actions.push({ action: "archive", ...target });
+        if (target.messageId === "message-2") {
+          throw new Error("Gmail rejected archive");
+        }
+      },
+    });
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    mailDatabase.saveMessage({
+      id: "message-2",
+      stableIdentity: "gmail:personal:message-2",
+      subject: "Second",
+      receivedAt: "2026-05-23T11:00:00.000Z",
+      unread: true,
+      starred: false,
+      aiProcessed: false,
+      readableBody: "",
+      attachments: [],
+    });
+    mailDatabase.saveMailboxEntry({ id: "message-2:inbox", mailboxId: "inbox", messageId: "message-2" });
+
+    expect((await app.request("/api/mail-accounts/personal/messages/actions")).status).toBe(401);
+
+    for (const action of ["markRead", "markUnread", "star", "unstar", "delete"] as const) {
+      const response = await app.request("/api/mail-accounts/personal/messages/actions", {
+        method: "POST",
+        body: JSON.stringify({ action, messageIds: ["message-1"] }),
+        headers: { cookie, "content-type": "application/json" },
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ succeededIds: ["message-1"], failed: [] });
+    }
+
+    const partialResponse = await app.request("/api/mail-accounts/personal/messages/actions", {
+      method: "POST",
+      body: JSON.stringify({ action: "archive", messageIds: ["message-1", "message-2", "unknown"] }),
+      headers: { cookie, "content-type": "application/json" },
+    });
+    expect(partialResponse.status).toBe(200);
+    expect(await partialResponse.json()).toEqual({
+      succeededIds: ["message-1"],
+      failed: [
+        { id: "message-2", error: "Mailbox action failed" },
+        { id: "unknown", error: "Message not found" },
+      ],
+    });
+    expect(mailDatabase.getMessage("message-1")).toMatchObject({ unread: true, starred: false });
+    expect(mailDatabase.listMessagesForMailbox("inbox").messages.map((message) => message.id)).toEqual([
+      "message-2",
+    ]);
+
+    for (const action of ["label", "moveToMailbox"]) {
+      const response = await app.request("/api/mail-accounts/personal/messages/actions", {
+        method: "POST",
+        body: JSON.stringify({ action, messageIds: ["message-1"] }),
+        headers: { cookie, "content-type": "application/json" },
+      });
+      expect(response.status).toBe(400);
+    }
+  });
 });
 
 async function createActionFixture(overrides: Partial<MailboxActionClient> = {}) {
