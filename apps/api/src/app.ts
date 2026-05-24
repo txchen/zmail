@@ -62,6 +62,38 @@ export function createApp(config: AppConfig): Hono {
     });
   });
 
+  app.get("/ai-api/mail-accounts", (c) =>
+    c.json({
+      mailAccounts: persistence.app.listMailAccounts(),
+    }),
+  );
+
+  app.get("/ai-api/messages/unread", (c) =>
+    c.json({
+      messages: persistence.app
+        .listMailAccounts()
+        .flatMap((account) =>
+          persistence.mailDatabaseFor(account.id).listUnreadMessages(account.id),
+        ),
+    }),
+  );
+
+  app.get("/ai-api/messages/:stableIdentity", (c) => {
+    const stableIdentity = c.req.param("stableIdentity");
+
+    for (const account of persistence.app.listMailAccounts()) {
+      const message = persistence
+        .mailDatabaseFor(account.id)
+        .getMessageByStableIdentity(account.id, stableIdentity);
+
+      if (message) {
+        return c.json({ message });
+      }
+    }
+
+    return c.json({ error: "Message not found" }, 404);
+  });
+
   app.get("/api/mailbox-tree", (c) => {
     if (!isAuthenticated(c.req.header("cookie"))) {
       return c.json({ error: "Authentication required" }, 401);

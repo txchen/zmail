@@ -54,6 +54,14 @@ export type MailboxMessageSummary = Omit<StoredMessage, "aiProcessed" | "readabl
 
 export type MessageDetail = Omit<StoredMessage, "aiProcessed">;
 
+export type AiMessageSummary = Omit<StoredMessage, "aiProcessed" | "readableBody"> & {
+  mailAccountId: string;
+};
+
+export type AiMessageDetail = MessageDetail & {
+  mailAccountId: string;
+};
+
 export function createHybridPersistence(): HybridPersistence {
   return new HybridPersistence(new DatabaseSync(":memory:"));
 }
@@ -380,6 +388,79 @@ export class MailDatabase {
     }
 
     return {
+      id: row.id,
+      stableIdentity: row.stable_identity,
+      subject: row.subject,
+      receivedAt: row.received_at,
+      unread: Boolean(row.unread),
+      starred: Boolean(row.starred),
+      readableBody: row.readable_body,
+      attachments: JSON.parse(row.attachments_json) as AttachmentMetadata[],
+    };
+  }
+
+  listUnreadMessages(mailAccountId: string): AiMessageSummary[] {
+    return this.database
+      .prepare(`
+        SELECT id, stable_identity, subject, received_at, unread, starred, attachments_json
+        FROM messages
+        WHERE unread = 1
+        ORDER BY received_at DESC, id
+      `)
+      .all()
+      .map((row) => {
+        const message = row as {
+          id: string;
+          stable_identity: string;
+          subject: string;
+          received_at: string;
+          unread: number;
+          starred: number;
+          attachments_json: string;
+        };
+
+        return {
+          mailAccountId,
+          id: message.id,
+          stableIdentity: message.stable_identity,
+          subject: message.subject,
+          receivedAt: message.received_at,
+          unread: Boolean(message.unread),
+          starred: Boolean(message.starred),
+          attachments: JSON.parse(message.attachments_json) as AttachmentMetadata[],
+        };
+      });
+  }
+
+  getMessageByStableIdentity(
+    mailAccountId: string,
+    stableIdentity: string,
+  ): AiMessageDetail | null {
+    const row = this.database
+      .prepare(`
+        SELECT id, stable_identity, subject, received_at, unread, starred, readable_body, attachments_json
+        FROM messages
+        WHERE stable_identity = ?
+      `)
+      .get(stableIdentity) as
+      | {
+          id: string;
+          stable_identity: string;
+          subject: string;
+          received_at: string;
+          unread: number;
+          starred: number;
+          readable_body: string;
+          attachments_json: string;
+        }
+      | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      mailAccountId,
       id: row.id,
       stableIdentity: row.stable_identity,
       subject: row.subject,
