@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Build Message list views and per-account Search
 
@@ -12,14 +12,14 @@ Build the shared Message list behavior for Account unread view, Mailbox view, an
 
 ## Acceptance criteria
 
-- [ ] Account unread view lists unread Messages for one Mail account.
-- [ ] Mailbox view lists Messages for the selected Mailbox.
-- [ ] Search submits a query for the selected Mail account and routes to a Search result view.
-- [ ] Search result view searches across the selected Mail account's synced Messages, not just the current Mailbox.
-- [ ] Search never mixes results across Mail accounts.
-- [ ] Clearing Search returns to the previous Mailbox or Account unread view.
-- [ ] Message lists show individual Messages, not thread groups.
-- [ ] Loading, error, and empty states are visible and understandable.
+- [x] Account unread view lists unread Messages for one Mail account.
+- [x] Mailbox view lists Messages for the selected Mailbox.
+- [x] Search submits a query for the selected Mail account and routes to a Search result view.
+- [x] Search result view searches across the selected Mail account's synced Messages, not just the current Mailbox.
+- [x] Search never mixes results across Mail accounts.
+- [x] Clearing Search returns to the previous Mailbox or Account unread view.
+- [x] Message lists show individual Messages, not thread groups.
+- [x] Loading, error, and empty states are visible and understandable.
 
 ## Blocked by
 

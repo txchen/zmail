@@ -4,6 +4,11 @@ import type { ConfiguredMailAccount } from "../apps/api/src/config";
 import { createHybridPersistence } from "../apps/api/src/persistence";
 import type { MessageSyncClient } from "../apps/api/src/sync";
 import { syncRecentMessages } from "../apps/api/src/sync";
+import {
+  fetchMessagesForMailbox,
+  fetchUnreadMessagesForAccount,
+  searchMessagesForAccount,
+} from "../apps/web/src/api";
 
 describe("recent Message sync", () => {
   it("applies the default Sync window and stores one Message with multiple Mailbox entries", async () => {
@@ -612,5 +617,32 @@ describe("recent Message sync", () => {
 
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: "Attachment download failed" });
+  });
+
+  it("lets the web app fetch Mailbox, Account unread, and Search Message list views", async () => {
+    const requests: Array<string | URL | Request> = [];
+    const fetcher = async (path: string | URL | Request): Promise<Response> => {
+      requests.push(path);
+
+      return Response.json({ messages: [] });
+    };
+
+    await expect(fetchMessagesForMailbox("personal", "inbox", fetcher)).resolves.toEqual({
+      messages: [],
+    });
+    await expect(fetchUnreadMessagesForAccount("personal", fetcher)).resolves.toEqual({
+      messages: [],
+    });
+    await expect(
+      searchMessagesForAccount("personal", "quarterly invoice", fetcher),
+    ).resolves.toEqual({
+      messages: [],
+    });
+
+    expect(requests).toEqual([
+      "/api/mail-accounts/personal/mailboxes/inbox/messages",
+      "/api/mail-accounts/personal/messages/unread",
+      "/api/mail-accounts/personal/messages/search?q=quarterly%20invoice",
+    ]);
   });
 });

@@ -202,7 +202,10 @@ watch(
   (fullPath) => {
     showRemoteImages.value = false;
 
-    if (readerRoute.value.kind !== "none" && !readerRoute.value.messageId) {
+    if (
+      (readerRoute.value.kind === "unread" || readerRoute.value.kind === "mailbox") &&
+      !readerRoute.value.messageId
+    ) {
       lastListRouteByAccount.value.set(readerRoute.value.accountId, fullPath);
     }
 
