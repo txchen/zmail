@@ -36,12 +36,6 @@ export type AttachmentDownloadClient = {
 
 type Env = Record<string, string | undefined>;
 
-type ConfigFileMailAccount = {
-  id: string;
-  email_address: string;
-  app_password: string;
-};
-
 export function loadConfig(env: Env = process.env): AppConfig {
   return loadConfigFromFile(resolveConfigPath(env));
 }
@@ -50,7 +44,9 @@ export function loadConfigFromFile(path: string): AppConfig {
   let parsed: unknown;
 
   if (!existsSync(path)) {
-    throw new Error(`Missing App configuration file at ${path}. Copy zmail.toml.example to zmail.toml.`);
+    throw new Error(
+      `Missing App configuration file at ${path}. Copy zmail.toml.example to zmail.toml.`,
+    );
   }
 
   try {
@@ -90,10 +86,7 @@ function parseConfigFile(value: unknown): AppConfig {
 
   const username = requireString(value.app_login.username, "app_login.username");
   const password = requireString(value.app_login.password, "app_login.password");
-  const sessionSecret = requireString(
-    value.app_login.session_secret,
-    "app_login.session_secret",
-  );
+  const sessionSecret = requireString(value.app_login.session_secret, "app_login.session_secret");
   const sessionTtlDays = optionalIntegerInRange(
     value.app_login.session_ttl_days,
     "app_login.session_ttl_days",

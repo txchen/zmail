@@ -14,4 +14,7 @@ const router = createRouter({
   ],
 });
 
-createApp({ render: () => h(App) }).use(router).use(VueQueryPlugin).mount("#app");
+createApp({ render: () => h(App) })
+  .use(router)
+  .use(VueQueryPlugin)
+  .mount("#app");

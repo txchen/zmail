@@ -81,7 +81,9 @@ describe("MVP Mailbox actions", () => {
     expect(persistence.mailDatabaseFor("personal").getMessage("message-1")).toMatchObject({
       id: "message-1",
     });
-    expect(persistence.mailDatabaseFor("personal").listMessagesForMailbox("inbox").messages).toEqual([]);
+    expect(
+      persistence.mailDatabaseFor("personal").listMessagesForMailbox("inbox").messages,
+    ).toEqual([]);
   });
 
   it("deletes by moving the Message to Trash without permanently deleting it", async () => {
@@ -98,7 +100,9 @@ describe("MVP Mailbox actions", () => {
     expect(persistence.mailDatabaseFor("personal").getMessage("message-1")).toMatchObject({
       id: "message-1",
     });
-    expect(persistence.mailDatabaseFor("personal").listMessagesForMailbox("trash").messages).toEqual([
+    expect(
+      persistence.mailDatabaseFor("personal").listMessagesForMailbox("trash").messages,
+    ).toEqual([
       expect.objectContaining({
         id: "message-1",
         mailboxIds: ["trash"],
@@ -211,7 +215,11 @@ describe("MVP Mailbox actions", () => {
       readableBody: "",
       attachments: [],
     });
-    mailDatabase.saveMailboxEntry({ id: "message-2:inbox", mailboxId: "inbox", messageId: "message-2" });
+    mailDatabase.saveMailboxEntry({
+      id: "message-2:inbox",
+      mailboxId: "inbox",
+      messageId: "message-2",
+    });
 
     expect((await app.request("/api/mail-accounts/personal/messages/actions")).status).toBe(401);
 
@@ -227,7 +235,10 @@ describe("MVP Mailbox actions", () => {
 
     const partialResponse = await app.request("/api/mail-accounts/personal/messages/actions", {
       method: "POST",
-      body: JSON.stringify({ action: "archive", messageIds: ["message-1", "message-2", "unknown"] }),
+      body: JSON.stringify({
+        action: "archive",
+        messageIds: ["message-1", "message-2", "unknown"],
+      }),
       headers: { cookie, "content-type": "application/json" },
     });
     expect(partialResponse.status).toBe(200);
@@ -239,9 +250,9 @@ describe("MVP Mailbox actions", () => {
       ],
     });
     expect(mailDatabase.getMessage("message-1")).toMatchObject({ unread: true, starred: false });
-    expect(mailDatabase.listMessagesForMailbox("inbox").messages.map((message) => message.id)).toEqual([
-      "message-2",
-    ]);
+    expect(
+      mailDatabase.listMessagesForMailbox("inbox").messages.map((message) => message.id),
+    ).toEqual(["message-2"]);
 
     for (const action of ["label", "moveToMailbox"]) {
       const response = await app.request("/api/mail-accounts/personal/messages/actions", {

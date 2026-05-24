@@ -222,7 +222,9 @@ export class AppDatabase {
           id: account.id,
           emailAddress: account.email_address,
           syncStatus: account.sync_status,
-          ...(account.last_sync_started_at ? { lastSyncStartedAt: account.last_sync_started_at } : {}),
+          ...(account.last_sync_started_at
+            ? { lastSyncStartedAt: account.last_sync_started_at }
+            : {}),
           ...(account.last_sync_finished_at
             ? { lastSyncFinishedAt: account.last_sync_finished_at }
             : {}),
@@ -783,7 +785,10 @@ function matchesMessageFilters(message: MessageSummary, filters: MessageFilters 
     return false;
   }
 
-  if (filters.hasAttachments !== undefined && (message.attachmentCount > 0) !== filters.hasAttachments) {
+  if (
+    filters.hasAttachments !== undefined &&
+    message.attachmentCount > 0 !== filters.hasAttachments
+  ) {
     return false;
   }
 

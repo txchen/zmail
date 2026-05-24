@@ -20,7 +20,7 @@ Add verification coverage for the real Mail reader UI and resolve the repo-level
 - [ ] When seeded Message data is available, smoke coverage verifies opening a Message, remote-image blocking, and the MVP Mailbox actions.
 - [ ] `vp run typecheck` passes.
 - [ ] `vp test` passes.
-- [ ] `vp check` runs successfully or has a separate documented issue explaining the formatter-config startup failure.
+- [x] `vp check` runs successfully or has a separate documented issue explaining the formatter-config startup failure.
 
 ## Blocked by
 

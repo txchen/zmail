@@ -16,12 +16,12 @@ describe("API documentation", () => {
       "MailboxMessagesResponse",
       "MessageResponse",
     ] satisfies Array<
-      | keyof {
-          MailAccountsResponse: MailAccountsResponse;
-          MailboxTreeResponse: MailboxTreeResponse;
-          MailboxMessagesResponse: MailboxMessagesResponse;
-          MessageResponse: MessageResponse;
-        }
+      keyof {
+        MailAccountsResponse: MailAccountsResponse;
+        MailboxTreeResponse: MailboxTreeResponse;
+        MailboxMessagesResponse: MailboxMessagesResponse;
+        MessageResponse: MessageResponse;
+      }
     >;
 
     for (const typeName of exportedTypeNames) {

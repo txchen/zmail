@@ -24,12 +24,13 @@ import {
   searchMessagesForAccount,
 } from "./api";
 import { renderReadableMessage } from "./message-rendering";
-
-type ReaderRoute =
-  | { kind: "unread"; accountId: string; messageId?: string }
-  | { kind: "mailbox"; accountId: string; mailboxId: string; messageId?: string }
-  | { kind: "search"; accountId: string; query: string; messageId?: string }
-  | { kind: "none" };
+import {
+  mailboxPath,
+  messagePath,
+  parseReaderRoute,
+  searchPath,
+  unreadPath,
+} from "./reader-routes";
 
 const route = useRoute();
 const router = useRouter();
@@ -97,7 +98,9 @@ const messages = computed(() => messageListQuery.data.value?.messages ?? []);
 const messageDetailQuery = useQuery({
   queryKey: computed(() => ["message-detail", selectedAccountId.value, selectedMessageId.value]),
   queryFn: () => fetchMessage(selectedAccountId.value, selectedMessageId.value),
-  enabled: computed(() => authenticated.value && !!selectedAccountId.value && !!selectedMessageId.value),
+  enabled: computed(
+    () => authenticated.value && !!selectedAccountId.value && !!selectedMessageId.value,
+  ),
 });
 
 const selectedMessage = computed<MessageDetail | null>(
@@ -193,76 +196,14 @@ watch(
     }
 
     searchDraft.value = readerRoute.value.kind === "search" ? readerRoute.value.query : "";
-    mobilePane.value = readerRoute.value.kind === "none" ? "nav" : selectedMessageId.value ? "message" : "list";
+    mobilePane.value =
+      readerRoute.value.kind === "none" ? "nav" : selectedMessageId.value ? "message" : "list";
   },
   { immediate: true },
 );
 
-function parseReaderRoute(path: string, query: Record<string, unknown>): ReaderRoute {
-  const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
-
-  if (parts[0] !== "accounts" || !parts[1]) {
-    return { kind: "none" };
-  }
-
-  const accountId = parts[1];
-
-  if (parts[2] === "unread") {
-    return { kind: "unread", accountId, messageId: parts[4] === "messages" ? parts[5] : undefined };
-  }
-
-  if (parts[2] === "mailboxes" && parts[3]) {
-    return {
-      kind: "mailbox",
-      accountId,
-      mailboxId: parts[3],
-      messageId: parts[5] === undefined ? undefined : parts[5],
-    };
-  }
-
-  if (parts[2] === "search") {
-    const q = typeof query.q === "string" ? query.q : "";
-    return {
-      kind: "search",
-      accountId,
-      query: q.trim(),
-      messageId: parts[4] === "messages" ? parts[5] : undefined,
-    };
-  }
-
-  return { kind: "none" };
-}
-
 async function submitLogin() {
   await loginMutation.mutateAsync();
-}
-
-function unreadPath(accountId: string): string {
-  return `/accounts/${encodeURIComponent(accountId)}/unread`;
-}
-
-function mailboxPath(accountId: string, mailboxId: string): string {
-  return `/accounts/${encodeURIComponent(accountId)}/mailboxes/${encodeURIComponent(mailboxId)}`;
-}
-
-function messagePath(messageId: string): string {
-  const current = readerRoute.value;
-
-  if (current.kind === "unread") {
-    return `${unreadPath(current.accountId)}/messages/${encodeURIComponent(messageId)}`;
-  }
-
-  if (current.kind === "mailbox") {
-    return `${mailboxPath(current.accountId, current.mailboxId)}/messages/${encodeURIComponent(messageId)}`;
-  }
-
-  if (current.kind === "search") {
-    return `/accounts/${encodeURIComponent(current.accountId)}/search/messages/${encodeURIComponent(
-      messageId,
-    )}?q=${encodeURIComponent(current.query)}`;
-  }
-
-  return route.fullPath;
 }
 
 async function selectList(path: string) {
@@ -271,7 +212,7 @@ async function selectList(path: string) {
 }
 
 async function selectMessage(messageId: string) {
-  await router.push(messagePath(messageId));
+  await router.push(messagePath(readerRoute.value, messageId, route.fullPath));
   mobilePane.value = "message";
 }
 
@@ -282,14 +223,16 @@ async function submitSearch() {
     return;
   }
 
-  await router.push(`/accounts/${encodeURIComponent(selectedAccountId.value)}/search?q=${encodeURIComponent(query)}`);
+  await router.push(searchPath(selectedAccountId.value, query));
 }
 
 async function clearSearch() {
   const previous = selectedAccountId.value
     ? lastListRouteByAccount.value.get(selectedAccountId.value)
     : undefined;
-  await router.push(previous ?? (selectedAccountId.value ? unreadPath(selectedAccountId.value) : "/"));
+  await router.push(
+    previous ?? (selectedAccountId.value ? unreadPath(selectedAccountId.value) : "/"),
+  );
 }
 
 function openDiagnostics(accountId: string) {
@@ -314,7 +257,7 @@ function openAdjacentMessage(messageId: string) {
   const adjacent = messages.value[index + 1] ?? messages.value[index - 1];
 
   if (adjacent) {
-    void router.replace(messagePath(adjacent.id));
+    void router.replace(messagePath(readerRoute.value, adjacent.id, route.fullPath));
     return;
   }
 
@@ -323,7 +266,7 @@ function openAdjacentMessage(messageId: string) {
   } else if (readerRoute.value.kind === "mailbox") {
     void router.replace(mailboxPath(readerRoute.value.accountId, readerRoute.value.mailboxId));
   } else if (readerRoute.value.kind === "search") {
-    void router.replace(`/accounts/${encodeURIComponent(readerRoute.value.accountId)}/search?q=${encodeURIComponent(readerRoute.value.query)}`);
+    void router.replace(searchPath(readerRoute.value.accountId, readerRoute.value.query));
   }
 }
 
@@ -386,7 +329,9 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
     </section>
 
     <section v-else class="flex h-screen min-h-0 flex-col">
-      <header class="flex h-14 shrink-0 items-center justify-between border-b border-stone-200 bg-white px-4">
+      <header
+        class="flex h-14 shrink-0 items-center justify-between border-b border-stone-200 bg-white px-4"
+      >
         <div class="min-w-0">
           <p class="text-sm font-semibold">Zmail</p>
           <p class="truncate text-xs text-slate-500">
@@ -394,7 +339,9 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
           </p>
         </div>
         <div class="flex items-center gap-2">
-          <UBadge color="neutral" variant="subtle">{{ healthQuery.data.value?.status ?? "api" }}</UBadge>
+          <UBadge color="neutral" variant="subtle">{{
+            healthQuery.data.value?.status ?? "api"
+          }}</UBadge>
           <UButton
             color="neutral"
             icon="i-lucide-log-out"
@@ -409,7 +356,9 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
       <div v-if="mailAccounts.length === 0" class="grid flex-1 place-items-center px-6 text-center">
         <div>
           <h2 class="text-xl font-semibold">No mail accounts synced yet</h2>
-          <p class="mt-2 text-sm text-slate-600">Configure a Mail account and refresh the reader.</p>
+          <p class="mt-2 text-sm text-slate-600">
+            Configure a Mail account and refresh the reader.
+          </p>
         </div>
       </div>
 
@@ -426,12 +375,20 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
             <div class="min-h-0 flex-1 overflow-y-auto p-3">
               <div v-for="account in mailAccounts" :key="account.id" class="mb-4">
                 <div class="flex items-start justify-between gap-2 px-2">
-                  <button class="min-w-0 text-left" type="button" @click="selectList(unreadPath(account.id))">
+                  <button
+                    class="min-w-0 text-left"
+                    type="button"
+                    @click="selectList(unreadPath(account.id))"
+                  >
                     <span class="block truncate text-sm font-semibold">{{ account.id }}</span>
-                    <span class="block truncate text-xs text-slate-500">{{ account.emailAddress }}</span>
+                    <span class="block truncate text-xs text-slate-500">{{
+                      account.emailAddress
+                    }}</span>
                   </button>
                   <div class="flex shrink-0 items-center gap-1">
-                    <UBadge color="neutral" size="sm" variant="subtle">{{ account.unreadCount }}</UBadge>
+                    <UBadge color="neutral" size="sm" variant="subtle">{{
+                      account.unreadCount
+                    }}</UBadge>
                     <UButton
                       color="neutral"
                       icon="i-lucide-refresh-cw"
@@ -453,12 +410,18 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
                 </div>
                 <button
                   class="mt-2 flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm hover:bg-stone-100"
-                  :class="readerRoute.kind === 'unread' && readerRoute.accountId === account.id ? 'bg-stone-200' : ''"
+                  :class="
+                    readerRoute.kind === 'unread' && readerRoute.accountId === account.id
+                      ? 'bg-stone-200'
+                      : ''
+                  "
                   type="button"
                   @click="selectList(unreadPath(account.id))"
                 >
                   <span>Unread</span>
-                  <UBadge color="neutral" size="sm" variant="subtle">{{ account.unreadCount }}</UBadge>
+                  <UBadge color="neutral" size="sm" variant="subtle">{{
+                    account.unreadCount
+                  }}</UBadge>
                 </button>
                 <div class="mt-1 space-y-1">
                   <button
@@ -476,7 +439,9 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
                     @click="selectList(mailboxPath(account.id, mailbox.id))"
                   >
                     <span class="truncate">{{ mailbox.name }}</span>
-                    <UBadge color="neutral" size="sm" variant="subtle">{{ mailbox.unreadCount }}</UBadge>
+                    <UBadge color="neutral" size="sm" variant="subtle">{{
+                      mailbox.unreadCount
+                    }}</UBadge>
                   </button>
                 </div>
               </div>
@@ -492,7 +457,13 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
           <div class="flex h-full flex-col">
             <div class="space-y-3 border-b border-stone-200 bg-white p-3">
               <div class="flex items-center gap-2 lg:hidden">
-                <UButton color="neutral" icon="i-lucide-menu" square variant="ghost" @click="mobilePane = 'nav'" />
+                <UButton
+                  color="neutral"
+                  icon="i-lucide-menu"
+                  square
+                  variant="ghost"
+                  @click="mobilePane = 'nav'"
+                />
                 <span class="text-sm font-medium">Messages</span>
               </div>
               <form class="flex gap-2" @submit.prevent="submitSearch">
@@ -518,7 +489,9 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
                 <template v-else-if="readerRoute.kind === 'mailbox' && selectedAccount">
                   {{ mailboxLabel(selectedAccount, readerRoute.mailboxId) }}
                 </template>
-                <template v-else-if="readerRoute.kind === 'search'">Search results for "{{ readerRoute.query }}"</template>
+                <template v-else-if="readerRoute.kind === 'search'"
+                  >Search results for "{{ readerRoute.query }}"</template
+                >
               </p>
             </div>
 
@@ -546,10 +519,15 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
                 @click="selectMessage(message.id)"
               >
                 <div class="flex items-center justify-between gap-3">
-                  <span class="truncate text-sm" :class="message.unread ? 'font-semibold' : 'font-medium'">
+                  <span
+                    class="truncate text-sm"
+                    :class="message.unread ? 'font-semibold' : 'font-medium'"
+                  >
                     {{ senderLabel(message) }}
                   </span>
-                  <span class="shrink-0 text-xs text-slate-500">{{ formatDate(message.receivedAt) }}</span>
+                  <span class="shrink-0 text-xs text-slate-500">{{
+                    formatDate(message.receivedAt)
+                  }}</span>
                 </div>
                 <p class="mt-1 truncate text-sm" :class="message.unread ? 'font-semibold' : ''">
                   {{ message.subject || "(No subject)" }}
@@ -585,10 +563,20 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
                 >
                   {{ selectedMessage.unread ? "Mark read" : "Mark unread" }}
                 </UButton>
-                <UButton color="neutral" icon="i-lucide-archive" variant="ghost" @click="runMailboxAction('archive')">
+                <UButton
+                  color="neutral"
+                  icon="i-lucide-archive"
+                  variant="ghost"
+                  @click="runMailboxAction('archive')"
+                >
                   Archive
                 </UButton>
-                <UButton color="neutral" icon="i-lucide-trash-2" variant="ghost" @click="runMailboxAction('delete')">
+                <UButton
+                  color="neutral"
+                  icon="i-lucide-trash-2"
+                  variant="ghost"
+                  @click="runMailboxAction('delete')"
+                >
                   Delete
                 </UButton>
                 <UButton
@@ -606,11 +594,16 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
               <div v-if="messageDetailQuery.isLoading.value" class="p-6 text-sm text-slate-500">
                 Loading message...
               </div>
-              <div v-else-if="!selectedMessage" class="grid h-full place-items-center p-6 text-center text-sm text-slate-500">
+              <div
+                v-else-if="!selectedMessage"
+                class="grid h-full place-items-center p-6 text-center text-sm text-slate-500"
+              >
                 Select a Message to read.
               </div>
               <div v-else-if="renderedMessage" class="mx-auto max-w-4xl px-5 py-6">
-                <h1 class="text-2xl font-semibold tracking-normal">{{ selectedMessage.subject || "(No subject)" }}</h1>
+                <h1 class="text-2xl font-semibold tracking-normal">
+                  {{ selectedMessage.subject || "(No subject)" }}
+                </h1>
                 <div class="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
                   <span>{{ senderLabel(selectedMessage) }}</span>
                   <span>{{ selectedMessage.sender.address }}</span>
@@ -625,11 +618,16 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
                   :description="`${renderedMessage.blockedRemoteImageCount} remote image(s) blocked for privacy.`"
                 >
                   <template #actions>
-                    <UButton color="neutral" size="sm" @click="showRemoteImages = true">Show images</UButton>
+                    <UButton color="neutral" size="sm" @click="showRemoteImages = true"
+                      >Show images</UButton
+                    >
                   </template>
                 </UAlert>
                 <div class="message-body mt-6" v-html="renderedMessage.html"></div>
-                <div v-if="selectedMessage.attachments.length" class="mt-6 border-t border-stone-200 pt-4">
+                <div
+                  v-if="selectedMessage.attachments.length"
+                  class="mt-6 border-t border-stone-200 pt-4"
+                >
                   <h2 class="text-sm font-semibold">Attachments</h2>
                   <ul class="mt-2 space-y-2">
                     <li
@@ -637,7 +635,8 @@ function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): strin
                       :key="attachment.id"
                       class="rounded-md border border-stone-200 px-3 py-2 text-sm"
                     >
-                      {{ attachment.filename }} · {{ attachment.mimeType }} · {{ attachment.sizeBytes }} bytes
+                      {{ attachment.filename }} · {{ attachment.mimeType }} ·
+                      {{ attachment.sizeBytes }} bytes
                     </li>
                   </ul>
                 </div>

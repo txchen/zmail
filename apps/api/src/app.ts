@@ -323,17 +323,20 @@ export function createApp(config: AppConfig): Hono {
     }
 
     return c.json(
-      paginateMessageSummaries(persistence.mailDatabaseFor(accountId).searchMessages(accountId, query), {
-        limit: parseLimit(c.req.query("limit")),
-        ...(cursor ? { cursor } : {}),
-        filters: {
-          starred: parseBooleanQuery(c.req.query("starred")),
-          hasAttachments: parseBooleanQuery(c.req.query("hasAttachments")),
-          from: c.req.query("from"),
-          after: c.req.query("after"),
-          before: c.req.query("before"),
+      paginateMessageSummaries(
+        persistence.mailDatabaseFor(accountId).searchMessages(accountId, query),
+        {
+          limit: parseLimit(c.req.query("limit")),
+          ...(cursor ? { cursor } : {}),
+          filters: {
+            starred: parseBooleanQuery(c.req.query("starred")),
+            hasAttachments: parseBooleanQuery(c.req.query("hasAttachments")),
+            from: c.req.query("from"),
+            after: c.req.query("after"),
+            before: c.req.query("before"),
+          },
         },
-      }),
+      ),
     );
   });
 
@@ -353,53 +356,56 @@ export function createApp(config: AppConfig): Hono {
     return c.json({ message });
   });
 
-  app.get("/api/mail-accounts/:accountId/messages/:messageId/attachments/:attachmentId", async (c) => {
-    if (!isAuthenticated(c.req.header("cookie"))) {
-      return c.json({ error: "Authentication required" }, 401);
-    }
+  app.get(
+    "/api/mail-accounts/:accountId/messages/:messageId/attachments/:attachmentId",
+    async (c) => {
+      if (!isAuthenticated(c.req.header("cookie"))) {
+        return c.json({ error: "Authentication required" }, 401);
+      }
 
-    if (!attachmentDownloadClient) {
-      return c.json({ error: "Attachment download is not configured" }, 503);
-    }
+      if (!attachmentDownloadClient) {
+        return c.json({ error: "Attachment download is not configured" }, 503);
+      }
 
-    const accountId = c.req.param("accountId");
-    if (!config.mailAccounts.some((account) => account.id === accountId)) {
-      return c.json({ error: "Mail account not found" }, 404);
-    }
+      const accountId = c.req.param("accountId");
+      if (!config.mailAccounts.some((account) => account.id === accountId)) {
+        return c.json({ error: "Mail account not found" }, 404);
+      }
 
-    const messageId = c.req.param("messageId");
-    const attachmentId = c.req.param("attachmentId");
-    const message = persistence.mailDatabaseFor(accountId).getMessage(accountId, messageId);
+      const messageId = c.req.param("messageId");
+      const attachmentId = c.req.param("attachmentId");
+      const message = persistence.mailDatabaseFor(accountId).getMessage(accountId, messageId);
 
-    if (!message) {
-      return c.json({ error: "Message not found" }, 404);
-    }
+      if (!message) {
+        return c.json({ error: "Message not found" }, 404);
+      }
 
-    const attachment = message.attachments.find((candidate) => candidate.id === attachmentId);
-    if (!attachment) {
-      return c.json({ error: "Attachment not found" }, 404);
-    }
+      const attachment = message.attachments.find((candidate) => candidate.id === attachmentId);
+      if (!attachment) {
+        return c.json({ error: "Attachment not found" }, 404);
+      }
 
-    try {
-      const bytes = await attachmentDownloadClient.downloadAttachment({
-        accountId,
-        messageId,
-        attachmentId,
-      });
+      try {
+        const bytes = await attachmentDownloadClient.downloadAttachment({
+          accountId,
+          messageId,
+          attachmentId,
+        });
 
-      const body = new ArrayBuffer(bytes.byteLength);
-      new Uint8Array(body).set(bytes);
+        const body = new ArrayBuffer(bytes.byteLength);
+        new Uint8Array(body).set(bytes);
 
-      return new Response(body, {
-        headers: {
-          "content-type": attachment.mimeType,
-          "content-disposition": `attachment; filename="${attachment.filename}"`,
-        },
-      });
-    } catch {
-      return c.json({ error: "Attachment download failed" }, 502);
-    }
-  });
+        return new Response(body, {
+          headers: {
+            "content-type": attachment.mimeType,
+            "content-disposition": `attachment; filename="${attachment.filename}"`,
+          },
+        });
+      } catch {
+        return c.json({ error: "Attachment download failed" }, 502);
+      }
+    },
+  );
 
   app.post("/api/mail-accounts/:accountId/messages/actions", async (c) => {
     if (!isAuthenticated(c.req.header("cookie"))) {
@@ -596,7 +602,9 @@ function verifySessionToken(token: string, secret: string): AppSession | undefin
   let parsed: Partial<AppSession>;
 
   try {
-    parsed = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as Partial<AppSession>;
+    parsed = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8"),
+    ) as Partial<AppSession>;
   } catch {
     return undefined;
   }
@@ -706,11 +714,14 @@ function paginateMessageSummaries<T extends MessageSummaryLike>(
 ): { messages: T[]; nextCursor?: string } {
   const limit = Math.min(options.limit ?? 50, 200);
   const filtered = messages
-    .filter((message) => options.filters?.starred === undefined || message.starred === options.filters.starred)
+    .filter(
+      (message) =>
+        options.filters?.starred === undefined || message.starred === options.filters.starred,
+    )
     .filter(
       (message) =>
         options.filters?.hasAttachments === undefined ||
-        (message.attachmentCount > 0) === options.filters.hasAttachments,
+        message.attachmentCount > 0 === options.filters.hasAttachments,
     )
     .filter(
       (message) =>

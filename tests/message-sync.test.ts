@@ -283,9 +283,9 @@ describe("recent Message sync", () => {
       `/api/mail-accounts/personal/mailboxes/inbox/messages?cursor=${encodeURIComponent(firstPageBody.nextCursor)}`,
       { headers: { cookie } },
     );
-    expect((await secondPage.json()).messages.map((message: { id: string }) => message.id)).toEqual([
-      "message-1",
-    ]);
+    expect((await secondPage.json()).messages.map((message: { id: string }) => message.id)).toEqual(
+      ["message-1"],
+    );
 
     const filtered = await app.request(
       "/api/mail-accounts/personal/mailboxes/inbox/messages?unread=true&starred=true&hasAttachments=true&from=alerts@example.com&after=2026-05-23T00:00:00.000Z&before=2026-05-24T00:00:00.000Z",
@@ -453,16 +453,19 @@ describe("recent Message sync", () => {
     });
     const cookie = loginResponse.headers.get("set-cookie") ?? "";
 
-    expect((await app.request("/api/mail-accounts/personal/messages/search?q=quarterly")).status).toBe(
-      401,
-    );
+    expect(
+      (await app.request("/api/mail-accounts/personal/messages/search?q=quarterly")).status,
+    ).toBe(401);
     expect(
       (await app.request("/api/mail-accounts/personal/messages/search", { headers: { cookie } }))
         .status,
     ).toBe(400);
     expect(
-      (await app.request("/api/mail-accounts/unknown/messages/search?q=quarterly", { headers: { cookie } }))
-        .status,
+      (
+        await app.request("/api/mail-accounts/unknown/messages/search?q=quarterly", {
+          headers: { cookie },
+        })
+      ).status,
     ).toBe(404);
 
     const firstPage = await app.request(
@@ -535,11 +538,8 @@ describe("recent Message sync", () => {
     const cookie = loginResponse.headers.get("set-cookie") ?? "";
 
     expect(
-      (
-        await app.request(
-          "/api/mail-accounts/personal/messages/message-1/attachments/attachment-1",
-        )
-      ).status,
+      (await app.request("/api/mail-accounts/personal/messages/message-1/attachments/attachment-1"))
+        .status,
     ).toBe(401);
 
     const response = await app.request(
@@ -556,18 +556,16 @@ describe("recent Message sync", () => {
 
     expect(
       (
-        await app.request(
-          "/api/mail-accounts/personal/messages/message-1/attachments/unknown",
-          { headers: { cookie } },
-        )
+        await app.request("/api/mail-accounts/personal/messages/message-1/attachments/unknown", {
+          headers: { cookie },
+        })
       ).status,
     ).toBe(404);
     expect(
       (
-        await app.request(
-          "/api/mail-accounts/personal/messages/unknown/attachments/attachment-1",
-          { headers: { cookie } },
-        )
+        await app.request("/api/mail-accounts/personal/messages/unknown/attachments/attachment-1", {
+          headers: { cookie },
+        })
       ).status,
     ).toBe(404);
   });
@@ -588,7 +586,9 @@ describe("recent Message sync", () => {
       starred: false,
       aiProcessed: false,
       readableBody: "",
-      attachments: [{ id: "attachment-1", filename: "agenda.pdf", mimeType: "application/pdf", sizeBytes: 3 }],
+      attachments: [
+        { id: "attachment-1", filename: "agenda.pdf", mimeType: "application/pdf", sizeBytes: 3 },
+      ],
     });
     const app = createApp({
       appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
