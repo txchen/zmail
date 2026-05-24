@@ -36,6 +36,8 @@ type ImapFlowClient = {
       date?: Date;
       from?: ImapAddress[];
       to?: ImapAddress[];
+      cc?: ImapAddress[];
+      bcc?: ImapAddress[];
     };
     internalDate?: Date | string;
     source?: Buffer;
@@ -177,7 +179,16 @@ export function createGmailImapMailboxSyncClient(
             }
 
             const body = readableBodyFromSource(message.source);
-            const receivedAt = normalizeDate(message.envelope?.date ?? message.internalDate);
+            const receivedAt =
+              normalizeDate(message.envelope?.date) ?? normalizeDate(message.internalDate);
+
+            if (
+              requestedMailbox?.since &&
+              receivedAt &&
+              receivedAt.getTime() < requestedMailbox.since.getTime()
+            ) {
+              continue;
+            }
 
             messagesByIdentity.set(stableIdentity, {
               id,
@@ -186,7 +197,9 @@ export function createGmailImapMailboxSyncClient(
               subject: message.envelope?.subject ?? "(no subject)",
               sender: participantFromAddress(message.envelope?.from?.[0]),
               recipients: message.envelope?.to?.map(participantFromAddress),
-              receivedAt: receivedAt.toISOString(),
+              ccRecipients: message.envelope?.cc?.map(participantFromAddress),
+              bccRecipients: message.envelope?.bcc?.map(participantFromAddress),
+              receivedAt: (receivedAt ?? new Date()).toISOString(),
               unread: !message.flags?.has("\\Seen"),
               snippet: body.slice(0, 240),
               readableBody: body,
@@ -229,14 +242,26 @@ function participantFromAddress(address: ImapAddress | undefined): {
   };
 }
 
-function normalizeDate(value: Date | string | undefined): Date {
-  const date = value instanceof Date ? value : value ? new Date(value) : new Date();
+function normalizeDate(value: Date | string | undefined): Date | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const date = value instanceof Date ? value : new Date(normalizeEmailDateString(value));
 
   if (Number.isNaN(date.getTime())) {
-    return new Date();
+    return undefined;
   }
 
   return date;
+}
+
+function normalizeEmailDateString(value: string): string {
+  return value
+    .replace(/\bCEST\b/, "+0200")
+    .replace(/\bCET\b/, "+0100")
+    .replace(/\bUTC\b/, "+0000")
+    .replace(/\bGMT\b/, "+0000");
 }
 
 function readableBodyFromSource(source: Buffer | undefined): string {

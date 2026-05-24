@@ -68,6 +68,8 @@ export type MailboxMessageSummary = {
   subject: string;
   sender: MessageParticipant;
   recipients: MessageParticipant[];
+  ccRecipients: MessageParticipant[];
+  bccRecipients: MessageParticipant[];
   receivedAt: string;
   unread: boolean;
   starred: boolean;

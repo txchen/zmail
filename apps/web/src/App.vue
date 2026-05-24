@@ -275,6 +275,14 @@ function senderLabel(message: MailboxMessageSummary): string {
   return message.sender.displayName || message.sender.address;
 }
 
+function participantLabel(participant: { address: string; displayName?: string }): string {
+  return participant.displayName || participant.address;
+}
+
+function participantsLabel(participants: Array<{ address: string; displayName?: string }>): string {
+  return participants.map(participantLabel).join(", ");
+}
+
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
@@ -610,6 +618,21 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                   <span>{{ senderLabel(selectedMessage) }}</span>
                   <span>{{ selectedMessage.sender.address }}</span>
                   <span>{{ formatDate(selectedMessage.receivedAt) }}</span>
+                </div>
+                <div v-if="selectedMessage.recipients.length" class="mt-1 text-sm text-slate-600">
+                  <span class="font-medium text-slate-700">To</span>
+                  {{ participantsLabel(selectedMessage.recipients) }}
+                </div>
+                <div v-if="selectedMessage.ccRecipients.length" class="mt-1 text-sm text-slate-600">
+                  <span class="font-medium text-slate-700">Cc</span>
+                  {{ participantsLabel(selectedMessage.ccRecipients) }}
+                </div>
+                <div
+                  v-if="selectedMessage.bccRecipients.length"
+                  class="mt-1 text-sm text-slate-600"
+                >
+                  <span class="font-medium text-slate-700">Bcc</span>
+                  {{ participantsLabel(selectedMessage.bccRecipients) }}
                 </div>
                 <UAlert
                   v-if="renderedMessage.blockedRemoteImageCount && !showRemoteImages"

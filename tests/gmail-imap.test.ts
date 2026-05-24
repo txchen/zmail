@@ -76,6 +76,8 @@ describe("Gmail IMAP mailbox sync client", () => {
           date: new Date("2026-05-23T10:00:00.000Z"),
           from: [{ address: "sender@example.com", name: "Sender" }],
           to: [{ address: "me@example.com" }],
+          cc: [{ address: "copy@example.com", name: "Copy" }],
+          bcc: [{ address: "hidden@example.com" }],
         },
         source: Buffer.from(
           [
@@ -106,6 +108,12 @@ describe("Gmail IMAP mailbox sync client", () => {
     });
 
     expect(messages.map((message) => message.mailboxIds)).toEqual([["INBOX"], ["INBOX/Project"]]);
+    expect(messages[0]).toMatchObject({
+      recipients: [{ address: "me@example.com" }],
+      ccRecipients: [{ address: "copy@example.com", displayName: "Copy" }],
+      bccRecipients: [{ address: "hidden@example.com" }],
+      receivedAt: "2026-05-23T10:00:00.000Z",
+    });
     expect(mailboxOpen).toHaveBeenCalledWith("INBOX");
     expect(mailboxOpen).toHaveBeenCalledWith("INBOX/Project");
     expect(mailboxOpen).not.toHaveBeenCalledWith("[Gmail]/All Mail");
@@ -123,6 +131,44 @@ describe("Gmail IMAP mailbox sync client", () => {
       { uid: true },
     );
     expect(logout).toHaveBeenCalledOnce();
+  });
+
+  it("filters initial Gmail backfill by header date instead of internal delivery date", async () => {
+    const imapFlow = vi.fn(function () {
+      return { connect, list, mailboxOpen, fetch, logout };
+    });
+    connect.mockResolvedValue(undefined);
+    list.mockResolvedValue([{ path: "INBOX", status: { unseen: 1 } }]);
+    mailboxOpen.mockResolvedValue({ exists: 42 });
+    fetch.mockImplementation(async function* () {
+      yield {
+        uid: 42,
+        emailId: "old-forwarded-spam",
+        flags: new Set(["\\Seen"]),
+        envelope: {
+          subject: "Old forwarded spam",
+          date: "Sun, 26 Sep 2021 17:47:21 CEST",
+          from: [{ address: "vilnefolmart@gmail.com" }],
+          to: [{ address: "John@aol.com" }],
+        },
+        internalDate: new Date("2026-05-24T21:06:29.207Z"),
+        source: Buffer.from("Subject: Old forwarded spam\r\n\r\nBody"),
+      };
+    });
+    logout.mockResolvedValue(undefined);
+
+    const client = createGmailImapMailboxSyncClient(imapFlow);
+
+    await expect(
+      client.listRecentMessages({
+        account: {
+          id: "personal",
+          emailAddress: "me@example.com",
+          appPassword: "gmail-app-password",
+        },
+        mailboxes: [{ id: "INBOX", since: new Date("2026-05-01T00:00:00.000Z") }],
+      }),
+    ).resolves.toEqual([]);
   });
 
   it("fetches Gmail Messages after a saved Mailbox UID checkpoint", async () => {

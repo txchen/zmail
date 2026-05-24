@@ -30,6 +30,14 @@ export type ImapMessage = {
     address: string;
     displayName?: string;
   }>;
+  ccRecipients?: Array<{
+    address: string;
+    displayName?: string;
+  }>;
+  bccRecipients?: Array<{
+    address: string;
+    displayName?: string;
+  }>;
   receivedAt: string;
   unread: boolean;
   snippet?: string;
@@ -188,6 +196,7 @@ export async function syncRecentMessages({
     let storedMessageCount = 0;
     let storedMailboxEntryCount = 0;
     let skippedMessageCount = 0;
+    const syncedMailboxIds = mailboxes.map((mailbox) => mailbox.id);
 
     for (const message of messages) {
       if (
@@ -217,6 +226,8 @@ export async function syncRecentMessages({
         subject: message.subject,
         sender: message.sender,
         recipients: message.recipients,
+        ccRecipients: message.ccRecipients,
+        bccRecipients: message.bccRecipients,
         receivedAt: message.receivedAt,
         unread: message.unread,
         starred: false,
@@ -234,6 +245,7 @@ export async function syncRecentMessages({
         })),
       });
       storedMessageCount += 1;
+      mailDatabase.removeStaleMailboxEntries(message.id, syncedMailboxIds, message.mailboxIds);
 
       for (const mailboxId of message.mailboxIds) {
         mailDatabase.saveMailboxEntry({

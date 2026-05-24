@@ -32,6 +32,8 @@ export type StoredMessage = {
   subject: string;
   sender?: MessageParticipant;
   recipients?: MessageParticipant[];
+  ccRecipients?: MessageParticipant[];
+  bccRecipients?: MessageParticipant[];
   receivedAt: string;
   unread: boolean;
   starred: boolean;
@@ -84,6 +86,8 @@ export type MessageSummary = {
   subject: string;
   sender: MessageParticipant;
   recipients: MessageParticipant[];
+  ccRecipients: MessageParticipant[];
+  bccRecipients: MessageParticipant[];
   receivedAt: string;
   unread: boolean;
   starred: boolean;
@@ -189,6 +193,8 @@ export class MailDatabase {
         subject TEXT NOT NULL,
         sender_json TEXT NOT NULL DEFAULT '{"address":""}',
         recipients_json TEXT NOT NULL DEFAULT '[]',
+        cc_recipients_json TEXT NOT NULL DEFAULT '[]',
+        bcc_recipients_json TEXT NOT NULL DEFAULT '[]',
         received_at TEXT NOT NULL DEFAULT '',
         unread INTEGER NOT NULL,
         starred INTEGER NOT NULL DEFAULT 0,
@@ -214,6 +220,20 @@ export class MailDatabase {
         last_synced_at TEXT NOT NULL
       );
     `);
+    this.ensureMessageJsonColumn("cc_recipients_json");
+    this.ensureMessageJsonColumn("bcc_recipients_json");
+  }
+
+  private ensureMessageJsonColumn(columnName: string): void {
+    const columns = this.database.prepare("PRAGMA table_info(messages)").all() as Array<{
+      name: string;
+    }>;
+
+    if (columns.some((column) => column.name === columnName)) {
+      return;
+    }
+
+    this.database.exec(`ALTER TABLE messages ADD COLUMN ${columnName} TEXT NOT NULL DEFAULT '[]'`);
   }
 
   setMessageUnread(messageId: string, unread: boolean): void {
@@ -299,17 +319,20 @@ export class MailDatabase {
     this.database
       .prepare(`
         INSERT INTO messages (
-          id, stable_identity, thread_id, subject, sender_json, recipients_json, received_at,
+          id, stable_identity, thread_id, subject, sender_json, recipients_json,
+          cc_recipients_json, bcc_recipients_json, received_at,
           unread, starred, ai_processed, snippet, readable_body, plain_text_body,
           blocked_remote_image_count, updated_at, attachments_json
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           stable_identity = excluded.stable_identity,
           thread_id = excluded.thread_id,
           subject = excluded.subject,
           sender_json = excluded.sender_json,
           recipients_json = excluded.recipients_json,
+          cc_recipients_json = excluded.cc_recipients_json,
+          bcc_recipients_json = excluded.bcc_recipients_json,
           received_at = excluded.received_at,
           unread = excluded.unread,
           starred = excluded.starred,
@@ -328,6 +351,8 @@ export class MailDatabase {
         message.subject,
         JSON.stringify(message.sender ?? { address: "" }),
         JSON.stringify(message.recipients ?? []),
+        JSON.stringify(message.ccRecipients ?? []),
+        JSON.stringify(message.bccRecipients ?? []),
         message.receivedAt,
         message.unread ? 1 : 0,
         message.starred ? 1 : 0,
@@ -351,6 +376,31 @@ export class MailDatabase {
           message_id = excluded.message_id
       `)
       .run(entry.id, entry.mailboxId, entry.messageId);
+  }
+
+  removeStaleMailboxEntries(
+    messageId: string,
+    syncedMailboxIds: string[],
+    currentMailboxIds: string[],
+  ): void {
+    if (!syncedMailboxIds.length) {
+      return;
+    }
+
+    const syncedPlaceholders = syncedMailboxIds.map(() => "?").join(", ");
+    const currentPlaceholders = currentMailboxIds.map(() => "?").join(", ");
+    const currentFilter = currentMailboxIds.length
+      ? `AND mailbox_id NOT IN (${currentPlaceholders})`
+      : "";
+
+    this.database
+      .prepare(`
+        DELETE FROM mailbox_entries
+        WHERE message_id = ?
+          AND mailbox_id IN (${syncedPlaceholders})
+          ${currentFilter}
+      `)
+      .run(messageId, ...syncedMailboxIds, ...currentMailboxIds);
   }
 
   saveMailboxSyncState(state: MailboxSyncState): void {
@@ -471,7 +521,8 @@ export class MailDatabase {
     const messages = this.database
       .prepare(`
         SELECT messages.id, messages.stable_identity, messages.thread_id, messages.subject,
-          messages.sender_json, messages.recipients_json, messages.received_at,
+          messages.sender_json, messages.recipients_json, messages.cc_recipients_json,
+          messages.bcc_recipients_json, messages.received_at,
           messages.unread, messages.starred, messages.snippet, messages.updated_at,
           messages.attachments_json
         FROM mailbox_entries
@@ -488,6 +539,8 @@ export class MailDatabase {
           subject: string;
           sender_json: string;
           recipients_json: string;
+          cc_recipients_json: string;
+          bcc_recipients_json: string;
           received_at: string;
           unread: number;
           starred: number;
@@ -505,6 +558,8 @@ export class MailDatabase {
           subject: message.subject,
           sender: JSON.parse(message.sender_json) as MessageParticipant,
           recipients: JSON.parse(message.recipients_json) as MessageParticipant[],
+          ccRecipients: JSON.parse(message.cc_recipients_json) as MessageParticipant[],
+          bccRecipients: JSON.parse(message.bcc_recipients_json) as MessageParticipant[],
           receivedAt: message.received_at,
           unread: Boolean(message.unread),
           starred: Boolean(message.starred),
@@ -539,7 +594,8 @@ export class MailDatabase {
     const resolvedMessageId = messageId ?? accountId;
     const row = this.database
       .prepare(`
-        SELECT id, stable_identity, thread_id, subject, sender_json, recipients_json, received_at,
+        SELECT id, stable_identity, thread_id, subject, sender_json, recipients_json,
+          cc_recipients_json, bcc_recipients_json, received_at,
           unread, starred, snippet, readable_body, plain_text_body, blocked_remote_image_count,
           updated_at, attachments_json
         FROM messages
@@ -553,6 +609,8 @@ export class MailDatabase {
           subject: string;
           sender_json: string;
           recipients_json: string;
+          cc_recipients_json: string;
+          bcc_recipients_json: string;
           received_at: string;
           unread: number;
           starred: number;
@@ -579,6 +637,8 @@ export class MailDatabase {
       subject: row.subject,
       sender: JSON.parse(row.sender_json) as MessageParticipant,
       recipients: JSON.parse(row.recipients_json) as MessageParticipant[],
+      ccRecipients: JSON.parse(row.cc_recipients_json) as MessageParticipant[],
+      bccRecipients: JSON.parse(row.bcc_recipients_json) as MessageParticipant[],
       receivedAt: row.received_at,
       unread: Boolean(row.unread),
       starred: Boolean(row.starred),
@@ -596,7 +656,8 @@ export class MailDatabase {
   listUnreadMessages(mailAccountId: string): AiMessageSummary[] {
     return this.database
       .prepare(`
-        SELECT id, stable_identity, thread_id, subject, sender_json, recipients_json, received_at,
+        SELECT id, stable_identity, thread_id, subject, sender_json, recipients_json,
+          cc_recipients_json, bcc_recipients_json, received_at,
           unread, starred, snippet, updated_at, attachments_json
         FROM messages
         WHERE unread = 1
@@ -611,6 +672,8 @@ export class MailDatabase {
           subject: string;
           sender_json: string;
           recipients_json: string;
+          cc_recipients_json: string;
+          bcc_recipients_json: string;
           received_at: string;
           unread: number;
           starred: number;
@@ -628,6 +691,8 @@ export class MailDatabase {
           subject: message.subject,
           sender: JSON.parse(message.sender_json) as MessageParticipant,
           recipients: JSON.parse(message.recipients_json) as MessageParticipant[],
+          ccRecipients: JSON.parse(message.cc_recipients_json) as MessageParticipant[],
+          bccRecipients: JSON.parse(message.bcc_recipients_json) as MessageParticipant[],
           receivedAt: message.received_at,
           unread: Boolean(message.unread),
           starred: Boolean(message.starred),
@@ -644,7 +709,8 @@ export class MailDatabase {
 
     return this.database
       .prepare(`
-        SELECT id, stable_identity, thread_id, subject, sender_json, recipients_json, received_at,
+        SELECT id, stable_identity, thread_id, subject, sender_json, recipients_json,
+          cc_recipients_json, bcc_recipients_json, received_at,
           unread, starred, snippet, updated_at, attachments_json
         FROM messages
         WHERE lower(subject) LIKE ? OR lower(readable_body) LIKE ?
@@ -659,6 +725,8 @@ export class MailDatabase {
           subject: string;
           sender_json: string;
           recipients_json: string;
+          cc_recipients_json: string;
+          bcc_recipients_json: string;
           received_at: string;
           unread: number;
           starred: number;
@@ -676,6 +744,8 @@ export class MailDatabase {
           subject: message.subject,
           sender: JSON.parse(message.sender_json) as MessageParticipant,
           recipients: JSON.parse(message.recipients_json) as MessageParticipant[],
+          ccRecipients: JSON.parse(message.cc_recipients_json) as MessageParticipant[],
+          bccRecipients: JSON.parse(message.bcc_recipients_json) as MessageParticipant[],
           receivedAt: message.received_at,
           unread: Boolean(message.unread),
           starred: Boolean(message.starred),
@@ -693,7 +763,8 @@ export class MailDatabase {
   ): AiMessageDetail | null {
     const row = this.database
       .prepare(`
-        SELECT id, stable_identity, thread_id, subject, sender_json, recipients_json, received_at,
+        SELECT id, stable_identity, thread_id, subject, sender_json, recipients_json,
+          cc_recipients_json, bcc_recipients_json, received_at,
           unread, starred, snippet, readable_body, plain_text_body, blocked_remote_image_count,
           updated_at, attachments_json
         FROM messages
@@ -707,6 +778,8 @@ export class MailDatabase {
           subject: string;
           sender_json: string;
           recipients_json: string;
+          cc_recipients_json: string;
+          bcc_recipients_json: string;
           received_at: string;
           unread: number;
           starred: number;
@@ -733,6 +806,8 @@ export class MailDatabase {
       subject: row.subject,
       sender: JSON.parse(row.sender_json) as MessageParticipant,
       recipients: JSON.parse(row.recipients_json) as MessageParticipant[],
+      ccRecipients: JSON.parse(row.cc_recipients_json) as MessageParticipant[],
+      bccRecipients: JSON.parse(row.bcc_recipients_json) as MessageParticipant[],
       receivedAt: row.received_at,
       unread: Boolean(row.unread),
       starred: Boolean(row.starred),

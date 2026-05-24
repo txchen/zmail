@@ -167,6 +167,71 @@ describe("recent Message sync", () => {
     });
   });
 
+  it("removes stale Mailbox entries when Gmail no longer reports a Message in that Mailbox", async () => {
+    const persistence = createHybridPersistence();
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "personal-app-password",
+    };
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    const client: MessageSyncClient = {
+      async listRecentMessages() {
+        return [
+          {
+            id: "message-1",
+            stableIdentity: "gmail:personal:message-1",
+            uid: 42,
+            subject: "Archived elsewhere",
+            receivedAt: "2026-05-23T10:00:00.000Z",
+            unread: true,
+            readableBody: "<p>Hello</p>",
+            attachments: [],
+            mailboxIds: ["all-mail"],
+          },
+        ];
+      },
+    };
+    mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 1 });
+    mailDatabase.saveMailbox({ id: "all-mail", name: "All Mail", unreadCount: 1 });
+    mailDatabase.saveMessage({
+      id: "message-1",
+      stableIdentity: "gmail:personal:message-1",
+      subject: "Archived elsewhere",
+      receivedAt: "2026-05-23T10:00:00.000Z",
+      unread: true,
+      starred: false,
+      aiProcessed: false,
+      readableBody: "<p>Hello</p>",
+      attachments: [],
+    });
+    mailDatabase.saveMailboxEntry({
+      id: "message-1:inbox",
+      mailboxId: "inbox",
+      messageId: "message-1",
+    });
+    mailDatabase.saveMailboxEntry({
+      id: "message-1:all-mail",
+      mailboxId: "all-mail",
+      messageId: "message-1",
+    });
+
+    await syncRecentMessages({
+      accounts: [account],
+      persistence,
+      client,
+      now: new Date("2026-05-24T12:00:00.000Z"),
+    });
+
+    expect(mailDatabase.listMessagesForMailbox("inbox").messages).toEqual([]);
+    expect(mailDatabase.listMessagesForMailbox("all-mail").messages).toEqual([
+      expect.objectContaining({
+        id: "message-1",
+        mailboxIds: ["all-mail"],
+      }),
+    ]);
+  });
+
   it("exposes Messages for a selected Mailbox and returns metadata with readable body", async () => {
     const persistence = createHybridPersistence();
     const account: ConfiguredMailAccount = {
@@ -183,6 +248,8 @@ describe("recent Message sync", () => {
       subject: "Readable Message",
       sender: { address: "sender@example.com", displayName: "Sender" },
       recipients: [{ address: "reader@example.com" }],
+      ccRecipients: [{ address: "copy@example.com", displayName: "Copy" }],
+      bccRecipients: [{ address: "hidden@example.com" }],
       receivedAt: "2026-05-23T10:00:00.000Z",
       unread: true,
       starred: false,
@@ -233,6 +300,8 @@ describe("recent Message sync", () => {
           subject: "Readable Message",
           sender: { address: "sender@example.com", displayName: "Sender" },
           recipients: [{ address: "reader@example.com" }],
+          ccRecipients: [{ address: "copy@example.com", displayName: "Copy" }],
+          bccRecipients: [{ address: "hidden@example.com" }],
           receivedAt: "2026-05-23T10:00:00.000Z",
           unread: true,
           starred: false,
@@ -257,6 +326,8 @@ describe("recent Message sync", () => {
         subject: "Readable Message",
         sender: { address: "sender@example.com", displayName: "Sender" },
         recipients: [{ address: "reader@example.com" }],
+        ccRecipients: [{ address: "copy@example.com", displayName: "Copy" }],
+        bccRecipients: [{ address: "hidden@example.com" }],
         receivedAt: "2026-05-23T10:00:00.000Z",
         unread: true,
         starred: false,
