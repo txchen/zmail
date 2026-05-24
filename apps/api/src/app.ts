@@ -194,7 +194,7 @@ export function createApp(config: AppConfig): Hono {
         accounts: [account],
         persistence,
         client: messageSyncClient,
-        syncWindowDays: 3650,
+        syncWindowDays: config.sync?.recentMessageWindowDays,
       });
     }
     saveSyncStates(syncResults);
@@ -589,6 +589,9 @@ export const app = createApp({
   },
   storage: {
     databaseDir: ":memory:",
+  },
+  sync: {
+    recentMessageWindowDays: 90,
   },
   mailAccounts: [],
   persistence: createHybridPersistence(),

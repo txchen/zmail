@@ -6,6 +6,10 @@
 [storage]
 database_dir = ".data"
 
+[sync]
+# Optional, defaults to 90. Valid range: 1..3650.
+recent_message_window_days = 90
+
 [app_login]
 username = "reader"
 password = "change-me"

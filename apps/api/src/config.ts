@@ -21,9 +21,14 @@ export type StorageConfig = {
   databaseDir: string;
 };
 
+export type SyncConfig = {
+  recentMessageWindowDays: number;
+};
+
 export type AppConfig = {
   appLogin: AppLogin;
   storage: StorageConfig;
+  sync: SyncConfig;
   mailAccounts: ConfiguredMailAccount[];
   persistence?: HybridPersistence;
   mailboxSyncClient?: MailboxSyncClient;
@@ -78,7 +83,7 @@ function parseConfigFile(value: unknown, workspaceRoot: string): AppConfig {
     throw new Error("Invalid App configuration: expected TOML table");
   }
 
-  assertKnownKeys(value, "App configuration", ["app_login", "storage", "mail_accounts"]);
+  assertKnownKeys(value, "App configuration", ["app_login", "storage", "sync", "mail_accounts"]);
 
   if (!isRecord(value.app_login)) {
     throw new Error("Invalid App configuration: missing app_login table");
@@ -124,6 +129,7 @@ function parseConfigFile(value: unknown, workspaceRoot: string): AppConfig {
     workspaceRoot,
     requireString(value.storage.database_dir, "storage.database_dir"),
   );
+  const sync = parseSyncConfig(value.sync);
 
   return {
     appLogin: {
@@ -135,7 +141,30 @@ function parseConfigFile(value: unknown, workspaceRoot: string): AppConfig {
     storage: {
       databaseDir,
     },
+    sync,
     mailAccounts,
+  };
+}
+
+function parseSyncConfig(value: unknown): SyncConfig {
+  if (value === undefined) {
+    return { recentMessageWindowDays: 90 };
+  }
+
+  if (!isRecord(value)) {
+    throw new Error("Invalid sync: expected table");
+  }
+
+  assertKnownKeys(value, "sync", ["recent_message_window_days"]);
+
+  return {
+    recentMessageWindowDays:
+      optionalIntegerInRange(
+        value.recent_message_window_days,
+        "sync.recent_message_window_days",
+        1,
+        3650,
+      ) ?? 90,
   };
 }
 

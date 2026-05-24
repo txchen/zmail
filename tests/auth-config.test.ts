@@ -82,6 +82,9 @@ describe("App login and configured Mail accounts", () => {
         [storage]
         database_dir = ".data"
 
+        [sync]
+        recent_message_window_days = 3650
+
         [app_login]
         username = "reader"
         password = "secret"
@@ -108,6 +111,9 @@ describe("App login and configured Mail accounts", () => {
       },
       storage: {
         databaseDir: join(dirname(configPath), ".data"),
+      },
+      sync: {
+        recentMessageWindowDays: 3650,
       },
       mailAccounts: [
         {
@@ -147,6 +153,9 @@ describe("App login and configured Mail accounts", () => {
       storage: {
         databaseDir: join(dirname(configPath), ".data"),
       },
+      sync: {
+        recentMessageWindowDays: 90,
+      },
       mailAccounts: [],
     });
   });
@@ -171,6 +180,7 @@ describe("App login and configured Mail accounts", () => {
 
     expect(config.mailAccounts).toEqual([]);
     expect(config.storage.databaseDir).toBe(join(dirname(configPath), ".data"));
+    expect(config.sync.recentMessageWindowDays).toBe(90);
   });
 
   it("rejects invalid App login credentials without issuing a session", async () => {

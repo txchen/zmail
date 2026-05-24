@@ -134,6 +134,7 @@ describe("recent Message sync", () => {
     });
     const app = createApp({
       appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      sync: { recentMessageWindowDays: 30 },
       mailAccounts: [account],
       persistence,
     });
@@ -224,7 +225,7 @@ describe("recent Message sync", () => {
         async listRecentMessages(request) {
           expect(request.account).toBe(account);
           expect(request.since).toBeInstanceOf(Date);
-          expect(request.since.getUTCFullYear()).toBeLessThanOrEqual(2016);
+          expect(request.since.getTime()).toBeGreaterThan(new Date("2026-01-01").getTime());
 
           return [
             {
