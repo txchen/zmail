@@ -45,12 +45,12 @@ const mobilePane = ref<"nav" | "list" | "message">("nav");
 const lastListRouteByAccount = ref(new Map<string, string>());
 const searchDraft = ref("");
 const loggedOut = ref(false);
-const collapsedAccounts = ref(new Set<string>());
-const collapsedMailboxGroups = ref(new Set<string>());
 const readerLayoutStorageKey = "zmail.readerLayout.v1";
 const savedReaderLayout = readSavedReaderLayout();
 const navColumnWidth = ref(savedReaderLayout.navColumnWidth);
 const listColumnWidth = ref(savedReaderLayout.listColumnWidth);
+const collapsedAccounts = ref(new Set(savedReaderLayout.collapsedAccounts));
+const collapsedMailboxGroups = ref(new Set(savedReaderLayout.collapsedMailboxGroups));
 const activeResize = ref<"nav" | "list" | null>(null);
 let resizeStartX = 0;
 let resizeStartWidth = 0;
@@ -240,13 +240,11 @@ watch(
 );
 
 watch([navColumnWidth, listColumnWidth], ([nextNavWidth, nextListWidth]) => {
-  localStorage.setItem(
-    readerLayoutStorageKey,
-    JSON.stringify({
-      navColumnWidth: nextNavWidth,
-      listColumnWidth: nextListWidth,
-    }),
-  );
+  saveReaderLayout(nextNavWidth, nextListWidth);
+});
+
+watch([collapsedAccounts, collapsedMailboxGroups], () => {
+  saveReaderLayout(navColumnWidth.value, listColumnWidth.value);
 });
 
 onBeforeUnmount(() => {
@@ -458,12 +456,16 @@ function readSavedReaderLayout(): { navColumnWidth: number; listColumnWidth: num
   const fallback = {
     navColumnWidth: 256,
     listColumnWidth: 384,
+    collapsedAccounts: [] as string[],
+    collapsedMailboxGroups: [] as string[],
   };
 
   try {
     const parsed = JSON.parse(localStorage.getItem(readerLayoutStorageKey) ?? "null") as Partial<{
       navColumnWidth: number;
       listColumnWidth: number;
+      collapsedAccounts: string[];
+      collapsedMailboxGroups: string[];
     }> | null;
 
     if (!parsed) {
@@ -473,10 +475,26 @@ function readSavedReaderLayout(): { navColumnWidth: number; listColumnWidth: num
     return {
       navColumnWidth: clamp(Number(parsed.navColumnWidth), 192, 384),
       listColumnWidth: clamp(Number(parsed.listColumnWidth), 280, 640),
+      collapsedAccounts: Array.isArray(parsed.collapsedAccounts) ? parsed.collapsedAccounts : [],
+      collapsedMailboxGroups: Array.isArray(parsed.collapsedMailboxGroups)
+        ? parsed.collapsedMailboxGroups
+        : [],
     };
   } catch {
     return fallback;
   }
+}
+
+function saveReaderLayout(navWidth: number, listWidth: number) {
+  localStorage.setItem(
+    readerLayoutStorageKey,
+    JSON.stringify({
+      navColumnWidth: navWidth,
+      listColumnWidth: listWidth,
+      collapsedAccounts: [...collapsedAccounts.value],
+      collapsedMailboxGroups: [...collapsedMailboxGroups.value],
+    }),
+  );
 }
 
 function senderLabel(message: MailboxMessageSummary): string {

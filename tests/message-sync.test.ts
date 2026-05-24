@@ -722,7 +722,59 @@ describe("recent Message sync", () => {
       mailAccounts: [
         {
           id: "personal",
-          unreadCount: 1,
+          unreadCount: 2,
+        },
+      ],
+    });
+  });
+
+  it("uses All Mail unread count for the Mail account level instead of Spam unread", async () => {
+    const persistence = createHybridPersistence();
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "personal-app-password",
+    };
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    mailDatabase.saveMailbox({ id: "[Gmail]/All Mail", name: "[Gmail]/All Mail", unreadCount: 0 });
+    mailDatabase.saveMailbox({ id: "[Gmail]/Spam", name: "[Gmail]/Spam", unreadCount: 1 });
+    mailDatabase.saveMessage({
+      id: "spam-message",
+      stableIdentity: "gmail:personal:spam-message",
+      subject: "Spam unread",
+      receivedAt: "2026-05-23T10:00:00.000Z",
+      unread: true,
+      starred: false,
+      aiProcessed: false,
+      readableBody: "",
+      attachments: [],
+    });
+    mailDatabase.saveMailboxEntry({
+      id: "spam-message:[Gmail]/Spam",
+      mailboxId: "[Gmail]/Spam",
+      messageId: "spam-message",
+    });
+
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: [account],
+      persistence,
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+    const response = await app.request("/api/mailbox-tree", {
+      headers: { cookie: loginResponse.headers.get("set-cookie") ?? "" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      mailAccounts: [
+        {
+          id: "personal",
+          unreadCount: 0,
         },
       ],
     });

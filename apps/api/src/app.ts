@@ -60,6 +60,13 @@ export function createApp(config: AppConfig): Hono {
       mailAccounts: config.mailAccounts.map((configuredAccount) => {
         const mailDatabase = persistence.mailDatabaseFor(configuredAccount.id);
         const mailboxes = mailDatabase.listMailboxes();
+        const allMailMailbox = mailboxes.find(
+          (mailbox) =>
+            mailbox.systemRole === "allMail" ||
+            mailbox.id.toLowerCase().endsWith("/all mail") ||
+            mailbox.name.toLowerCase().endsWith("/all mail") ||
+            mailbox.name.toLowerCase() === "all mail",
+        );
         const unreadMessages = mailDatabase.listUnreadMessages(configuredAccount.id);
 
         return {
@@ -67,9 +74,10 @@ export function createApp(config: AppConfig): Hono {
           emailAddress: configuredAccount.emailAddress,
           syncStatus: syncStateFor(configuredAccount.id).syncStatus,
           unreadCount:
-            unreadMessages.length > 0
+            allMailMailbox?.unreadCount ??
+            (unreadMessages.length > 0
               ? unreadMessages.length
-              : Math.max(0, ...mailboxes.map((mailbox) => mailbox.unreadCount)),
+              : Math.max(0, ...mailboxes.map((mailbox) => mailbox.unreadCount))),
           mailboxes,
         };
       }),
