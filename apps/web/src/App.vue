@@ -6,7 +6,7 @@ import type {
   MessageDetail,
 } from "@zmail/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   fetchAccountSyncStatus,
@@ -47,6 +47,13 @@ const mobilePane = ref<"nav" | "list" | "message">("nav");
 const lastListRouteByAccount = ref(new Map<string, string>());
 const searchDraft = ref("");
 const loggedOut = ref(false);
+const readerLayoutStorageKey = "zmail.readerLayout.v1";
+const savedReaderLayout = readSavedReaderLayout();
+const navColumnWidth = ref(savedReaderLayout.navColumnWidth);
+const listColumnWidth = ref(savedReaderLayout.listColumnWidth);
+const activeResize = ref<"nav" | "list" | null>(null);
+let resizeStartX = 0;
+let resizeStartWidth = 0;
 
 const healthQuery = useQuery({ queryKey: ["health"], queryFn: () => fetchHealth() });
 const sessionQuery = useQuery({ queryKey: ["session"], queryFn: () => fetchSession() });
@@ -75,6 +82,10 @@ const selectedMessageId = computed(() =>
 const searchQuery = computed(() =>
   readerRoute.value.kind === "search" ? readerRoute.value.query : "",
 );
+const readerGridStyle = computed(() => ({
+  "--reader-nav-width": `${navColumnWidth.value}px`,
+  "--reader-list-width": `${listColumnWidth.value}px`,
+}));
 
 const messageListQuery = useQuery({
   queryKey: computed(() => ["message-list", readerRoute.value]),
@@ -219,6 +230,20 @@ watch(
   { immediate: true },
 );
 
+watch([navColumnWidth, listColumnWidth], ([nextNavWidth, nextListWidth]) => {
+  localStorage.setItem(
+    readerLayoutStorageKey,
+    JSON.stringify({
+      navColumnWidth: nextNavWidth,
+      listColumnWidth: nextListWidth,
+    }),
+  );
+});
+
+onBeforeUnmount(() => {
+  stopColumnResize();
+});
+
 async function submitLogin() {
   await loginMutation.mutateAsync();
 }
@@ -274,6 +299,66 @@ function openAdjacentMessage(messageId: string) {
   );
 }
 
+function startColumnResize(column: "nav" | "list", event: PointerEvent) {
+  activeResize.value = column;
+  resizeStartX = event.clientX;
+  resizeStartWidth = column === "nav" ? navColumnWidth.value : listColumnWidth.value;
+  window.addEventListener("pointermove", resizeColumn);
+  window.addEventListener("pointerup", stopColumnResize);
+  document.body.classList.add("reader-resizing");
+}
+
+function resizeColumn(event: PointerEvent) {
+  if (!activeResize.value) {
+    return;
+  }
+
+  const nextWidth = resizeStartWidth + event.clientX - resizeStartX;
+
+  if (activeResize.value === "nav") {
+    navColumnWidth.value = clamp(nextWidth, 192, 384);
+    return;
+  }
+
+  listColumnWidth.value = clamp(nextWidth, 280, 640);
+}
+
+function stopColumnResize() {
+  activeResize.value = null;
+  window.removeEventListener("pointermove", resizeColumn);
+  window.removeEventListener("pointerup", stopColumnResize);
+  document.body.classList.remove("reader-resizing");
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function readSavedReaderLayout(): { navColumnWidth: number; listColumnWidth: number } {
+  const fallback = {
+    navColumnWidth: 256,
+    listColumnWidth: 384,
+  };
+
+  try {
+    const parsed = JSON.parse(localStorage.getItem(readerLayoutStorageKey) ?? "null") as Partial<{
+      navColumnWidth: number;
+      listColumnWidth: number;
+    }> | null;
+
+    if (!parsed) {
+      return fallback;
+    }
+
+    return {
+      navColumnWidth: clamp(Number(parsed.navColumnWidth), 192, 384),
+      listColumnWidth: clamp(Number(parsed.listColumnWidth), 280, 640),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 function senderLabel(message: MailboxMessageSummary): string {
   return message.sender.displayName || message.sender.address;
 }
@@ -319,20 +404,26 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
       class="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6"
     >
       <div class="mb-8">
-        <p class="text-sm font-medium text-slate-500">Zmail</p>
-        <h1 class="mt-2 text-3xl font-semibold tracking-normal">Private mail reader</h1>
+        <h1 class="text-3xl font-semibold tracking-normal">ZMail</h1>
         <p class="mt-3 text-sm text-slate-600">
           API {{ healthQuery.data.value?.status ?? "checking" }}
         </p>
       </div>
 
-      <form class="space-y-4" @submit.prevent="submitLogin">
+      <form class="w-full max-w-sm space-y-4" @submit.prevent="submitLogin">
         <UFormField label="Username">
-          <UInput v-model="username" autocomplete="username" name="username" size="xl" />
+          <UInput
+            v-model="username"
+            class="w-full"
+            autocomplete="username"
+            name="username"
+            size="xl"
+          />
         </UFormField>
         <UFormField label="Password">
           <UInput
             v-model="password"
+            class="w-full"
             autocomplete="current-password"
             name="password"
             size="xl"
@@ -340,32 +431,24 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
           />
         </UFormField>
         <UAlert v-if="loginError" color="error" variant="soft" :title="loginError" />
-        <UButton
-          block
-          color="neutral"
-          :loading="loginMutation.isPending.value"
-          size="xl"
+        <button
+          class="flex h-11 w-32 items-center justify-center rounded-md bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="loginMutation.isPending.value"
           type="submit"
         >
-          Log in
-        </UButton>
+          {{ loginMutation.isPending.value ? "Logging in..." : "Log in" }}
+        </button>
       </form>
     </section>
 
-    <section v-else class="flex h-screen min-h-0 flex-col">
+    <section v-else class="flex h-screen min-h-0 flex-col bg-stone-100">
       <header
-        class="flex h-14 shrink-0 items-center justify-between border-b border-stone-200 bg-white px-4"
+        class="flex h-10 shrink-0 items-center justify-between border-b border-stone-300 bg-stone-200 px-3"
       >
         <div class="min-w-0">
-          <p class="text-sm font-semibold">Zmail</p>
-          <p class="truncate text-xs text-slate-500">
-            {{ selectedAccount?.emailAddress ?? "No mail account selected" }}
-          </p>
+          <p class="text-sm font-semibold">ZM</p>
         </div>
         <div class="flex items-center gap-2">
-          <UBadge color="neutral" variant="subtle">{{
-            healthQuery.data.value?.status ?? "api"
-          }}</UBadge>
           <UButton
             color="neutral"
             icon="i-lucide-log-out"
@@ -386,29 +469,26 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
         </div>
       </div>
 
-      <div v-else class="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[18rem_24rem_1fr]">
+      <div v-else class="reader-grid grid min-h-0 flex-1 grid-cols-1" :style="readerGridStyle">
         <aside
-          class="min-h-0 border-r border-stone-200 bg-white"
+          class="min-h-0 border-r border-stone-300 bg-stone-100"
           :class="mobilePane === 'nav' ? 'block' : 'hidden lg:block'"
           aria-label="Account mailbox tree"
         >
           <div class="flex h-full flex-col">
-            <div class="border-b border-stone-200 px-4 py-3">
-              <p class="text-xs font-medium uppercase text-slate-500">Accounts</p>
-            </div>
-            <div class="min-h-0 flex-1 overflow-y-auto p-3">
-              <div v-for="account in mailAccounts" :key="account.id" class="mb-4">
-                <div class="flex items-start justify-between gap-2 px-2">
+            <div class="min-h-0 flex-1 overflow-y-auto p-2">
+              <div v-for="account in mailAccounts" :key="account.id" class="mb-3">
+                <div class="flex items-start justify-between gap-2 px-1.5">
                   <button
                     class="min-w-0 text-left"
                     type="button"
                     @click="selectAccountDefault(account)"
                   >
-                    <span class="block truncate text-sm font-semibold">{{ account.id }}</span>
-                    <span class="block truncate text-xs text-slate-500">{{
+                    <span class="block truncate text-xs font-semibold">{{ account.id }}</span>
+                    <span class="block truncate text-[11px] text-slate-500">{{
                       account.emailAddress
                     }}</span>
-                    <span class="block truncate text-xs text-slate-500">{{
+                    <span class="block truncate text-[11px] text-slate-500">{{
                       accountSyncStatusLabel(account.syncStatus)
                     }}</span>
                   </button>
@@ -435,11 +515,11 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                     />
                   </div>
                 </div>
-                <div class="mt-2 space-y-1">
+                <div class="mt-1.5 space-y-0.5">
                   <button
                     v-for="mailbox in account.mailboxes"
                     :key="mailbox.id"
-                    class="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm hover:bg-stone-100"
+                    class="flex w-full items-center justify-between rounded-md px-1.5 py-1.5 text-left text-xs hover:bg-stone-200"
                     :class="
                       readerRoute.kind === 'mailbox' &&
                       readerRoute.accountId === account.id &&
@@ -461,13 +541,22 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
           </div>
         </aside>
 
+        <div
+          class="reader-resize-handle hidden lg:block"
+          :class="activeResize === 'nav' ? 'reader-resize-handle-active' : ''"
+          aria-label="Resize mailbox navigation"
+          role="separator"
+          tabindex="0"
+          @pointerdown.prevent="startColumnResize('nav', $event)"
+        ></div>
+
         <section
-          class="min-h-0 border-r border-stone-200 bg-stone-50"
+          class="min-h-0 border-r border-stone-300 bg-stone-100"
           :class="mobilePane === 'list' ? 'block' : 'hidden lg:block'"
           aria-label="Message list"
         >
           <div class="flex h-full flex-col">
-            <div class="space-y-3 border-b border-stone-200 bg-white p-3">
+            <div class="space-y-2 border-b border-stone-300 bg-stone-100 p-2">
               <div class="flex items-center gap-2 lg:hidden">
                 <UButton
                   aria-label="Account mailbox tree"
@@ -486,7 +575,12 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                   icon="i-lucide-search"
                   placeholder="Search this account"
                 />
-                <UButton color="neutral" type="submit">Search</UButton>
+                <button
+                  class="h-8 rounded-md bg-slate-900 px-3 text-sm font-medium text-white hover:bg-slate-800"
+                  type="submit"
+                >
+                  Search
+                </button>
                 <UButton
                   v-if="readerRoute.kind === 'search'"
                   color="neutral"
@@ -526,38 +620,51 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                 v-for="message in messages"
                 v-else
                 :key="message.id"
-                class="block w-full border-b border-stone-200 bg-white px-4 py-3 text-left hover:bg-stone-50"
-                :class="selectedMessageId === message.id ? 'bg-stone-100' : ''"
+                class="block w-full border-b border-stone-300 bg-stone-100 px-3 py-2 text-left hover:bg-stone-200"
+                :class="selectedMessageId === message.id ? 'bg-stone-200' : ''"
                 type="button"
                 @click="selectMessage(message.id)"
               >
-                <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center justify-between gap-2">
                   <span
-                    class="truncate text-sm"
+                    class="truncate text-xs"
                     :class="message.unread ? 'font-semibold' : 'font-medium'"
                   >
                     {{ senderLabel(message) }}
                   </span>
-                  <span class="shrink-0 text-xs text-slate-500">{{
+                  <span class="shrink-0 text-[11px] text-slate-500">{{
                     formatDate(message.receivedAt)
                   }}</span>
                 </div>
-                <p class="mt-1 truncate text-sm" :class="message.unread ? 'font-semibold' : ''">
+                <p class="mt-0.5 truncate text-xs" :class="message.unread ? 'font-semibold' : ''">
                   {{ message.subject || "(No subject)" }}
                 </p>
-                <p class="mt-1 line-clamp-2 text-xs text-slate-500">{{ message.snippet }}</p>
+                <p class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-500">
+                  {{ message.snippet }}
+                </p>
               </button>
             </div>
           </div>
         </section>
 
+        <div
+          class="reader-resize-handle hidden lg:block"
+          :class="activeResize === 'list' ? 'reader-resize-handle-active' : ''"
+          aria-label="Resize message list"
+          role="separator"
+          tabindex="0"
+          @pointerdown.prevent="startColumnResize('list', $event)"
+        ></div>
+
         <article
-          class="min-h-0 bg-white"
+          class="min-h-0 bg-stone-50"
           :class="mobilePane === 'message' ? 'block' : 'hidden lg:block'"
           aria-label="Message content"
         >
           <div class="flex h-full flex-col">
-            <div class="flex h-12 shrink-0 items-center gap-2 border-b border-stone-200 px-3">
+            <div
+              class="flex h-12 shrink-0 items-center gap-2 border-b border-stone-300 bg-stone-100 px-3"
+            >
               <UButton
                 class="lg:hidden"
                 color="neutral"

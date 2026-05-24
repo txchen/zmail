@@ -12,6 +12,36 @@ body {
   background: #f7f7f4;
 }
 
+@media (min-width: 64rem) {
+  .reader-grid {
+    grid-template-columns:
+      var(--reader-nav-width) 0.375rem var(--reader-list-width) 0.375rem
+      minmax(0, 1fr);
+  }
+}
+
+.reader-resize-handle {
+  cursor: col-resize;
+  background: #e7e5e4;
+  position: relative;
+}
+
+.reader-resize-handle::after {
+  content: "";
+  position: absolute;
+  inset: 0 -0.25rem;
+}
+
+.reader-resize-handle:hover,
+.reader-resize-handle-active {
+  background: #94a3b8;
+}
+
+.reader-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
 .message-body {
   min-height: 70vh;
   border: 0;
