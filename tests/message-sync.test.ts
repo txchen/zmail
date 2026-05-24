@@ -301,4 +301,94 @@ describe("recent Message sync", () => {
     );
     expect(invalidCursor.status).toBe(400);
   });
+
+  it("returns a paginated per-account unread view without cross-account UI unread", async () => {
+    const persistence = createHybridPersistence();
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "personal-app-password",
+    };
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 2 });
+    mailDatabase.saveMailbox({ id: "all-mail", name: "All Mail", unreadCount: 2 });
+
+    for (const message of [
+      {
+        id: "message-2",
+        receivedAt: "2026-05-23T12:00:00.000Z",
+        unread: true,
+        starred: true,
+        sender: { address: "alerts@example.com" },
+      },
+      {
+        id: "message-1",
+        receivedAt: "2026-05-23T11:00:00.000Z",
+        unread: true,
+        starred: false,
+        sender: { address: "friend@example.com" },
+      },
+      {
+        id: "message-read",
+        receivedAt: "2026-05-23T10:00:00.000Z",
+        unread: false,
+        starred: true,
+        sender: { address: "alerts@example.com" },
+      },
+    ]) {
+      mailDatabase.saveMessage({
+        ...message,
+        stableIdentity: `gmail:personal:${message.id}`,
+        subject: message.id,
+        recipients: [],
+        aiProcessed: false,
+        readableBody: "",
+        attachments: [],
+      });
+      for (const mailboxId of ["inbox", "all-mail"]) {
+        mailDatabase.saveMailboxEntry({
+          id: `${message.id}:${mailboxId}`,
+          mailboxId,
+          messageId: message.id,
+        });
+      }
+    }
+
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: [account],
+      persistence,
+    });
+    const loginResponse = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+    const cookie = loginResponse.headers.get("set-cookie") ?? "";
+
+    expect((await app.request("/api/mail-accounts/personal/messages/unread")).status).toBe(401);
+    expect((await app.request("/api/messages/unread", { headers: { cookie } })).status).toBe(404);
+    expect(
+      (await app.request("/api/mail-accounts/unknown/messages/unread", { headers: { cookie } }))
+        .status,
+    ).toBe(404);
+
+    const firstPage = await app.request("/api/mail-accounts/personal/messages/unread?limit=1", {
+      headers: { cookie },
+    });
+    const firstPageBody = await firstPage.json();
+    expect(firstPageBody.messages.map((message: { id: string }) => message.id)).toEqual([
+      "message-2",
+    ]);
+    expect(firstPageBody.messages[0].mailboxIds).toEqual(["all-mail", "inbox"]);
+    expect(firstPageBody.nextCursor).toEqual(expect.any(String));
+
+    const filtered = await app.request(
+      "/api/mail-accounts/personal/messages/unread?starred=true&from=alerts@example.com",
+      { headers: { cookie } },
+    );
+    expect((await filtered.json()).messages.map((message: { id: string }) => message.id)).toEqual([
+      "message-2",
+    ]);
+  });
 });

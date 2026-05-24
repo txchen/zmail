@@ -268,6 +268,39 @@ export function createApp(config: AppConfig): Hono {
     });
   });
 
+  app.get("/api/mail-accounts/:accountId/messages/unread", (c) => {
+    if (!isAuthenticated(c.req.header("cookie"))) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    const accountId = c.req.param("accountId");
+    if (!config.mailAccounts.some((account) => account.id === accountId)) {
+      return c.json({ error: "Mail account not found" }, 404);
+    }
+
+    const cursor = parseMessageCursor(c.req.query("cursor"));
+    if (cursor === null) {
+      return c.json({ error: "Invalid cursor" }, 400);
+    }
+
+    return c.json(
+      paginateMessageSummaries(
+        persistence.mailDatabaseFor(accountId).listUnreadMessages(accountId),
+        {
+          limit: parseLimit(c.req.query("limit")),
+          ...(cursor ? { cursor } : {}),
+          filters: {
+            starred: parseBooleanQuery(c.req.query("starred")),
+            hasAttachments: parseBooleanQuery(c.req.query("hasAttachments")),
+            from: c.req.query("from"),
+            after: c.req.query("after"),
+            before: c.req.query("before"),
+          },
+        },
+      ),
+    );
+  });
+
   app.get("/api/mail-accounts/:accountId/messages/:messageId", (c) => {
     if (!isAuthenticated(c.req.header("cookie"))) {
       return c.json({ error: "Authentication required" }, 401);
@@ -468,4 +501,62 @@ function parseMessageCursor(
   } catch {
     return null;
   }
+}
+
+type MessageSummaryLike = {
+  id: string;
+  receivedAt: string;
+  starred: boolean;
+  sender: { address: string };
+  attachmentCount: number;
+};
+
+function paginateMessageSummaries<T extends MessageSummaryLike>(
+  messages: T[],
+  options: {
+    limit?: number;
+    cursor?: { receivedAt: string; id: string };
+    filters?: {
+      starred?: boolean;
+      hasAttachments?: boolean;
+      from?: string;
+      after?: string;
+      before?: string;
+    };
+  },
+): { messages: T[]; nextCursor?: string } {
+  const limit = Math.min(options.limit ?? 50, 200);
+  const filtered = messages
+    .filter((message) => options.filters?.starred === undefined || message.starred === options.filters.starred)
+    .filter(
+      (message) =>
+        options.filters?.hasAttachments === undefined ||
+        (message.attachmentCount > 0) === options.filters.hasAttachments,
+    )
+    .filter(
+      (message) =>
+        !options.filters?.from ||
+        message.sender.address.toLowerCase() === options.filters.from.toLowerCase(),
+    )
+    .filter((message) => !options.filters?.after || message.receivedAt > options.filters.after)
+    .filter((message) => !options.filters?.before || message.receivedAt < options.filters.before)
+    .filter(
+      (message) =>
+        !options.cursor ||
+        message.receivedAt < options.cursor.receivedAt ||
+        (message.receivedAt === options.cursor.receivedAt && message.id < options.cursor.id),
+    );
+  const pageMessages = filtered.slice(0, limit);
+  const lastMessage = pageMessages.at(-1);
+
+  return {
+    messages: pageMessages,
+    ...(filtered.length > limit && lastMessage
+      ? { nextCursor: encodeMessageCursor(lastMessage.receivedAt, lastMessage.id) }
+      : {}),
+  };
+}
+
+function encodeMessageCursor(receivedAt: string, id: string): string {
+  return Buffer.from(JSON.stringify({ receivedAt, id }), "utf8").toString("base64url");
 }

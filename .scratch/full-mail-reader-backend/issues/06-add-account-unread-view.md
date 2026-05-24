@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Add per-Mail account unread view
 
@@ -8,13 +8,13 @@ Add a per-Mail account Account unread view that returns unread Messages across t
 
 ## Acceptance criteria
 
-- [ ] `GET /api/mail-accounts/:accountId/messages/unread` returns unread Messages for one Mail account.
-- [ ] Messages that appear in multiple Mailboxes are deduplicated.
-- [ ] Response uses the standardized paginated Message list shape.
-- [ ] Endpoint supports common Message filters where meaningful.
-- [ ] Unknown Mail account IDs return `404`.
-- [ ] Cross-account unread is not exposed on authenticated UI APIs.
-- [ ] Tests cover deduplication, pagination, filters, unknown Mail account, and unauthenticated access.
+- [x] `GET /api/mail-accounts/:accountId/messages/unread` returns unread Messages for one Mail account.
+- [x] Messages that appear in multiple Mailboxes are deduplicated.
+- [x] Response uses the standardized paginated Message list shape.
+- [x] Endpoint supports common Message filters where meaningful.
+- [x] Unknown Mail account IDs return `404`.
+- [x] Cross-account unread is not exposed on authenticated UI APIs.
+- [x] Tests cover deduplication, pagination, filters, unknown Mail account, and unauthenticated access.
 
 ## Blocked by
 
