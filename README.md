@@ -40,8 +40,19 @@ vp run typecheck
 GitHub Actions publishes a single-container image to GitHub Container Registry on pushes to
 `master` and version tags.
 
-The container serves both the web UI and API on port `3001`. Provide runtime config and data through
-mounts:
+The container serves both the web UI and API on port `3001`. A config file is required; without it
+the service cannot start. Use [`zmail.toml.example`](./zmail.toml.example) as the template:
+
+```sh
+mkdir -p /srv/zmail/config /srv/zmail/data
+cp zmail.toml.example /srv/zmail/config/zmail.toml
+```
+
+Edit `/srv/zmail/config/zmail.toml` with the App login and Mail account credentials, and set
+`[storage] database_dir = "/data"`. The image defaults to
+`ZMAIL_CONFIG_PATH=/config/zmail.toml`.
+
+Mount the config directory and persistent data directory:
 
 ```sh
 docker run --name zmail \
@@ -66,5 +77,5 @@ services:
       - /srv/zmail/data:/data
 ```
 
-Set `[storage] database_dir = "/data"` in `/srv/zmail/config/zmail.toml`. The image defaults to
-`ZMAIL_CONFIG_PATH=/config/zmail.toml`.
+The `/config` mount can be read-only. The `/data` mount must be writable because it stores the
+SQLite databases.
