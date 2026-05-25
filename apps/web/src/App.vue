@@ -55,6 +55,7 @@ const collapsedAccounts = ref(new Set(savedReaderLayout.collapsedAccounts));
 const collapsedMailboxGroups = ref(new Set(savedReaderLayout.collapsedMailboxGroups));
 const activeResize = ref<"nav" | "list" | null>(null);
 const syncJobsOpen = ref(false);
+const syncJobsMenu = ref<HTMLElement | null>(null);
 const customSyncDialogOpen = ref(false);
 const customSyncAccountId = ref("");
 const customSyncDays = ref(90);
@@ -353,10 +354,12 @@ watch(
 onBeforeUnmount(() => {
   stopColumnResize();
   document.removeEventListener("visibilitychange", updateDocumentVisible);
+  document.removeEventListener("pointerdown", dismissSyncJobsOnOutsidePointer);
 });
 
 onMounted(() => {
   document.addEventListener("visibilitychange", updateDocumentVisible);
+  document.addEventListener("pointerdown", dismissSyncJobsOnOutsidePointer);
 });
 
 async function submitLogin() {
@@ -421,6 +424,18 @@ function updateDocumentVisible(): void {
   documentVisible.value = document.visibilityState !== "hidden";
 }
 
+function dismissSyncJobsOnOutsidePointer(event: PointerEvent): void {
+  if (!syncJobsOpen.value || !syncJobsMenu.value) {
+    return;
+  }
+
+  if (event.target instanceof Node && syncJobsMenu.value.contains(event.target)) {
+    return;
+  }
+
+  syncJobsOpen.value = false;
+}
+
 function syncJobsPollingInterval(query: { state: { data: SyncJobsResponse | undefined } }) {
   if (!authenticated.value || !documentVisible.value) {
     return false;
@@ -473,6 +488,42 @@ function syncJobSummary(job: SyncJobRecord): string {
     `${job.result.storedMessageCount ?? 0} stored`,
     `${job.result.removedMailboxEntryCount ?? 0} removed`,
   ].join(" / ");
+}
+
+function syncJobStateIcon(job: SyncJobRecord): string {
+  if (job.state === "succeeded") {
+    return "✅";
+  }
+
+  if (job.state === "failed") {
+    return "❌";
+  }
+
+  if (job.state === "running") {
+    return "▶";
+  }
+
+  if (job.state === "pending") {
+    return "…";
+  }
+
+  return "·";
+}
+
+function syncJobScopeLabel(job: SyncJobRecord): string {
+  if (job.scope.type === "regular") {
+    return "Regular";
+  }
+
+  if (job.scope.type === "recentReconciliation") {
+    return `Reconcile ${job.scope.days}d`;
+  }
+
+  return `Custom ${job.scope.days}d`;
+}
+
+function syncJobTime(job: SyncJobRecord): string {
+  return formatDate(job.finishedAt ?? job.startedAt ?? job.createdAt);
 }
 
 function syncJobDuration(job: SyncJobRecord): string {
@@ -776,7 +827,7 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
         <div class="min-w-0">
           <p class="text-sm font-semibold">ZM</p>
         </div>
-        <div class="relative flex items-center gap-2">
+        <div ref="syncJobsMenu" class="relative flex items-center gap-2">
           <UButton
             v-if="activeSyncJobs.length > 0"
             color="neutral"
@@ -798,28 +849,36 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
           />
           <div
             v-if="syncJobsOpen"
-            class="absolute right-10 top-9 z-20 w-80 rounded-md border border-stone-300 bg-white p-2 shadow-lg"
+            class="absolute right-10 top-9 z-20 flex max-h-[32rem] w-96 flex-col rounded-md border border-stone-300 bg-white p-2 shadow-lg"
           >
-            <p class="px-2 pb-2 text-xs font-semibold uppercase text-slate-500">Sync jobs</p>
+            <div class="flex shrink-0 items-center justify-between gap-2 px-2 pb-2">
+              <p class="text-xs font-semibold uppercase text-slate-500">Sync jobs</p>
+              <p class="text-[11px] text-slate-400">{{ syncJobs.length }} total</p>
+            </div>
             <div v-if="syncJobs.length === 0" class="px-2 py-3 text-sm text-slate-500">
               No recent jobs.
             </div>
-            <div v-else class="max-h-80 space-y-1 overflow-y-auto">
+            <div v-else class="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
               <div
                 v-for="job in syncJobs"
                 :key="job.id"
                 class="rounded border border-stone-200 px-2 py-1.5 text-xs"
               >
                 <div class="flex items-center justify-between gap-2">
-                  <span class="font-medium">{{ job.accountId }}</span>
-                  <span class="text-slate-500">
-                    {{ job.state }}
-                    <span v-if="syncJobDuration(job)" class="ml-1">
-                      {{ syncJobDuration(job) }}
-                    </span>
+                  <span class="min-w-0 truncate font-medium">
+                    <span class="mr-1">{{ syncJobStateIcon(job) }}</span>{{ job.accountId }}
+                  </span>
+                  <span class="shrink-0 text-slate-500">
+                    {{ syncJobTime(job) }}
                   </span>
                 </div>
-                <div class="mt-1 text-slate-600">{{ syncJobSummary(job) }}</div>
+                <div class="mt-1 flex items-center justify-between gap-2 text-slate-500">
+                  <span class="truncate">{{ syncJobScopeLabel(job) }} · {{ job.state }}</span>
+                  <span v-if="syncJobDuration(job)" class="shrink-0">{{
+                    syncJobDuration(job)
+                  }}</span>
+                </div>
+                <div class="mt-1 truncate text-slate-600">{{ syncJobSummary(job) }}</div>
               </div>
             </div>
           </div>

@@ -17,13 +17,28 @@ describe("Sync jobs UI", () => {
 
   it("shows finished Sync job durations in the popover", () => {
     expect(appVue).toContain("function syncJobDuration(job: SyncJobRecord): string");
+    expect(appVue).toContain("function syncJobStateIcon(job: SyncJobRecord): string");
+    expect(appVue).toContain("function syncJobScopeLabel(job: SyncJobRecord): string");
+    expect(appVue).toContain("function syncJobTime(job: SyncJobRecord): string");
     expect(appVue).toContain("job.result?.durationMs");
     expect(appVue).toMatch(
       /job\.startedAt && job\.finishedAt[\s\S]*new Date\(job\.finishedAt\)\.getTime\(\) - new Date\(job\.startedAt\)\.getTime\(\)[\s\S]*: job\.result\?\.durationMs/,
     );
-    expect(appVue).toMatch(
-      /\{\{ job\.state \}\}[\s\S]*v-if="syncJobDuration\(job\)"[\s\S]*\{\{ syncJobDuration\(job\) \}\}/,
-    );
+    expect(appVue).toContain("{{ syncJobTime(job) }}");
+    expect(appVue).toContain("{{ syncJobScopeLabel(job) }} · {{ job.state }}");
+    expect(appVue).toContain("{{ syncJobs.length }} total");
+  });
+
+  it("dismisses the Sync jobs popover on outside click", () => {
+    expect(appVue).toContain('ref="syncJobsMenu"');
+    expect(appVue).toContain("function dismissSyncJobsOnOutsidePointer(event: PointerEvent): void");
+    expect(appVue).toContain('document.addEventListener("pointerdown", dismissSyncJobsOnOutsidePointer)');
+    expect(appVue).toContain('document.removeEventListener("pointerdown", dismissSyncJobsOnOutsidePointer)');
+  });
+
+  it("keeps long Sync job histories scrollable", () => {
+    expect(appVue).toContain("max-h-[32rem]");
+    expect(appVue).toContain("overflow-y-auto");
   });
 
   it("polls Sync jobs faster while work is active", () => {
