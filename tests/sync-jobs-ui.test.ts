@@ -36,4 +36,9 @@ describe("Sync jobs UI", () => {
   it("does not show Account sync status labels in the account tree", () => {
     expect(appVue).not.toContain("accountSyncStatusLabel");
   });
+
+  it("shows the selected Account email in the message list header", () => {
+    expect(appVue).toContain('class="max-w-[45%] shrink-0 truncate text-right"');
+    expect(appVue).toContain("{{ selectedAccount.emailAddress }}");
+  });
 });

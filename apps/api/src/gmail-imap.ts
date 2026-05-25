@@ -137,8 +137,7 @@ export function createGmailImapMailboxSyncClient(
 
         for (const mailbox of mailboxes.filter(
           (candidate) =>
-            requestedMailboxes.some((requestedMailbox) => requestedMailbox.id === candidate.path) &&
-            isInboxMailbox(candidate.path),
+            requestedMailboxes.some((requestedMailbox) => requestedMailbox.id === candidate.path),
         )) {
           if (isNonSelectableMailbox(mailbox)) {
             continue;
@@ -316,10 +315,6 @@ function mailboxActionRange(
 
 function isNonSelectableMailbox(mailbox: { flags?: Set<string> }): boolean {
   return mailbox.flags?.has("\\Noselect") === true || mailbox.flags?.has("\\NonExistent") === true;
-}
-
-function isInboxMailbox(path: string): boolean {
-  return path === "INBOX" || path.startsWith("INBOX/");
 }
 
 function participantFromAddress(address: ImapAddress | undefined): {

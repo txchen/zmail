@@ -910,15 +910,20 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                   @click="clearSearch"
                 />
               </form>
-              <p class="truncate text-xs text-slate-500">
-                <template v-if="readerRoute.kind === 'unread'">Unread Messages</template>
-                <template v-else-if="readerRoute.kind === 'mailbox' && selectedAccount">
-                  {{ mailboxLabel(selectedAccount, readerRoute.mailboxId) }}
-                </template>
-                <template v-else-if="readerRoute.kind === 'search'"
-                  >Search results for "{{ readerRoute.query }}"</template
-                >
-              </p>
+              <div class="flex min-w-0 items-center gap-2 text-xs text-slate-500">
+                <p class="min-w-0 flex-1 truncate">
+                  <template v-if="readerRoute.kind === 'unread'">Unread Messages</template>
+                  <template v-else-if="readerRoute.kind === 'mailbox' && selectedAccount">
+                    {{ mailboxLabel(selectedAccount, readerRoute.mailboxId) }}
+                  </template>
+                  <template v-else-if="readerRoute.kind === 'search'"
+                    >Search results for "{{ readerRoute.query }}"</template
+                  >
+                </p>
+                <p v-if="selectedAccount" class="max-w-[45%] shrink-0 truncate text-right">
+                  {{ selectedAccount.emailAddress }}
+                </p>
+              </div>
             </div>
 
             <div class="min-h-0 flex-1 overflow-y-auto">

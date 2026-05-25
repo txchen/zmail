@@ -111,7 +111,11 @@ describe("Gmail IMAP mailbox sync client", () => {
       ],
     });
 
-    expect(messages.map((message) => message.mailboxIds)).toEqual([["INBOX"], ["INBOX/Project"]]);
+    expect(messages.map((message) => message.mailboxIds)).toEqual([
+      ["INBOX"],
+      ["INBOX/Project"],
+      ["[Gmail]/All Mail"],
+    ]);
     expect(messages[0]).toMatchObject({
       uid: 42,
       recipients: [{ address: "me@example.com" }],
@@ -121,7 +125,7 @@ describe("Gmail IMAP mailbox sync client", () => {
     });
     expect(mailboxOpen).toHaveBeenCalledWith("INBOX");
     expect(mailboxOpen).toHaveBeenCalledWith("INBOX/Project");
-    expect(mailboxOpen).not.toHaveBeenCalledWith("[Gmail]/All Mail");
+    expect(mailboxOpen).toHaveBeenCalledWith("[Gmail]/All Mail");
     expect(mailboxOpen).not.toHaveBeenCalledWith("[Gmail]");
     expect(fetch).toHaveBeenCalledWith(
       "33:*",
