@@ -51,18 +51,18 @@ export function renderReadableMessage(input: RenderReadableMessageInput): Render
   });
   let blockedRemoteImageCount = 0;
   const html = withSafeLinks.replace(/<img\b([^>]*)>/gi, (_match, attributes: string) => {
-    const srcMatch = /\s+src\s*=\s*(["'])(.*?)\1/i.exec(attributes);
+    const srcMatch = /\s+src\s*=\s*(?:(["'])(.*?)\1|([^\s>]+))/i.exec(attributes);
 
     if (!srcMatch) {
       return `<img${attributes}>`;
     }
 
-    const src = srcMatch[2];
+    const src = srcMatch[2] ?? srcMatch[3] ?? "";
     const inlineResourceUrl = inlineResourceUrlFor(input, src);
 
     if (inlineResourceUrl) {
       const safeAttributes = attributes.replace(
-        /\s+src\s*=\s*(["']).*?\1/i,
+        /\s+src\s*=\s*(?:(["']).*?\1|[^\s>]+)/i,
         ` src="${escapeAttribute(inlineResourceUrl)}"`,
       );
 
@@ -74,7 +74,7 @@ export function renderReadableMessage(input: RenderReadableMessageInput): Render
     }
 
     blockedRemoteImageCount += 1;
-    const safeAttributes = attributes.replace(/\s+src\s*=\s*(["']).*?\1/i, "");
+    const safeAttributes = attributes.replace(/\s+src\s*=\s*(?:(["']).*?\1|[^\s>]+)/i, "");
 
     return `<img${safeAttributes} data-remote-src="${escapeAttribute(src)}">`;
   });

@@ -43,7 +43,7 @@ const queryClient = useQueryClient();
 const username = ref("");
 const password = ref("");
 const loginError = ref("");
-const showRemoteImages = ref(false);
+const remoteImagesAllowedMessageKeys = ref(new Set<string>());
 const mobilePane = ref<"nav" | "list" | "message">("nav");
 const lastListRouteByAccount = ref(new Map<string, string>());
 const searchDraft = ref("");
@@ -162,6 +162,7 @@ const customSyncRangeOptions = [
   { label: "Last 30 days", value: 30 },
   { label: "Last 90 days", value: 90 },
   { label: "Last 365 days", value: 365 },
+  { label: "Last 2 years", value: 730 },
   { label: "Last 10 years", value: 3650 },
 ];
 
@@ -245,6 +246,14 @@ const messageDetailQuery = useQuery({
 const selectedMessage = computed<MessageDetail | null>(
   () => messageDetailQuery.data.value?.message ?? null,
 );
+const selectedMessageKey = computed(() =>
+  selectedMessage.value ? messageRemoteImagesKey(selectedMessage.value) : "",
+);
+const selectedMessageRemoteImagesAllowed = computed(
+  () =>
+    !!selectedMessageKey.value &&
+    remoteImagesAllowedMessageKeys.value.has(selectedMessageKey.value),
+);
 
 const renderedMessage = computed(() => {
   if (!selectedMessage.value) {
@@ -257,7 +266,7 @@ const renderedMessage = computed(() => {
     readableBody: selectedMessage.value.readableBody,
     plainTextBody: selectedMessage.value.plainTextBody,
     inlineResources: selectedMessage.value.inlineResources,
-    showRemoteImages: showRemoteImages.value,
+    showRemoteImages: selectedMessageRemoteImagesAllowed.value,
   });
 });
 
@@ -343,8 +352,6 @@ watch(
 watch(
   () => route.fullPath,
   (fullPath) => {
-    showRemoteImages.value = false;
-
     if (
       (readerRoute.value.kind === "unread" || readerRoute.value.kind === "mailbox") &&
       !readerRoute.value.messageId
@@ -443,6 +450,21 @@ function runMailboxAction(action: MailboxAction) {
   }
 
   mailboxActionMutation.mutate({ messageId: selectedMessage.value.id, action });
+}
+
+function allowRemoteImagesForSelectedMessage() {
+  if (!selectedMessageKey.value) {
+    return;
+  }
+
+  remoteImagesAllowedMessageKeys.value = new Set([
+    ...remoteImagesAllowedMessageKeys.value,
+    selectedMessageKey.value,
+  ]);
+}
+
+function messageRemoteImagesKey(message: MessageDetail): string {
+  return `${message.accountId}:${message.id}`;
 }
 
 function openAdjacentMessage(messageId: string) {
@@ -1323,20 +1345,27 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                   <span class="font-medium text-slate-700">Bcc</span>
                   {{ participantsLabel(selectedMessage.bccRecipients) }}
                 </div>
-                <UAlert
-                  v-if="renderedMessage.blockedRemoteImageCount && !showRemoteImages"
-                  class="mt-4"
-                  color="warning"
-                  variant="soft"
-                  title="Remote images are blocked"
-                  :description="`${renderedMessage.blockedRemoteImageCount} remote image(s) blocked for privacy.`"
+                <div
+                  v-if="
+                    renderedMessage.blockedRemoteImageCount && !selectedMessageRemoteImagesAllowed
+                  "
+                  class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm"
                 >
-                  <template #actions>
-                    <UButton color="neutral" size="sm" @click="showRemoteImages = true"
-                      >Show images</UButton
-                    >
-                  </template>
-                </UAlert>
+                  <div>
+                    <p class="font-medium text-amber-950">Remote images are blocked</p>
+                    <p class="mt-0.5 text-amber-800">
+                      {{ renderedMessage.blockedRemoteImageCount }} remote image(s) blocked for
+                      privacy.
+                    </p>
+                  </div>
+                  <button
+                    class="h-8 rounded-md border border-amber-300 bg-white px-3 text-sm font-medium text-amber-950 hover:bg-amber-100"
+                    type="button"
+                    @click="allowRemoteImagesForSelectedMessage"
+                  >
+                    Show images
+                  </button>
+                </div>
                 <iframe
                   class="message-body mt-6 block w-full"
                   sandbox="allow-popups"
