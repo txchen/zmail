@@ -62,6 +62,7 @@ const documentVisible = ref(
   typeof document === "undefined" ? true : document.visibilityState !== "hidden",
 );
 const observedActiveSyncJobIds = ref(new Set<string>());
+const messageListPageSize = 100;
 let resizeStartX = 0;
 let resizeStartWidth = 0;
 
@@ -143,15 +144,19 @@ const messageListQuery = useQuery({
     const current = readerRoute.value;
 
     if (current.kind === "unread") {
-      return fetchUnreadMessagesForAccount(current.accountId);
+      return fetchUnreadMessagesForAccount(current.accountId, { limit: messageListPageSize });
     }
 
     if (current.kind === "mailbox") {
-      return fetchMessagesForMailbox(current.accountId, current.mailboxId);
+      return fetchMessagesForMailbox(current.accountId, current.mailboxId, {
+        limit: messageListPageSize,
+      });
     }
 
     if (current.kind === "search") {
-      return searchMessagesForAccount(current.accountId, current.query);
+      return searchMessagesForAccount(current.accountId, current.query, {
+        limit: messageListPageSize,
+      });
     }
 
     return { messages: [] };
@@ -160,6 +165,47 @@ const messageListQuery = useQuery({
 });
 
 const messages = computed(() => messageListQuery.data.value?.messages ?? []);
+const messageListNextCursor = computed(() => messageListQuery.data.value?.nextCursor);
+
+const loadMoreMessagesMutation = useMutation({
+  mutationFn: async () => {
+    const current = readerRoute.value;
+    const cursor = messageListNextCursor.value;
+
+    if (!cursor) {
+      return { messages: [] };
+    }
+
+    if (current.kind === "unread") {
+      return fetchUnreadMessagesForAccount(current.accountId, {
+        limit: messageListPageSize,
+        cursor,
+      });
+    }
+
+    if (current.kind === "mailbox") {
+      return fetchMessagesForMailbox(current.accountId, current.mailboxId, {
+        limit: messageListPageSize,
+        cursor,
+      });
+    }
+
+    if (current.kind === "search") {
+      return searchMessagesForAccount(current.accountId, current.query, {
+        limit: messageListPageSize,
+        cursor,
+      });
+    }
+
+    return { messages: [] };
+  },
+  onSuccess: (nextPage) => {
+    queryClient.setQueryData(["message-list", readerRoute.value], {
+      messages: [...messages.value, ...nextPage.messages],
+      ...(nextPage.nextCursor ? { nextCursor: nextPage.nextCursor } : {}),
+    });
+  },
+});
 
 const messageDetailQuery = useQuery({
   queryKey: computed(() => ["message-detail", selectedAccountId.value, selectedMessageId.value]),
@@ -1058,6 +1104,16 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                   {{ message.snippet }}
                 </p>
               </button>
+              <div v-if="messageListNextCursor" class="p-3">
+                <button
+                  class="h-8 w-full rounded-md border border-stone-300 bg-stone-50 px-3 text-sm font-medium text-slate-700 hover:bg-stone-200 disabled:cursor-not-allowed disabled:opacity-60"
+                  type="button"
+                  :disabled="loadMoreMessagesMutation.isPending.value"
+                  @click="loadMoreMessagesMutation.mutate()"
+                >
+                  {{ loadMoreMessagesMutation.isPending.value ? "Loading..." : "Load more" }}
+                </button>
+              </div>
             </div>
           </div>
         </section>

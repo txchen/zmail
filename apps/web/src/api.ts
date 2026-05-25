@@ -95,12 +95,23 @@ export async function refreshMailAccount(
 export async function fetchMessagesForMailbox(
   mailAccountId: string,
   mailboxId: string,
+  optionsOrFetcher: { limit?: number; cursor?: string } | typeof fetch = {},
   fetcher: typeof fetch = fetch,
 ): Promise<MailboxMessagesResponse> {
-  const response = await fetcher(
+  const options = typeof optionsOrFetcher === "function" ? {} : optionsOrFetcher;
+  const resolvedFetcher = typeof optionsOrFetcher === "function" ? optionsOrFetcher : fetcher;
+  const search = new URLSearchParams();
+  if (options.limit !== undefined) {
+    search.set("limit", String(options.limit));
+  }
+  if (options.cursor) {
+    search.set("cursor", options.cursor);
+  }
+  const query = search.toString();
+  const response = await resolvedFetcher(
     `/api/mail-accounts/${encodeURIComponent(mailAccountId)}/mailboxes/${encodeURIComponent(
       mailboxId,
-    )}/messages`,
+    )}/messages${query ? `?${query}` : ""}`,
   );
 
   if (!response.ok) {
@@ -112,9 +123,22 @@ export async function fetchMessagesForMailbox(
 
 export async function fetchUnreadMessagesForAccount(
   mailAccountId: string,
+  optionsOrFetcher: { limit?: number; cursor?: string } | typeof fetch = {},
   fetcher: typeof fetch = fetch,
 ): Promise<MailboxMessagesResponse> {
-  const response = await fetcher(`/api/mail-accounts/${mailAccountId}/messages/unread`);
+  const options = typeof optionsOrFetcher === "function" ? {} : optionsOrFetcher;
+  const resolvedFetcher = typeof optionsOrFetcher === "function" ? optionsOrFetcher : fetcher;
+  const search = new URLSearchParams();
+  if (options.limit !== undefined) {
+    search.set("limit", String(options.limit));
+  }
+  if (options.cursor) {
+    search.set("cursor", options.cursor);
+  }
+  const query = search.toString();
+  const response = await resolvedFetcher(
+    `/api/mail-accounts/${mailAccountId}/messages/unread${query ? `?${query}` : ""}`,
+  );
 
   if (!response.ok) {
     throw new Error("Unread messages unavailable");
@@ -126,10 +150,23 @@ export async function fetchUnreadMessagesForAccount(
 export async function searchMessagesForAccount(
   mailAccountId: string,
   query: string,
+  optionsOrFetcher: { limit?: number; cursor?: string } | typeof fetch = {},
   fetcher: typeof fetch = fetch,
 ): Promise<MailboxMessagesResponse> {
-  const response = await fetcher(
-    `/api/mail-accounts/${mailAccountId}/messages/search?q=${encodeURIComponent(query)}`,
+  const options = typeof optionsOrFetcher === "function" ? {} : optionsOrFetcher;
+  const resolvedFetcher = typeof optionsOrFetcher === "function" ? optionsOrFetcher : fetcher;
+  const search = new URLSearchParams();
+  if (options.limit !== undefined) {
+    search.set("limit", String(options.limit));
+  }
+  if (options.cursor) {
+    search.set("cursor", options.cursor);
+  }
+  const paginationQuery = search.toString();
+  const response = await resolvedFetcher(
+    `/api/mail-accounts/${mailAccountId}/messages/search?q=${encodeURIComponent(query)}${
+      paginationQuery ? `&${paginationQuery}` : ""
+    }`,
   );
 
   if (!response.ok) {

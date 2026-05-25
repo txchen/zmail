@@ -60,4 +60,11 @@ describe("Sync jobs UI", () => {
     expect(appVue).toContain('return `${year}-${month}-${day} ${hour}:${minute}`;');
     expect(appVue).not.toContain('month: "short"');
   });
+
+  it("renders message lists one page at a time with Load more", () => {
+    expect(appVue).toContain("const messageListPageSize = 100");
+    expect(appVue).toContain("const messageListNextCursor = computed");
+    expect(appVue).toContain("const loadMoreMessagesMutation = useMutation");
+    expect(appVue).toContain("Load more");
+  });
 });
