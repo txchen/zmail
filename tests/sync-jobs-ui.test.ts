@@ -31,7 +31,9 @@ describe("Sync jobs UI", () => {
     expect(appVue).toContain("{{ syncJobSummary(job) }}");
     expect(appVue).not.toContain("{{ job.state }}");
     expect(appVue).not.toContain('class="mt-1 truncate text-slate-600"');
-    expect(appVue).toContain("{{ syncJobs.length }} total");
+    expect(appVue).toContain("const displayedSyncJobs = computed(() => {");
+    expect(appVue).toContain("{{ displayedSyncJobs.length }} shown");
+    expect(appVue).toContain('v-for="job in displayedSyncJobs"');
   });
 
   it("dismisses the Sync jobs popover on outside click", () => {
