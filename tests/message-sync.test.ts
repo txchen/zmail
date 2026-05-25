@@ -64,13 +64,22 @@ describe("recent Message sync", () => {
     mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 1 });
     mailDatabase.saveMailbox({ id: "all-mail", name: "All Mail", unreadCount: 1 });
 
-    await syncRecentMessages({
+    const result = await syncRecentMessages({
       accounts: [account],
       persistence,
       client,
       now,
     });
 
+    expect(result).toMatchObject({
+      mailboxCount: 2,
+      scannedMailboxCount: 2,
+      skippedMailboxCount: 0,
+      fetchedMessageCount: 2,
+      storedMessageCount: 1,
+      removedMailboxEntryCount: 0,
+      durationMs: expect.any(Number),
+    });
     expect(mailDatabase.listMessagesWithMailboxEntries()).toEqual([
       {
         id: "message-1",
@@ -137,13 +146,13 @@ describe("recent Message sync", () => {
     };
     mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 1 });
 
-    await syncRecentMessages({
+    const firstResult = await syncRecentMessages({
       accounts: [account],
       persistence,
       client,
       now: new Date("2026-05-24T12:00:00.000Z"),
     });
-    await syncRecentMessages({
+    const secondResult = await syncRecentMessages({
       accounts: [account],
       persistence,
       client,
@@ -165,6 +174,8 @@ describe("recent Message sync", () => {
       highestUid: 11,
       lastSyncedAt: "2026-05-24T12:05:00.000Z",
     });
+    expect(firstResult.fetchedMessageCount).toBe(1);
+    expect(secondResult.fetchedMessageCount).toBe(1);
   });
 
   it("removes stale Mailbox entries when Gmail no longer reports a Message in that Mailbox", async () => {

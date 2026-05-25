@@ -1,6 +1,6 @@
 # Return structured regular sync results
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -14,16 +14,16 @@ These result counts should become the source of truth for Sync job completion de
 
 ## Acceptance criteria
 
-- [ ] Regular sync returns `mailboxCount`.
-- [ ] Regular sync returns `scannedMailboxCount`.
-- [ ] Regular sync returns `skippedMailboxCount`.
-- [ ] Regular sync returns `fetchedMessageCount`.
-- [ ] Regular sync returns `storedMessageCount`.
-- [ ] Regular sync returns `removedMailboxEntryCount`, even if it is zero for this slice.
-- [ ] Regular sync returns `durationMs`.
-- [ ] Existing per-Mailbox checkpoint behavior remains intact.
-- [ ] Sync job completion stores the returned regular sync result.
-- [ ] Tests cover result counts and checkpointed incremental behavior using mocked Gmail/IMAP clients and local persistence.
+- [x] Regular sync returns `mailboxCount`.
+- [x] Regular sync returns `scannedMailboxCount`.
+- [x] Regular sync returns `skippedMailboxCount`.
+- [x] Regular sync returns `fetchedMessageCount`.
+- [x] Regular sync returns `storedMessageCount`.
+- [x] Regular sync returns `removedMailboxEntryCount`, even if it is zero for this slice.
+- [x] Regular sync returns `durationMs`.
+- [x] Existing per-Mailbox checkpoint behavior remains intact.
+- [x] Sync job completion stores the returned regular sync result.
+- [x] Tests cover result counts and checkpointed incremental behavior using mocked Gmail/IMAP clients and local persistence.
 
 ## Blocked by
 

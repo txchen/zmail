@@ -26,7 +26,35 @@ export function createApp(config: AppConfig): Hono {
   const syncQueue =
     config.syncQueue ??
     createSyncQueue({
-      async execute() {
+      async execute(job) {
+        if (job.scope.type !== "regular") {
+          return {};
+        }
+
+        const account = config.mailAccounts.find((candidate) => candidate.id === job.accountId);
+        if (!account) {
+          throw new Error("Mail account not found");
+        }
+
+        if (mailboxSyncClient) {
+          saveSyncStates(
+            await syncMailboxTrees({
+              accounts: [account],
+              persistence,
+              client: mailboxSyncClient,
+            }),
+          );
+        }
+
+        if (messageSyncClient) {
+          return syncRecentMessages({
+            accounts: [account],
+            persistence,
+            client: messageSyncClient,
+            syncWindowDays: config.sync?.recentMessageWindowDays,
+          });
+        }
+
         return {};
       },
     });

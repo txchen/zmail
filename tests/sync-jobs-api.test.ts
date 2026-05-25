@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { createApp } from "../apps/api/src/app";
+import { createHybridPersistence } from "../apps/api/src/persistence";
 import { createSyncQueue } from "../apps/api/src/sync-queue";
 import { fetchSyncJobs, scheduleSyncJob } from "../apps/web/src/api";
 
@@ -176,5 +177,72 @@ describe("Sync jobs API", () => {
     expect(jobs.jobs).toEqual(
       expect.arrayContaining([expect.objectContaining({ accountId: "failed", state: "failed" })]),
     );
+  });
+
+  it("stores regular sync result counts on completed Sync jobs", async () => {
+    const persistence = createHybridPersistence();
+    persistence.mailDatabaseFor("personal").saveMailbox({
+      id: "inbox",
+      name: "Inbox",
+      unreadCount: 1,
+    });
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: [
+        { id: "personal", emailAddress: "me@example.com", appPassword: "personal-password" },
+      ],
+      sync: {
+        recentMessageWindowDays: 90,
+        regularSyncIntervalMinutes: 5,
+        recentReconciliationIntervalMinutes: 30,
+        recentReconciliationWindowDays: 2,
+      },
+      persistence,
+      messageSyncClient: {
+        async listRecentMessages() {
+          return [
+            {
+              id: "message-1",
+              stableIdentity: "gmail:personal:message-1",
+              uid: 1,
+              subject: "Synced Message",
+              receivedAt: "2026-05-24T12:00:00.000Z",
+              unread: true,
+              readableBody: "<p>Hello</p>",
+              attachments: [],
+              mailboxIds: ["inbox"],
+            },
+          ];
+        },
+      },
+    });
+    const cookie = await login(app);
+
+    await app.request("/api/sync-jobs", {
+      method: "POST",
+      body: JSON.stringify({ accountId: "personal" }),
+      headers: { "content-type": "application/json", cookie },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const response = await app.request("/api/sync-jobs", { headers: { cookie } });
+
+    expect(await response.json()).toMatchObject({
+      jobs: [
+        {
+          accountId: "personal",
+          state: "succeeded",
+          result: {
+            mailboxCount: 1,
+            scannedMailboxCount: 1,
+            skippedMailboxCount: 0,
+            fetchedMessageCount: 1,
+            storedMessageCount: 1,
+            removedMailboxEntryCount: 0,
+            durationMs: expect.any(Number),
+          },
+        },
+      ],
+    });
   });
 });

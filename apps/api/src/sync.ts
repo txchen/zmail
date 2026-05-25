@@ -8,6 +8,7 @@ import type {
   StoredMailbox,
   SystemMailboxRole,
 } from "./persistence.js";
+import type { SyncJobResult } from "./sync-queue.js";
 
 export type ImapMailbox = Omit<StoredMailbox, "systemRole"> & {
   specialUse?: string;
@@ -168,9 +169,19 @@ export async function syncRecentMessages({
   client,
   now = new Date(),
   syncWindowDays = 90,
-}: SyncRecentMessagesOptions): Promise<void> {
+}: SyncRecentMessagesOptions): Promise<SyncJobResult> {
+  const syncStartedAt = Date.now();
   const since = new Date(now);
   since.setUTCDate(since.getUTCDate() - syncWindowDays);
+  const result: SyncJobResult = {
+    mailboxCount: 0,
+    scannedMailboxCount: 0,
+    skippedMailboxCount: 0,
+    fetchedMessageCount: 0,
+    storedMessageCount: 0,
+    removedMailboxEntryCount: 0,
+    durationMs: 0,
+  };
 
   for (const account of accounts) {
     const startedAt = Date.now();
@@ -188,6 +199,8 @@ export async function syncRecentMessages({
       });
     const incrementalMailboxCount = mailboxes.filter((mailbox) => "afterUid" in mailbox).length;
     const backfillMailboxCount = mailboxes.length - incrementalMailboxCount;
+    result.mailboxCount = (result.mailboxCount ?? 0) + mailboxes.length;
+    result.scannedMailboxCount = (result.scannedMailboxCount ?? 0) + mailboxes.length;
     logInfo("message.sync.start", {
       accountId: account.id,
       mailboxCount: mailboxes.length,
@@ -196,6 +209,7 @@ export async function syncRecentMessages({
     });
 
     const messages = await client.listRecentMessages({ account, mailboxes });
+    result.fetchedMessageCount = (result.fetchedMessageCount ?? 0) + messages.length;
     let storedMessageCount = 0;
     let storedMailboxEntryCount = 0;
     let skippedMessageCount = 0;
@@ -250,6 +264,7 @@ export async function syncRecentMessages({
         })),
       });
       storedMessageCount += 1;
+      result.storedMessageCount = (result.storedMessageCount ?? 0) + 1;
       mailDatabase.removeStaleMailboxEntries(message.id, syncedMailboxIds, message.mailboxIds);
 
       for (const mailboxId of message.mailboxIds) {
@@ -278,4 +293,7 @@ export async function syncRecentMessages({
       skippedMessageCount,
     });
   }
+
+  result.durationMs = Date.now() - syncStartedAt;
+  return result;
 }
