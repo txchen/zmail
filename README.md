@@ -48,7 +48,22 @@ docker run --name zmail \
   -p 3001:3001 \
   -v /srv/zmail/config:/config:ro \
   -v /srv/zmail/data:/data \
-  ghcr.io/OWNER/REPO:latest
+  ghcr.io/txchen/zmail:latest
+```
+
+Equivalent `docker-compose.yml`:
+
+```yaml
+services:
+  zmail:
+    image: ghcr.io/txchen/zmail:latest
+    container_name: zmail
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - /srv/zmail/config:/config:ro
+      - /srv/zmail/data:/data
 ```
 
 Set `[storage] database_dir = "/data"` in `/srv/zmail/config/zmail.toml`. The image defaults to
