@@ -481,6 +481,47 @@ export class MailDatabase {
       .run(messageId, ...syncedMailboxIds, ...currentMailboxIds);
   }
 
+  removeMailboxEntriesMissingSince(
+    mailboxIds: string[],
+    since: string,
+    reportedEntries: Array<{ messageId: string; mailboxId: string }>,
+  ): number {
+    if (!mailboxIds.length) {
+      return 0;
+    }
+
+    const staleEntries = this.database
+      .prepare(
+        `
+          SELECT mailbox_entries.message_id, mailbox_entries.mailbox_id
+          FROM mailbox_entries
+          INNER JOIN messages ON messages.id = mailbox_entries.message_id
+          WHERE mailbox_entries.mailbox_id IN (${mailboxIds.map(() => "?").join(", ")})
+            AND messages.received_at >= ?
+        `,
+      )
+      .all(...mailboxIds, since) as Array<{ message_id: string; mailbox_id: string }>;
+    const reported = new Set(
+      reportedEntries.map((entry) => `${entry.messageId}\u0000${entry.mailboxId}`),
+    );
+    const statement = this.database.prepare(`
+      DELETE FROM mailbox_entries
+      WHERE message_id = ? AND mailbox_id = ?
+    `);
+    let removedCount = 0;
+
+    for (const entry of staleEntries) {
+      if (reported.has(`${entry.message_id}\u0000${entry.mailbox_id}`)) {
+        continue;
+      }
+
+      statement.run(entry.message_id, entry.mailbox_id);
+      removedCount += 1;
+    }
+
+    return removedCount;
+  }
+
   saveMailboxSyncState(state: MailboxSyncState): void {
     const existing = this.getMailboxSyncState(state.mailboxId);
 

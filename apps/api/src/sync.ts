@@ -163,6 +163,14 @@ export type SyncRecentMessagesOptions = {
   syncWindowDays?: number;
 };
 
+export type SyncRecentReconciliationOptions = {
+  accounts: ConfiguredMailAccount[];
+  persistence: HybridPersistence;
+  client: MessageSyncClient;
+  now?: Date;
+  windowDays?: number;
+};
+
 export async function syncRecentMessages({
   accounts,
   persistence,
@@ -291,6 +299,110 @@ export async function syncRecentMessages({
       storedMessageCount,
       storedMailboxEntryCount,
       skippedMessageCount,
+    });
+  }
+
+  result.durationMs = Date.now() - syncStartedAt;
+  return result;
+}
+
+export async function syncRecentReconciliation({
+  accounts,
+  persistence,
+  client,
+  now = new Date(),
+  windowDays = 2,
+}: SyncRecentReconciliationOptions): Promise<SyncJobResult> {
+  const syncStartedAt = Date.now();
+  const since = new Date(now);
+  since.setUTCDate(since.getUTCDate() - windowDays);
+  const result: SyncJobResult = {
+    mailboxCount: 0,
+    scannedMailboxCount: 0,
+    skippedMailboxCount: 0,
+    fetchedMessageCount: 0,
+    storedMessageCount: 0,
+    removedMailboxEntryCount: 0,
+    durationMs: 0,
+  };
+
+  for (const account of accounts) {
+    const mailDatabase = persistence.mailDatabaseFor(account.id);
+    const mailboxes = mailDatabase
+      .listMailboxes()
+      .filter((mailbox) => mailbox.selectable !== false)
+      .map((mailbox) => ({ id: mailbox.id, since }));
+
+    result.mailboxCount = (result.mailboxCount ?? 0) + mailboxes.length;
+    result.scannedMailboxCount = (result.scannedMailboxCount ?? 0) + mailboxes.length;
+    logInfo("message.reconciliation.start", {
+      accountId: account.id,
+      mailboxCount: mailboxes.length,
+      windowDays,
+    });
+
+    const messages = await client.listRecentMessages({ account, mailboxes });
+    const mailboxIds = mailboxes.map((mailbox) => mailbox.id);
+    const reportedEntries: Array<{ messageId: string; mailboxId: string }> = [];
+    result.fetchedMessageCount = (result.fetchedMessageCount ?? 0) + messages.length;
+
+    for (const message of messages) {
+      if (new Date(message.receivedAt) < since) {
+        continue;
+      }
+
+      mailDatabase.saveMessage({
+        id: message.id,
+        stableIdentity: message.stableIdentity,
+        threadId: message.threadId,
+        subject: message.subject,
+        sender: message.sender,
+        recipients: message.recipients,
+        ccRecipients: message.ccRecipients,
+        bccRecipients: message.bccRecipients,
+        receivedAt: message.receivedAt,
+        unread: message.unread,
+        starred: false,
+        aiProcessed: false,
+        snippet: message.snippet,
+        bodyText: message.bodyText,
+        readableBody: message.readableBody,
+        plainTextBody: message.plainTextBody,
+        blockedRemoteImageCount: message.blockedRemoteImageCount,
+        updatedAt: message.updatedAt,
+        inlineResources: message.inlineResources,
+        attachments: message.attachments.map(({ id, filename, mimeType, sizeBytes }) => ({
+          id,
+          filename,
+          mimeType,
+          sizeBytes,
+        })),
+      });
+      result.storedMessageCount = (result.storedMessageCount ?? 0) + 1;
+
+      for (const mailboxId of message.mailboxIds.filter((mailboxId) =>
+        mailboxIds.includes(mailboxId),
+      )) {
+        reportedEntries.push({ messageId: message.id, mailboxId });
+        mailDatabase.saveMailboxEntry({
+          id: `${message.id}:${mailboxId}`,
+          mailboxId,
+          messageId: message.id,
+        });
+      }
+    }
+
+    const removedMailboxEntryCount = mailDatabase.removeMailboxEntriesMissingSince(
+      mailboxIds,
+      since.toISOString(),
+      reportedEntries,
+    );
+    result.removedMailboxEntryCount =
+      (result.removedMailboxEntryCount ?? 0) + removedMailboxEntryCount;
+    logInfo("message.reconciliation.finish", {
+      accountId: account.id,
+      fetchedMessageCount: messages.length,
+      removedMailboxEntryCount,
     });
   }
 

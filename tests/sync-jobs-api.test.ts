@@ -245,4 +245,42 @@ describe("Sync jobs API", () => {
       ],
     });
   });
+
+  it("runs Recent reconciliation jobs and records Account sync status failures", async () => {
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: [
+        { id: "personal", emailAddress: "me@example.com", appPassword: "personal-password" },
+      ],
+      sync: {
+        recentMessageWindowDays: 90,
+        regularSyncIntervalMinutes: 5,
+        recentReconciliationIntervalMinutes: 30,
+        recentReconciliationWindowDays: 2,
+      },
+      messageSyncClient: {
+        async listRecentMessages() {
+          throw new Error("Gmail unavailable");
+        },
+      },
+    });
+    const cookie = await login(app);
+
+    await app.request("/api/sync-jobs", {
+      method: "POST",
+      body: JSON.stringify({ accountId: "personal", scope: "recentReconciliation" }),
+      headers: { "content-type": "application/json", cookie },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const statusResponse = await app.request("/api/mail-accounts/personal/sync-status", {
+      headers: { cookie },
+    });
+
+    expect(await statusResponse.json()).toMatchObject({
+      accountId: "personal",
+      syncStatus: "failing",
+      lastError: "Gmail unavailable",
+    });
+  });
 });

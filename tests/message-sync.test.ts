@@ -3,7 +3,7 @@ import { createApp } from "../apps/api/src/app";
 import type { ConfiguredMailAccount } from "../apps/api/src/config";
 import { createHybridPersistence } from "../apps/api/src/persistence";
 import type { MessageSyncClient } from "../apps/api/src/sync";
-import { syncRecentMessages } from "../apps/api/src/sync";
+import { syncRecentMessages, syncRecentReconciliation } from "../apps/api/src/sync";
 import {
   fetchMessagesForMailbox,
   fetchUnreadMessagesForAccount,
@@ -114,6 +114,118 @@ describe("recent Message sync", () => {
       highestUid: 42,
       lastSyncedAt: "2026-05-24T12:00:00.000Z",
     });
+  });
+
+  it("reconciles stale recent Mailbox entries across the Visible mailbox set", async () => {
+    const persistence = createHybridPersistence();
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "personal-app-password",
+    };
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    const requests: unknown[] = [];
+    const client: MessageSyncClient = {
+      async listRecentMessages(request) {
+        requests.push(request);
+
+        return [
+          {
+            id: "recent-kept",
+            stableIdentity: "gmail:personal:recent-kept",
+            subject: "Recent kept",
+            receivedAt: "2026-05-23T10:00:00.000Z",
+            unread: true,
+            readableBody: "<p>Hello</p>",
+            attachments: [],
+            mailboxIds: ["inbox"],
+          },
+        ];
+      },
+    };
+    mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 2 });
+    mailDatabase.saveMailbox({ id: "label-a", name: "Label A", unreadCount: 1 });
+    mailDatabase.saveMessage({
+      id: "recent-kept",
+      stableIdentity: "gmail:personal:recent-kept",
+      subject: "Recent kept",
+      receivedAt: "2026-05-23T10:00:00.000Z",
+      unread: true,
+      starred: false,
+      aiProcessed: false,
+      readableBody: "<p>Hello</p>",
+      attachments: [],
+    });
+    mailDatabase.saveMailboxEntry({
+      id: "recent-kept:inbox",
+      mailboxId: "inbox",
+      messageId: "recent-kept",
+    });
+    mailDatabase.saveMessage({
+      id: "recent-stale",
+      stableIdentity: "gmail:personal:recent-stale",
+      subject: "Recent stale",
+      receivedAt: "2026-05-22T13:00:00.000Z",
+      unread: true,
+      starred: false,
+      aiProcessed: false,
+      readableBody: "<p>Hello</p>",
+      attachments: [],
+    });
+    mailDatabase.saveMailboxEntry({
+      id: "recent-stale:label-a",
+      mailboxId: "label-a",
+      messageId: "recent-stale",
+    });
+    mailDatabase.saveMessage({
+      id: "old-stale",
+      stableIdentity: "gmail:personal:old-stale",
+      subject: "Old stale",
+      receivedAt: "2026-05-01T10:00:00.000Z",
+      unread: true,
+      starred: false,
+      aiProcessed: false,
+      readableBody: "<p>Hello</p>",
+      attachments: [],
+    });
+    mailDatabase.saveMailboxEntry({
+      id: "old-stale:label-a",
+      mailboxId: "label-a",
+      messageId: "old-stale",
+    });
+
+    const result = await syncRecentReconciliation({
+      accounts: [account],
+      persistence,
+      client,
+      now: new Date("2026-05-24T12:00:00.000Z"),
+      windowDays: 2,
+    });
+
+    expect(requests).toEqual([
+      {
+        account,
+        mailboxes: [
+          { id: "inbox", since: new Date("2026-05-22T12:00:00.000Z") },
+          { id: "label-a", since: new Date("2026-05-22T12:00:00.000Z") },
+        ],
+      },
+    ]);
+    expect(result).toMatchObject({
+      mailboxCount: 2,
+      scannedMailboxCount: 2,
+      skippedMailboxCount: 0,
+      fetchedMessageCount: 1,
+      storedMessageCount: 1,
+      removedMailboxEntryCount: 1,
+      durationMs: expect.any(Number),
+    });
+    expect(mailDatabase.listMessagesForMailbox("personal", "inbox").messages).toEqual([
+      expect.objectContaining({ id: "recent-kept", mailboxIds: ["inbox"] }),
+    ]);
+    expect(mailDatabase.listMessagesForMailbox("personal", "label-a").messages).toEqual([
+      expect.objectContaining({ id: "old-stale", mailboxIds: ["label-a"] }),
+    ]);
   });
 
   it("uses saved Mailbox checkpoints for incremental Message sync", async () => {

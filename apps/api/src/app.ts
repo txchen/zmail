@@ -9,7 +9,12 @@ import {
   createHybridPersistence,
   type MailDatabase,
 } from "./persistence.js";
-import { syncMailboxTrees, syncRecentMessages, type MailAccountSyncState } from "./sync.js";
+import {
+  syncMailboxTrees,
+  syncRecentMessages,
+  syncRecentReconciliation,
+  type MailAccountSyncState,
+} from "./sync.js";
 import { createSyncQueue, type SyncJob } from "./sync-queue.js";
 
 const sessionCookieName = "zmail_session";
@@ -27,35 +32,63 @@ export function createApp(config: AppConfig): Hono {
     config.syncQueue ??
     createSyncQueue({
       async execute(job) {
-        if (job.scope.type !== "regular") {
-          return {};
-        }
-
         const account = config.mailAccounts.find((candidate) => candidate.id === job.accountId);
         if (!account) {
           throw new Error("Mail account not found");
         }
 
-        if (mailboxSyncClient) {
-          saveSyncStates(
-            await syncMailboxTrees({
+        const lastSyncStartedAt = new Date().toISOString();
+        try {
+          let result = {};
+
+          if (job.scope.type === "regular") {
+            if (mailboxSyncClient) {
+              saveSyncStates(
+                await syncMailboxTrees({
+                  accounts: [account],
+                  persistence,
+                  client: mailboxSyncClient,
+                }),
+              );
+            }
+
+            if (messageSyncClient) {
+              result = await syncRecentMessages({
+                accounts: [account],
+                persistence,
+                client: messageSyncClient,
+                syncWindowDays: config.sync?.recentMessageWindowDays,
+              });
+            }
+          }
+
+          if (job.scope.type === "recentReconciliation" && messageSyncClient) {
+            result = await syncRecentReconciliation({
               accounts: [account],
               persistence,
-              client: mailboxSyncClient,
-            }),
-          );
-        }
+              client: messageSyncClient,
+              windowDays: job.scope.days,
+            });
+          }
 
-        if (messageSyncClient) {
-          return syncRecentMessages({
-            accounts: [account],
-            persistence,
-            client: messageSyncClient,
-            syncWindowDays: config.sync?.recentMessageWindowDays,
+          syncStates.set(account.id, {
+            accountId: account.id,
+            syncStatus: "synced",
+            lastSyncStartedAt,
+            lastSyncFinishedAt: new Date().toISOString(),
           });
-        }
 
-        return {};
+          return result;
+        } catch (error) {
+          syncStates.set(account.id, {
+            accountId: account.id,
+            syncStatus: "failing",
+            lastSyncStartedAt,
+            lastSyncFinishedAt: new Date().toISOString(),
+            lastError: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
       },
     });
   const mailboxActionClient = config.mailboxActionClient;
@@ -294,7 +327,11 @@ export function createApp(config: AppConfig): Hono {
       accountId: account.id,
       origin: "appUser",
       scope:
-        body.days === undefined ? { type: "regular" } : { type: "customRange", days: body.days },
+        "scope" in body && body.scope === "recentReconciliation"
+          ? { type: "recentReconciliation", days: config.sync.recentReconciliationWindowDays }
+          : body.days === undefined
+            ? { type: "regular" }
+            : { type: "customRange", days: body.days },
     });
 
     return c.json({ job: syncJobRecord(job) }, 202);
