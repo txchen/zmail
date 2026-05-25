@@ -2,6 +2,25 @@
 
 [![Docker image](https://img.shields.io/badge/ghcr.io-txchen%2Fzmail-blue?logo=github)](https://github.com/txchen/zmail/pkgs/container/zmail)
 
+Zmail is a self-hosted webmail client for Gmail accounts. It exists for the case where you want
+to read mail from a public computer or work machine without adding your Google account to that
+device, installing a desktop mail client, or trusting a random shared browser session with your
+primary Gmail login.
+
+Zmail was created after existing open source webmail clients such as Roundcube, SnappyMail, and
+several PHP-based options did not fit a Gmail-focused, lightweight, personal webmail setup. It is a
+small purpose-built reader that can be deployed as a private web app.
+
+Zmail runs a Vue web UI and a Hono API in one service. Mail account credentials are configured on
+the server, messages and mailbox metadata are synced locally into SQLite, and the browser talks only
+to your Zmail instance.
+
+## Security model
+
+Zmail intentionally keeps its built-in authentication simple: one app username and password protect
+the web UI and API. For internet-facing deployments, it is designed to sit behind a stronger access
+layer such as Cloudflare Zero Trust, which acts as the first shield before traffic reaches Zmail.
+
 ## Development
 
 Install dependencies once:
