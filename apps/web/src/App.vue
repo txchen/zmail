@@ -853,7 +853,7 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
         class="flex h-10 shrink-0 items-center justify-between border-b border-stone-300 bg-stone-200 px-3"
       >
         <div class="min-w-0">
-          <p class="text-sm font-semibold">ZM</p>
+          <p class="text-sm font-semibold">ZMail</p>
         </div>
         <div ref="syncJobsMenu" class="relative flex items-center gap-2">
           <UButton
