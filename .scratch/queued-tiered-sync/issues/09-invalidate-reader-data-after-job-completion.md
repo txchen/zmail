@@ -1,6 +1,6 @@
 # Invalidate reader data after job completion
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -14,14 +14,14 @@ This slice should make completed regular sync, Recent reconciliation, and custom
 
 ## Acceptance criteria
 
-- [ ] The web UI detects Sync jobs transitioning from pending/running to succeeded or failed.
-- [ ] Successful job completion invalidates the Account mailbox tree.
-- [ ] Successful job completion invalidates visible Message list queries that may be affected.
-- [ ] Successful job completion invalidates visible Message detail queries when needed.
-- [ ] Failed job completion does not discard existing reader data.
-- [ ] Reconciliation removals are reflected in visible Mailboxes after invalidation.
-- [ ] Tests cover data invalidation after observed successful job completion.
-- [ ] Tests cover preserving existing reader data after failed job completion.
+- [x] The web UI detects Sync jobs transitioning from pending/running to succeeded or failed.
+- [x] Successful job completion invalidates the Account mailbox tree.
+- [x] Successful job completion invalidates visible Message list queries that may be affected.
+- [x] Successful job completion invalidates visible Message detail queries when needed.
+- [x] Failed job completion does not discard existing reader data.
+- [x] Reconciliation removals are reflected in visible Mailboxes after invalidation.
+- [x] Tests cover data invalidation after observed successful job completion.
+- [x] Tests cover preserving existing reader data after failed job completion.
 
 ## Blocked by
 

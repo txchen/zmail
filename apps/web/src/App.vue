@@ -58,6 +58,7 @@ const syncJobsOpen = ref(false);
 const documentVisible = ref(
   typeof document === "undefined" ? true : document.visibilityState !== "hidden",
 );
+const observedActiveSyncJobIds = ref(new Set<string>());
 let resizeStartX = 0;
 let resizeStartWidth = 0;
 
@@ -263,6 +264,33 @@ watch([navColumnWidth, listColumnWidth], ([nextNavWidth, nextListWidth]) => {
 watch([collapsedAccounts, collapsedMailboxGroups], () => {
   saveReaderLayout(navColumnWidth.value, listColumnWidth.value);
 });
+
+watch(
+  syncJobs,
+  async (jobs) => {
+    const activeIds = new Set(
+      jobs.filter((job) => job.state === "pending" || job.state === "running").map((job) => job.id),
+    );
+    const completedObservedJob = jobs.find(
+      (job) =>
+        observedActiveSyncJobIds.value.has(job.id) &&
+        (job.state === "succeeded" || job.state === "failed"),
+    );
+
+    observedActiveSyncJobIds.value = activeIds;
+
+    if (completedObservedJob?.state !== "succeeded") {
+      return;
+    }
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["mailbox-tree"] }),
+      queryClient.invalidateQueries({ queryKey: ["message-list"] }),
+      queryClient.invalidateQueries({ queryKey: ["message-detail"] }),
+    ]);
+  },
+  { deep: true },
+);
 
 onBeforeUnmount(() => {
   stopColumnResize();
