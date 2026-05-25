@@ -84,4 +84,9 @@ describe("Sync jobs UI", () => {
     expect(appVue).toContain("const loadMoreMessagesMutation = useMutation");
     expect(appVue).toContain("Load more");
   });
+
+  it("does not show Archive in the message action toolbar", () => {
+    expect(appVue).not.toContain('icon="i-lucide-archive"');
+    expect(appVue).not.toContain(">Archive");
+  });
 });

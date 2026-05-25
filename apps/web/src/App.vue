@@ -1215,14 +1215,6 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                 </UButton>
                 <UButton
                   color="neutral"
-                  icon="i-lucide-archive"
-                  variant="ghost"
-                  @click="runMailboxAction('archive')"
-                >
-                  Archive
-                </UButton>
-                <UButton
-                  color="neutral"
                   icon="i-lucide-trash-2"
                   variant="ghost"
                   @click="runMailboxAction('delete')"
