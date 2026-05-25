@@ -1,6 +1,6 @@
 # Add custom range sync execution
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -14,14 +14,14 @@ The result should make “sync last N days” behave like a targeted repair or b
 
 ## Acceptance criteria
 
-- [ ] Custom range sync accepts a validated day range from the scheduling API.
-- [ ] Custom range sync fetches messages within the requested Sync scope.
-- [ ] Custom range sync reconciles Mailbox entries within the requested Sync scope.
-- [ ] Custom range sync uses the same result count shape as regular sync and Recent reconciliation.
-- [ ] A custom range job updates Account sync status for the target Mail account.
-- [ ] Tests cover a custom range that fetches messages.
-- [ ] Tests cover a custom range that removes stale Mailbox entries inside the requested range.
-- [ ] Tests cover that entries outside the custom range are preserved.
+- [x] Custom range sync accepts a validated day range from the scheduling API.
+- [x] Custom range sync fetches messages within the requested Sync scope.
+- [x] Custom range sync reconciles Mailbox entries within the requested Sync scope.
+- [x] Custom range sync uses the same result count shape as regular sync and Recent reconciliation.
+- [x] A custom range job updates Account sync status for the target Mail account.
+- [x] Tests cover a custom range that fetches messages.
+- [x] Tests cover a custom range that removes stale Mailbox entries inside the requested range.
+- [x] Tests cover that entries outside the custom range are preserved.
 
 ## Blocked by
 

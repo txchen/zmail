@@ -120,6 +120,111 @@ describe("Sync jobs API", () => {
     });
   });
 
+  it("executes custom range Sync jobs with fetch and reconciliation for the requested range", async () => {
+    const persistence = createHybridPersistence();
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 2 });
+    mailDatabase.saveMessage({
+      id: "stale-inside-range",
+      stableIdentity: "gmail:personal:stale-inside-range",
+      subject: "Stale inside range",
+      receivedAt: "2026-05-23T10:00:00.000Z",
+      unread: true,
+      starred: false,
+      aiProcessed: false,
+      readableBody: "<p>Stale</p>",
+      attachments: [],
+    });
+    mailDatabase.saveMailboxEntry({
+      id: "stale-inside-range:inbox",
+      mailboxId: "inbox",
+      messageId: "stale-inside-range",
+    });
+    mailDatabase.saveMessage({
+      id: "stale-outside-range",
+      stableIdentity: "gmail:personal:stale-outside-range",
+      subject: "Stale outside range",
+      receivedAt: "2026-05-01T10:00:00.000Z",
+      unread: true,
+      starred: false,
+      aiProcessed: false,
+      readableBody: "<p>Old</p>",
+      attachments: [],
+    });
+    mailDatabase.saveMailboxEntry({
+      id: "stale-outside-range:inbox",
+      mailboxId: "inbox",
+      messageId: "stale-outside-range",
+    });
+    const requests: unknown[] = [];
+    const app = createApp({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      mailAccounts: [
+        { id: "personal", emailAddress: "me@example.com", appPassword: "personal-password" },
+      ],
+      sync: {
+        recentMessageWindowDays: 90,
+        regularSyncIntervalMinutes: 5,
+        recentReconciliationIntervalMinutes: 30,
+        recentReconciliationWindowDays: 2,
+      },
+      persistence,
+      messageSyncClient: {
+        async listRecentMessages(request) {
+          requests.push(request);
+
+          return [
+            {
+              id: "fetched-inside-range",
+              stableIdentity: "gmail:personal:fetched-inside-range",
+              uid: 1,
+              subject: "Fetched inside range",
+              receivedAt: "2026-05-24T10:00:00.000Z",
+              unread: true,
+              readableBody: "<p>Hello</p>",
+              attachments: [],
+              mailboxIds: ["inbox"],
+            },
+          ];
+        },
+      },
+    });
+    const cookie = await login(app);
+
+    await app.request("/api/sync-jobs", {
+      method: "POST",
+      body: JSON.stringify({ accountId: "personal", days: 7 }),
+      headers: { "content-type": "application/json", cookie },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const jobsResponse = await app.request("/api/sync-jobs", { headers: { cookie } });
+
+    expect(requests).toEqual([
+      expect.objectContaining({
+        mailboxes: [{ id: "inbox", since: expect.any(Date) }],
+      }),
+    ]);
+    expect(await jobsResponse.json()).toMatchObject({
+      jobs: [
+        {
+          accountId: "personal",
+          state: "succeeded",
+          result: {
+            mailboxCount: 1,
+            scannedMailboxCount: 1,
+            fetchedMessageCount: 1,
+            storedMessageCount: 1,
+            removedMailboxEntryCount: 1,
+          },
+        },
+      ],
+    });
+    expect(mailDatabase.listMessagesForMailbox("personal", "inbox").messages).toEqual([
+      expect.objectContaining({ id: "fetched-inside-range" }),
+      expect.objectContaining({ id: "stale-outside-range" }),
+    ]);
+  });
+
   it("lists pending, running, succeeded, and failed jobs with results and errors", async () => {
     const blocker = Promise.withResolvers<void>();
     const syncQueue = createSyncQueue({

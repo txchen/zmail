@@ -71,6 +71,15 @@ export function createApp(config: AppConfig): Hono {
             });
           }
 
+          if (job.scope.type === "customRange" && messageSyncClient) {
+            result = await syncRecentReconciliation({
+              accounts: [account],
+              persistence,
+              client: messageSyncClient,
+              windowDays: job.scope.days,
+            });
+          }
+
           syncStates.set(account.id, {
             accountId: account.id,
             syncStatus: "synced",
