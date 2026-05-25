@@ -13,6 +13,7 @@ export type StoredMailbox = {
   unreadCount: number;
   totalCount?: number;
   selectable?: boolean;
+  uidNext?: number;
 };
 
 export type SystemMailboxRole =
@@ -80,6 +81,8 @@ export type StoredMailboxEntry = {
 export type MailboxSyncState = {
   mailboxId: string;
   highestUid: number;
+  messageCount?: number;
+  uidNext?: number;
   lastSyncedAt: string;
 };
 
@@ -197,7 +200,8 @@ export class MailDatabase {
         system_role TEXT,
         unread_count INTEGER NOT NULL,
         total_count INTEGER NOT NULL,
-        selectable INTEGER NOT NULL
+        selectable INTEGER NOT NULL,
+        uid_next INTEGER
       );
 
       CREATE TABLE IF NOT EXISTS messages (
@@ -232,6 +236,8 @@ export class MailDatabase {
       CREATE TABLE IF NOT EXISTS mailbox_sync_states (
         mailbox_id TEXT PRIMARY KEY,
         highest_uid INTEGER NOT NULL,
+        message_count INTEGER,
+        uid_next INTEGER,
         last_synced_at TEXT NOT NULL
       );
 
@@ -248,6 +254,9 @@ export class MailDatabase {
     this.ensureMessageTextColumn("body_text", "TEXT NOT NULL DEFAULT ''");
     this.ensureMessageJsonColumn("cc_recipients_json");
     this.ensureMessageJsonColumn("bcc_recipients_json");
+    this.ensureMailboxSyncStateColumn("message_count", "INTEGER");
+    this.ensureMailboxSyncStateColumn("uid_next", "INTEGER");
+    this.ensureMailboxColumn("uid_next", "INTEGER");
   }
 
   private ensureMessageJsonColumn(columnName: string): void {
@@ -264,6 +273,30 @@ export class MailDatabase {
     }
 
     this.database.exec(`ALTER TABLE messages ADD COLUMN ${columnName} ${definition}`);
+  }
+
+  private ensureMailboxSyncStateColumn(columnName: string, definition: string): void {
+    const columns = this.database.prepare("PRAGMA table_info(mailbox_sync_states)").all() as Array<{
+      name: string;
+    }>;
+
+    if (columns.some((column) => column.name === columnName)) {
+      return;
+    }
+
+    this.database.exec(`ALTER TABLE mailbox_sync_states ADD COLUMN ${columnName} ${definition}`);
+  }
+
+  private ensureMailboxColumn(columnName: string, definition: string): void {
+    const columns = this.database.prepare("PRAGMA table_info(mailboxes)").all() as Array<{
+      name: string;
+    }>;
+
+    if (columns.some((column) => column.name === columnName)) {
+      return;
+    }
+
+    this.database.exec(`ALTER TABLE mailboxes ADD COLUMN ${columnName} ${definition}`);
   }
 
   setMessageUnread(messageId: string, unread: boolean): void {
@@ -312,8 +345,8 @@ export class MailDatabase {
   saveMailbox(mailbox: StoredMailbox): void {
     this.database
       .prepare(`
-        INSERT INTO mailboxes (id, name, path, parent_id, system_role, unread_count, total_count, selectable)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO mailboxes (id, name, path, parent_id, system_role, unread_count, total_count, selectable, uid_next)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           path = excluded.path,
@@ -321,7 +354,8 @@ export class MailDatabase {
           system_role = excluded.system_role,
           unread_count = excluded.unread_count,
           total_count = excluded.total_count,
-          selectable = excluded.selectable
+          selectable = excluded.selectable,
+          uid_next = excluded.uid_next
       `)
       .run(
         mailbox.id,
@@ -332,13 +366,14 @@ export class MailDatabase {
         mailbox.unreadCount,
         mailbox.totalCount ?? mailbox.unreadCount,
         mailbox.selectable === false ? 0 : 1,
+        mailbox.uidNext ?? null,
       );
   }
 
   listMailboxes(): StoredMailbox[] {
     return this.database
       .prepare(`
-        SELECT id, name, path, parent_id, system_role, unread_count, total_count, selectable
+        SELECT id, name, path, parent_id, system_role, unread_count, total_count, selectable, uid_next
         FROM mailboxes
         ORDER BY id
       `)
@@ -353,6 +388,7 @@ export class MailDatabase {
           unread_count: number;
           total_count: number;
           selectable: number;
+          uid_next: number | null;
         };
 
         return {
@@ -364,6 +400,7 @@ export class MailDatabase {
           unreadCount: mailbox.unread_count,
           totalCount: mailbox.total_count,
           selectable: mailbox.selectable === 1,
+          ...(mailbox.uid_next === null ? {} : { uidNext: mailbox.uid_next }),
         };
       });
   }
@@ -527,15 +564,19 @@ export class MailDatabase {
 
     this.database
       .prepare(`
-        INSERT INTO mailbox_sync_states (mailbox_id, highest_uid, last_synced_at)
-        VALUES (?, ?, ?)
+        INSERT INTO mailbox_sync_states (mailbox_id, highest_uid, message_count, uid_next, last_synced_at)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(mailbox_id) DO UPDATE SET
           highest_uid = excluded.highest_uid,
+          message_count = COALESCE(excluded.message_count, mailbox_sync_states.message_count),
+          uid_next = COALESCE(excluded.uid_next, mailbox_sync_states.uid_next),
           last_synced_at = excluded.last_synced_at
       `)
       .run(
         state.mailboxId,
         Math.max(existing?.highestUid ?? 0, state.highestUid),
+        state.messageCount ?? null,
+        state.uidNext ?? null,
         state.lastSyncedAt,
       );
   }
@@ -543,7 +584,7 @@ export class MailDatabase {
   getMailboxSyncState(mailboxId: string): MailboxSyncState | undefined {
     const row = this.database
       .prepare(`
-        SELECT mailbox_id, highest_uid, last_synced_at
+        SELECT mailbox_id, highest_uid, message_count, uid_next, last_synced_at
         FROM mailbox_sync_states
         WHERE mailbox_id = ?
       `)
@@ -551,6 +592,8 @@ export class MailDatabase {
       | {
           mailbox_id: string;
           highest_uid: number;
+          message_count: number | null;
+          uid_next: number | null;
           last_synced_at: string;
         }
       | undefined;
@@ -562,6 +605,8 @@ export class MailDatabase {
     return {
       mailboxId: row.mailbox_id,
       highestUid: row.highest_uid,
+      ...(row.message_count === null ? {} : { messageCount: row.message_count }),
+      ...(row.uid_next === null ? {} : { uidNext: row.uid_next }),
       lastSyncedAt: row.last_synced_at,
     };
   }

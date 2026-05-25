@@ -290,6 +290,66 @@ describe("recent Message sync", () => {
     expect(secondResult.fetchedMessageCount).toBe(1);
   });
 
+  it("skips unchanged Mailboxes when status metadata matches the local checkpoint", async () => {
+    const persistence = createHybridPersistence();
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "personal-app-password",
+    };
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    const requests: unknown[] = [];
+    const client: MessageSyncClient = {
+      async listRecentMessages(request) {
+        requests.push(request);
+        return [];
+      },
+    };
+    mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 1, uidNext: 43 });
+    mailDatabase.saveMailbox({ id: "changed", name: "Changed", unreadCount: 1, uidNext: 44 });
+    mailDatabase.saveMailbox({ id: "unknown", name: "Unknown", unreadCount: 1 });
+    mailDatabase.saveMailboxSyncState({
+      mailboxId: "inbox",
+      highestUid: 42,
+      uidNext: 43,
+      lastSyncedAt: "2026-05-24T12:00:00.000Z",
+    });
+    mailDatabase.saveMailboxSyncState({
+      mailboxId: "changed",
+      highestUid: 7,
+      uidNext: 43,
+      lastSyncedAt: "2026-05-24T12:00:00.000Z",
+    });
+    mailDatabase.saveMailboxSyncState({
+      mailboxId: "unknown",
+      highestUid: 3,
+      lastSyncedAt: "2026-05-24T12:00:00.000Z",
+    });
+
+    const result = await syncRecentMessages({
+      accounts: [account],
+      persistence,
+      client,
+      now: new Date("2026-05-24T12:05:00.000Z"),
+    });
+
+    expect(requests).toEqual([
+      {
+        account,
+        mailboxes: [
+          { id: "changed", afterUid: 7 },
+          { id: "unknown", afterUid: 3 },
+        ],
+      },
+    ]);
+    expect(result).toMatchObject({
+      mailboxCount: 3,
+      scannedMailboxCount: 2,
+      skippedMailboxCount: 1,
+      fetchedMessageCount: 0,
+    });
+  });
+
   it("removes stale Mailbox entries when Gmail no longer reports a Message in that Mailbox", async () => {
     const persistence = createHybridPersistence();
     const account: ConfiguredMailAccount = {

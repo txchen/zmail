@@ -197,18 +197,34 @@ export async function syncRecentMessages({
     const mailboxes = mailDatabase
       .listMailboxes()
       .filter((mailbox) => mailbox.selectable !== false)
-      .map((mailbox) => {
+      .flatMap((mailbox) => {
         const syncState = mailDatabase.getMailboxSyncState(mailbox.id);
 
-        return {
-          id: mailbox.id,
-          ...(syncState ? { afterUid: syncState.highestUid } : { since }),
-        };
+        if (
+          syncState?.uidNext !== undefined &&
+          mailbox.uidNext !== undefined &&
+          syncState.uidNext === mailbox.uidNext
+        ) {
+          return [];
+        }
+
+        return [
+          {
+            id: mailbox.id,
+            uidNext: mailbox.uidNext,
+            ...(syncState ? { afterUid: syncState.highestUid } : { since }),
+          },
+        ];
       });
+    const mailboxCount = mailDatabase
+      .listMailboxes()
+      .filter((mailbox) => mailbox.selectable !== false).length;
     const incrementalMailboxCount = mailboxes.filter((mailbox) => "afterUid" in mailbox).length;
     const backfillMailboxCount = mailboxes.length - incrementalMailboxCount;
-    result.mailboxCount = (result.mailboxCount ?? 0) + mailboxes.length;
+    result.mailboxCount = (result.mailboxCount ?? 0) + mailboxCount;
     result.scannedMailboxCount = (result.scannedMailboxCount ?? 0) + mailboxes.length;
+    result.skippedMailboxCount =
+      (result.skippedMailboxCount ?? 0) + (mailboxCount - mailboxes.length);
     logInfo("message.sync.start", {
       accountId: account.id,
       mailboxCount: mailboxes.length,
@@ -216,7 +232,13 @@ export async function syncRecentMessages({
       incrementalMailboxCount,
     });
 
-    const messages = await client.listRecentMessages({ account, mailboxes });
+    const messages = await client.listRecentMessages({
+      account,
+      mailboxes: mailboxes.map(({ id, since, afterUid }) => ({
+        id,
+        ...(afterUid === undefined ? { since } : { afterUid }),
+      })),
+    });
     result.fetchedMessageCount = (result.fetchedMessageCount ?? 0) + messages.length;
     let storedMessageCount = 0;
     let storedMailboxEntryCount = 0;
@@ -284,9 +306,11 @@ export async function syncRecentMessages({
         storedMailboxEntryCount += 1;
 
         if (message.uid !== undefined) {
+          const mailbox = mailboxes.find((candidate) => candidate.id === mailboxId);
           mailDatabase.saveMailboxSyncState({
             mailboxId,
             highestUid: message.uid,
+            uidNext: mailbox?.uidNext,
             lastSyncedAt: now.toISOString(),
           });
         }

@@ -20,7 +20,7 @@ describe("Gmail IMAP mailbox sync client", () => {
     });
     connect.mockResolvedValue(undefined);
     list.mockResolvedValue([
-      { path: "INBOX", status: { unseen: 2 } },
+      { path: "INBOX", status: { unseen: 2, messages: 10, uidNext: 43 } },
       { path: "[Gmail]", flags: new Set(["\\Noselect"]), status: { unseen: 0 } },
     ]);
     logout.mockResolvedValue(undefined);
@@ -34,7 +34,7 @@ describe("Gmail IMAP mailbox sync client", () => {
         appPassword: "gmail-app-password",
       }),
     ).resolves.toEqual([
-      { id: "INBOX", name: "INBOX", unreadCount: 2, selectable: true },
+      { id: "INBOX", name: "INBOX", unreadCount: 2, totalCount: 10, uidNext: 43, selectable: true },
       { id: "[Gmail]", name: "[Gmail]", unreadCount: 0, selectable: false },
     ]);
 
@@ -49,7 +49,9 @@ describe("Gmail IMAP mailbox sync client", () => {
       logger: false,
     });
     expect(connect).toHaveBeenCalledOnce();
-    expect(list).toHaveBeenCalledWith({ statusQuery: { unseen: true } });
+    expect(list).toHaveBeenCalledWith({
+      statusQuery: { unseen: true, messages: true, uidNext: true },
+    });
     expect(logout).toHaveBeenCalledOnce();
   });
 

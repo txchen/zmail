@@ -83,7 +83,9 @@ export function createGmailImapMailboxSyncClient(
       await client.connect();
 
       try {
-        const mailboxes = await client.list({ statusQuery: { unseen: true } });
+        const mailboxes = await client.list({
+          statusQuery: { unseen: true, messages: true, uidNext: true },
+        });
         logInfo("gmail.mailboxes.finish", {
           accountId: account.id,
           durationMs: Date.now() - startedAt,
@@ -96,6 +98,8 @@ export function createGmailImapMailboxSyncClient(
           id: mailbox.path,
           name: mailbox.path,
           unreadCount: mailbox.status?.unseen ?? 0,
+          totalCount: mailbox.status?.messages,
+          uidNext: mailbox.status?.uidNext,
           selectable: !isNonSelectableMailbox(mailbox),
         }));
       } finally {
