@@ -5,9 +5,10 @@ import type {
   MailboxMessageSummary,
   MailboxSummary,
   MessageDetail,
+  SyncJobRecord,
 } from "@zmail/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   fetchHealth,
@@ -15,11 +16,12 @@ import {
   fetchMessage,
   fetchMessagesForMailbox,
   fetchSession,
+  fetchSyncJobs,
   fetchUnreadMessagesForAccount,
   login,
   logout,
   performMailboxAction,
-  refreshMailAccount,
+  scheduleSyncJob,
   searchMessagesForAccount,
 } from "./api";
 import { renderReadableMessage } from "./message-rendering";
@@ -52,6 +54,10 @@ const listColumnWidth = ref(savedReaderLayout.listColumnWidth);
 const collapsedAccounts = ref(new Set(savedReaderLayout.collapsedAccounts));
 const collapsedMailboxGroups = ref(new Set(savedReaderLayout.collapsedMailboxGroups));
 const activeResize = ref<"nav" | "list" | null>(null);
+const syncJobsOpen = ref(false);
+const documentVisible = ref(
+  typeof document === "undefined" ? true : document.visibilityState !== "hidden",
+);
 let resizeStartX = 0;
 let resizeStartWidth = 0;
 
@@ -87,6 +93,13 @@ const mailboxTreeQuery = useQuery({
   enabled: authenticated,
 });
 
+const syncJobsQuery = useQuery({
+  queryKey: ["sync-jobs"],
+  queryFn: () => fetchSyncJobs(),
+  enabled: authenticated,
+  refetchInterval: () => (authenticated.value && documentVisible.value ? 15_000 : false),
+});
+
 const mailAccounts = computed(() => mailboxTreeQuery.data.value?.mailAccounts ?? []);
 const readerRoute = computed(() => parseReaderRoute(route.path, route.query));
 const selectedAccountId = computed(() =>
@@ -105,6 +118,11 @@ const readerGridStyle = computed(() => ({
   "--reader-nav-width": `${navColumnWidth.value}px`,
   "--reader-list-width": `${listColumnWidth.value}px`,
 }));
+const syncJobs = computed(() => syncJobsQuery.data.value?.jobs ?? []);
+const activeSyncJobs = computed(() =>
+  syncJobs.value.filter((job) => job.state === "pending" || job.state === "running"),
+);
+const syncingAccountIds = computed(() => new Set(activeSyncJobs.value.map((job) => job.accountId)));
 
 const messageListQuery = useQuery({
   queryKey: computed(() => ["message-list", readerRoute.value]),
@@ -182,11 +200,10 @@ const logoutMutation = useMutation({
   },
 });
 
-const refreshMutation = useMutation({
-  mutationFn: (accountId: string) => refreshMailAccount(accountId),
+const syncJobMutation = useMutation({
+  mutationFn: (accountId: string) => scheduleSyncJob({ accountId }),
   onSuccess: async () => {
-    await queryClient.invalidateQueries({ queryKey: ["mailbox-tree"] });
-    await queryClient.invalidateQueries({ queryKey: ["message-list"] });
+    await queryClient.invalidateQueries({ queryKey: ["sync-jobs"] });
   },
 });
 
@@ -249,6 +266,11 @@ watch([collapsedAccounts, collapsedMailboxGroups], () => {
 
 onBeforeUnmount(() => {
   stopColumnResize();
+  document.removeEventListener("visibilitychange", updateDocumentVisible);
+});
+
+onMounted(() => {
+  document.addEventListener("visibilitychange", updateDocumentVisible);
 });
 
 async function submitLogin() {
@@ -307,6 +329,26 @@ function toggleAccount(accountId: string) {
 
 function mailboxGroupKey(accountId: string, mailboxId: string): string {
   return `${accountId}:${mailboxId}`;
+}
+
+function updateDocumentVisible(): void {
+  documentVisible.value = document.visibilityState !== "hidden";
+}
+
+function syncJobSummary(job: SyncJobRecord): string {
+  if (job.state === "failed") {
+    return job.error ?? "Sync job failed";
+  }
+
+  if (!job.result) {
+    return job.scope.type;
+  }
+
+  return [
+    `${job.result.fetchedMessageCount ?? 0} fetched`,
+    `${job.result.storedMessageCount ?? 0} stored`,
+    `${job.result.removedMailboxEntryCount ?? 0} removed`,
+  ].join(" / ");
 }
 
 function mailboxGroupCollapsed(accountId: string, mailboxId: string): boolean {
@@ -586,7 +628,47 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
         <div class="min-w-0">
           <p class="text-sm font-semibold">ZM</p>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="relative flex items-center gap-2">
+          <UButton
+            v-if="activeSyncJobs.length > 0"
+            color="neutral"
+            icon="i-lucide-loader-circle"
+            square
+            variant="ghost"
+            aria-label="Show Sync jobs"
+            @click="syncJobsOpen = !syncJobsOpen"
+          />
+          <UButton
+            v-else
+            color="neutral"
+            icon="i-lucide-history"
+            square
+            variant="ghost"
+            aria-label="Show Sync jobs"
+            @click="syncJobsOpen = !syncJobsOpen"
+          />
+          <div
+            v-if="syncJobsOpen"
+            class="absolute right-10 top-9 z-20 w-80 rounded-md border border-stone-300 bg-white p-2 shadow-lg"
+          >
+            <p class="px-2 pb-2 text-xs font-semibold uppercase text-slate-500">Sync jobs</p>
+            <div v-if="syncJobs.length === 0" class="px-2 py-3 text-sm text-slate-500">
+              No recent jobs.
+            </div>
+            <div v-else class="max-h-80 space-y-1 overflow-y-auto">
+              <div
+                v-for="job in syncJobs"
+                :key="job.id"
+                class="rounded border border-stone-200 px-2 py-1.5 text-xs"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <span class="font-medium">{{ job.accountId }}</span>
+                  <span class="text-slate-500">{{ job.state }}</span>
+                </div>
+                <div class="mt-1 text-slate-600">{{ syncJobSummary(job) }}</div>
+              </div>
+            </div>
+          </div>
           <UButton
             color="neutral"
             icon="i-lucide-log-out"
@@ -653,11 +735,14 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                     <UButton
                       color="neutral"
                       icon="i-lucide-refresh-cw"
-                      :loading="refreshMutation.isPending.value"
+                      :loading="syncingAccountIds.has(account.id)"
+                      :disabled="
+                        syncingAccountIds.has(account.id) || syncJobMutation.isPending.value
+                      "
                       square
                       variant="ghost"
                       aria-label="Refresh account"
-                      @click="refreshMutation.mutate(account.id)"
+                      @click="syncJobMutation.mutate(account.id)"
                     />
                   </div>
                 </div>

@@ -1,6 +1,6 @@
 # Move web UI to Sync jobs and top-bar status
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -12,18 +12,18 @@ Update the web UI to schedule **Sync jobs** and show actual server-side queue st
 
 ## Acceptance criteria
 
-- [ ] The web API client can schedule Sync jobs.
-- [ ] The web API client can list Sync jobs.
-- [ ] Manual account sync uses Sync job scheduling instead of waiting for a blocking refresh response.
-- [ ] A single account sync request no longer makes every account refresh button spin.
-- [ ] The top bar shows a spinner when any Sync job is pending or running.
-- [ ] Clicking the top-bar spinner opens recent Sync jobs.
-- [ ] The recent jobs surface shows pending, running, succeeded, and failed jobs.
-- [ ] Completed jobs show result counts when available.
-- [ ] Failed jobs show useful error details.
-- [ ] The UI polls Sync jobs every 15 seconds while authenticated and visible.
-- [ ] The UI pauses job polling while the document is hidden.
-- [ ] Web tests cover top-bar spinner behavior, recent jobs display, and avoiding all-account button loading.
+- [x] The web API client can schedule Sync jobs.
+- [x] The web API client can list Sync jobs.
+- [x] Manual account sync uses Sync job scheduling instead of waiting for a blocking refresh response.
+- [x] A single account sync request no longer makes every account refresh button spin.
+- [x] The top bar shows a spinner when any Sync job is pending or running.
+- [x] Clicking the top-bar spinner opens recent Sync jobs.
+- [x] The recent jobs surface shows pending, running, succeeded, and failed jobs.
+- [x] Completed jobs show result counts when available.
+- [x] Failed jobs show useful error details.
+- [x] The UI polls Sync jobs every 15 seconds while authenticated and visible.
+- [x] The UI pauses job polling while the document is hidden.
+- [x] Web tests cover top-bar spinner behavior, recent jobs display, and avoiding all-account button loading.
 
 ## Blocked by
 
