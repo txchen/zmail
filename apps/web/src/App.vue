@@ -126,6 +126,31 @@ const readerGridStyle = computed(() => ({
   "--reader-list-width": `${listColumnWidth.value}px`,
 }));
 const syncJobs = computed(() => syncJobsQuery.data.value?.jobs ?? []);
+const displayedSyncJobs = computed(() => {
+  const seenAutomaticSuccesses = new Set<string>();
+
+  return syncJobs.value.filter((job) => {
+    if (job.state === "pending" || job.state === "running" || job.state === "failed") {
+      return true;
+    }
+
+    if (job.origin === "appUser") {
+      return true;
+    }
+
+    if (job.state !== "succeeded") {
+      return false;
+    }
+
+    const key = `${job.accountId}:${syncJobScopeKey(job.scope)}`;
+    if (seenAutomaticSuccesses.has(key)) {
+      return false;
+    }
+
+    seenAutomaticSuccesses.add(key);
+    return true;
+  });
+});
 const activeSyncJobs = computed(() =>
   syncJobs.value.filter((job) => job.state === "pending" || job.state === "running"),
 );
@@ -546,6 +571,14 @@ function syncJobScopeLabel(job: SyncJobRecord): string {
   return `Custom ${job.scope.days}d`;
 }
 
+function syncJobScopeKey(scope: SyncJobRecord["scope"]): string {
+  if (scope.type === "regular") {
+    return "regular";
+  }
+
+  return `${scope.type}:${scope.days}`;
+}
+
 function syncJobOriginLabel(job: SyncJobRecord): string {
   return job.origin === "automatic" ? "⟳" : "👤";
 }
@@ -880,15 +913,17 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
             class="absolute right-10 top-9 z-20 flex max-h-[32rem] w-96 flex-col rounded-md border border-stone-300 bg-white p-2 shadow-lg"
           >
             <div class="flex shrink-0 items-center justify-between gap-2 px-2 pb-2">
-              <p class="text-xs font-semibold uppercase text-slate-500">Sync jobs</p>
-              <p class="text-[11px] text-slate-400">{{ syncJobs.length }} total</p>
+              <p class="text-xs font-semibold uppercase text-slate-500">Sync activity</p>
+              <p class="text-[11px] text-slate-400">
+                {{ displayedSyncJobs.length }} shown
+              </p>
             </div>
-            <div v-if="syncJobs.length === 0" class="px-2 py-3 text-sm text-slate-500">
+            <div v-if="displayedSyncJobs.length === 0" class="px-2 py-3 text-sm text-slate-500">
               No recent jobs.
             </div>
             <div v-else class="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
               <div
-                v-for="job in syncJobs"
+                v-for="job in displayedSyncJobs"
                 :key="job.id"
                 class="rounded border border-stone-200 px-2 py-1.5 text-xs"
               >
