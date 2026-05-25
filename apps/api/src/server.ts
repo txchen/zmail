@@ -2,21 +2,30 @@ import { serve } from "@hono/node-server";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
-import { createApp } from "./app.js";
+import { createAppWithServices } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createGmailImapMailboxSyncClient } from "./gmail-imap.js";
+import { createSyncScheduler } from "./scheduler.js";
 
 const port = Number(process.env.PORT ?? 3001);
 const webDistDir = process.env.ZMAIL_WEB_DIST_DIR
   ? resolve(process.env.ZMAIL_WEB_DIST_DIR)
   : resolve(process.cwd(), "apps/web/dist");
 const gmailImapClient = createGmailImapMailboxSyncClient();
-const app = createApp({
-  ...loadConfig(),
+const config = loadConfig();
+const { app, syncQueue } = createAppWithServices({
+  ...config,
   mailboxSyncClient: gmailImapClient,
   messageSyncClient: gmailImapClient,
   mailboxActionClient: gmailImapClient,
 });
+const syncScheduler = createSyncScheduler({
+  accounts: config.mailAccounts,
+  sync: config.sync,
+  syncQueue,
+});
+
+syncScheduler.start();
 
 if (existsSync(webDistDir)) {
   app.get("*", async (c, next) => {

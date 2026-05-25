@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { createAppWithServices } from "../apps/api/src/app";
 import type { ConfiguredMailAccount, SyncConfig } from "../apps/api/src/config";
 import { createSyncScheduler } from "../apps/api/src/scheduler";
 import { createSyncQueue } from "../apps/api/src/sync-queue";
@@ -16,6 +17,25 @@ const sync: SyncConfig = {
 };
 
 describe("Sync scheduler", () => {
+  it("can use the same Sync queue exposed by the app factory", async () => {
+    const syncQueue = createSyncQueue({ async execute() {} });
+    const { app, syncQueue: appSyncQueue } = createAppWithServices({
+      appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
+      storage: { databaseDir: ":memory:" },
+      sync,
+      mailAccounts: [accounts[0]],
+      syncQueue,
+    });
+    const scheduler = createSyncScheduler({ accounts: [accounts[0]], sync, syncQueue: appSyncQueue });
+
+    scheduler.pollRegularNow();
+
+    expect(app).toBeDefined();
+    expect(syncQueue.listJobs()).toMatchObject([
+      { accountId: "personal", origin: "automatic", scope: { type: "regular" } },
+    ]);
+  });
+
   it("enqueues automatic regular Sync jobs for each Mail account", async () => {
     const syncQueue = createSyncQueue({ async execute() {} });
     const scheduler = createSyncScheduler({ accounts, sync, syncQueue });

@@ -15,11 +15,16 @@ import {
   syncRecentReconciliation,
   type MailAccountSyncState,
 } from "./sync.js";
-import { createSyncQueue, type SyncJob } from "./sync-queue.js";
+import { createSyncQueue, type SyncJob, type SyncQueue } from "./sync-queue.js";
 
 const sessionCookieName = "zmail_session";
 
-export function createApp(config: AppConfig): Hono {
+export type CreatedApp = {
+  app: Hono;
+  syncQueue: SyncQueue;
+};
+
+export function createAppWithServices(config: AppConfig): CreatedApp {
   const app = new Hono();
   const persistence =
     config.persistence ??
@@ -696,7 +701,7 @@ export function createApp(config: AppConfig): Hono {
     return c.json({ message });
   });
 
-  return app;
+  return { app, syncQueue };
 
   async function performMailboxActionForMessage(
     accountId: string,
@@ -745,6 +750,10 @@ export function createApp(config: AppConfig): Hono {
 
     return { ok: true };
   }
+}
+
+export function createApp(config: AppConfig): Hono {
+  return createAppWithServices(config).app;
 }
 
 function syncJobRecord(job: SyncJob): SyncJobRecord {
