@@ -7,12 +7,14 @@ import type { ImapMessage, MailboxSyncClient, MessageSyncClient } from "./sync.j
 
 type ImapFlowClient = {
   connect(): Promise<void>;
-  list(options: { statusQuery: { unseen: true } }): Promise<
+  list(options: { statusQuery: { unseen: true; messages?: true; uidNext?: true } }): Promise<
     Array<{
       path: string;
       flags?: Set<string>;
       status?: {
         unseen?: number;
+        messages?: number;
+        uidNext?: number;
       };
     }>
   >;
@@ -206,6 +208,7 @@ export function createGmailImapMailboxSyncClient(
             messagesByIdentity.set(stableIdentity, {
               id,
               stableIdentity,
+              uid: message.uid,
               threadId: message.threadId,
               subject: message.envelope?.subject ?? "(no subject)",
               sender: participantFromAddress(message.envelope?.from?.[0]),

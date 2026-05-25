@@ -194,7 +194,12 @@ export async function syncRecentMessages({
   for (const account of accounts) {
     const startedAt = Date.now();
     const mailDatabase = persistence.mailDatabaseFor(account.id);
-    const mailboxes = mailDatabase
+    const mailboxes: Array<{
+      id: string;
+      uidNext?: number;
+      since?: Date;
+      afterUid?: number;
+    }> = mailDatabase
       .listMailboxes()
       .filter((mailbox) => mailbox.selectable !== false)
       .flatMap((mailbox) => {
@@ -259,7 +264,7 @@ export async function syncRecentMessages({
         message.mailboxIds.some((mailboxId) => {
           const mailbox = mailboxes.find((candidate) => candidate.id === mailboxId);
 
-          return mailbox && "since" in mailbox && new Date(message.receivedAt) < mailbox.since;
+          return mailbox?.since !== undefined && new Date(message.receivedAt) < mailbox.since;
         })
       ) {
         skippedMessageCount += 1;

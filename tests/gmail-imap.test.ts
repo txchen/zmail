@@ -113,6 +113,7 @@ describe("Gmail IMAP mailbox sync client", () => {
 
     expect(messages.map((message) => message.mailboxIds)).toEqual([["INBOX"], ["INBOX/Project"]]);
     expect(messages[0]).toMatchObject({
+      uid: 42,
       recipients: [{ address: "me@example.com" }],
       ccRecipients: [{ address: "copy@example.com", displayName: "Copy" }],
       bccRecipients: [{ address: "hidden@example.com" }],

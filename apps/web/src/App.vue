@@ -6,6 +6,7 @@ import type {
   MailboxSummary,
   MessageDetail,
   SyncJobRecord,
+  SyncJobsResponse,
 } from "@zmail/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -25,7 +26,6 @@ import {
   searchMessagesForAccount,
 } from "./api";
 import { renderReadableMessage } from "./message-rendering";
-import { accountSyncStatusLabel } from "./reader-presenters";
 import {
   defaultReaderPath,
   mailboxPath,
@@ -98,7 +98,7 @@ const syncJobsQuery = useQuery({
   queryKey: ["sync-jobs"],
   queryFn: () => fetchSyncJobs(),
   enabled: authenticated,
-  refetchInterval: () => (authenticated.value && documentVisible.value ? 15_000 : false),
+  refetchInterval: syncJobsPollingInterval,
 });
 
 const mailAccounts = computed(() => mailboxTreeQuery.data.value?.mailAccounts ?? []);
@@ -363,6 +363,18 @@ function updateDocumentVisible(): void {
   documentVisible.value = document.visibilityState !== "hidden";
 }
 
+function syncJobsPollingInterval(query: { state: { data: SyncJobsResponse | undefined } }) {
+  if (!authenticated.value || !documentVisible.value) {
+    return false;
+  }
+
+  const hasActiveJob =
+    query.state.data?.jobs.some((job) => job.state === "pending" || job.state === "running") ??
+    false;
+
+  return hasActiveJob ? 1_000 : 15_000;
+}
+
 function syncJobSummary(job: SyncJobRecord): string {
   if (job.state === "failed") {
     return job.error ?? "Sync job failed";
@@ -377,6 +389,23 @@ function syncJobSummary(job: SyncJobRecord): string {
     `${job.result.storedMessageCount ?? 0} stored`,
     `${job.result.removedMailboxEntryCount ?? 0} removed`,
   ].join(" / ");
+}
+
+function syncJobDuration(job: SyncJobRecord): string {
+  const durationMs =
+    job.startedAt && job.finishedAt
+      ? new Date(job.finishedAt).getTime() - new Date(job.startedAt).getTime()
+      : job.result?.durationMs;
+
+  if (durationMs === undefined || !Number.isFinite(durationMs) || durationMs < 0) {
+    return "";
+  }
+
+  if (durationMs < 1_000) {
+    return `${durationMs}ms`;
+  }
+
+  return `${(durationMs / 1_000).toFixed(1)}s`;
 }
 
 function mailboxGroupCollapsed(accountId: string, mailboxId: string): boolean {
@@ -522,7 +551,12 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-function readSavedReaderLayout(): { navColumnWidth: number; listColumnWidth: number } {
+function readSavedReaderLayout(): {
+  navColumnWidth: number;
+  listColumnWidth: number;
+  collapsedAccounts: string[];
+  collapsedMailboxGroups: string[];
+} {
   const fallback = {
     navColumnWidth: 256,
     listColumnWidth: 384,
@@ -662,6 +696,7 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
             color="neutral"
             icon="i-lucide-loader-circle"
             square
+            :ui="{ leadingIcon: 'animate-spin' }"
             variant="ghost"
             aria-label="Show Sync jobs"
             @click="syncJobsOpen = !syncJobsOpen"
@@ -691,7 +726,12 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
               >
                 <div class="flex items-center justify-between gap-2">
                   <span class="font-medium">{{ job.accountId }}</span>
-                  <span class="text-slate-500">{{ job.state }}</span>
+                  <span class="text-slate-500">
+                    {{ job.state }}
+                    <span v-if="syncJobDuration(job)" class="ml-1">
+                      {{ syncJobDuration(job) }}
+                    </span>
+                  </span>
                 </div>
                 <div class="mt-1 text-slate-600">{{ syncJobSummary(job) }}</div>
               </div>
@@ -744,9 +784,6 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                   >
                     <span class="block min-w-0 truncate text-xs font-semibold">
                       {{ account.id }}
-                      <span class="ml-1.5 text-[10px] font-medium text-slate-500">
-                        {{ accountSyncStatusLabel(account.syncStatus) }}
-                      </span>
                     </span>
                     <span class="block truncate text-[11px] text-slate-500">{{
                       account.emailAddress
