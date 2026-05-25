@@ -24,6 +24,9 @@ export type StorageConfig = {
 
 export type SyncConfig = {
   recentMessageWindowDays: number;
+  regularSyncIntervalMinutes: number;
+  recentReconciliationIntervalMinutes: number;
+  recentReconciliationWindowDays: number;
 };
 
 export type AppConfig = {
@@ -150,14 +153,19 @@ function parseConfigFile(value: unknown, workspaceRoot: string): AppConfig {
 
 function parseSyncConfig(value: unknown): SyncConfig {
   if (value === undefined) {
-    return { recentMessageWindowDays: 90 };
+    return defaultSyncConfig();
   }
 
   if (!isRecord(value)) {
     throw new Error("Invalid sync: expected table");
   }
 
-  assertKnownKeys(value, "sync", ["recent_message_window_days"]);
+  assertKnownKeys(value, "sync", [
+    "recent_message_window_days",
+    "regular_sync_interval_minutes",
+    "recent_reconciliation_interval_minutes",
+    "recent_reconciliation_window_days",
+  ]);
 
   return {
     recentMessageWindowDays:
@@ -167,6 +175,36 @@ function parseSyncConfig(value: unknown): SyncConfig {
         1,
         3650,
       ) ?? 90,
+    regularSyncIntervalMinutes:
+      optionalIntegerInRange(
+        value.regular_sync_interval_minutes,
+        "sync.regular_sync_interval_minutes",
+        1,
+        1440,
+      ) ?? 5,
+    recentReconciliationIntervalMinutes:
+      optionalIntegerInRange(
+        value.recent_reconciliation_interval_minutes,
+        "sync.recent_reconciliation_interval_minutes",
+        1,
+        1440,
+      ) ?? 30,
+    recentReconciliationWindowDays:
+      optionalIntegerInRange(
+        value.recent_reconciliation_window_days,
+        "sync.recent_reconciliation_window_days",
+        1,
+        3650,
+      ) ?? 2,
+  };
+}
+
+function defaultSyncConfig(): SyncConfig {
+  return {
+    recentMessageWindowDays: 90,
+    regularSyncIntervalMinutes: 5,
+    recentReconciliationIntervalMinutes: 30,
+    recentReconciliationWindowDays: 2,
   };
 }
 

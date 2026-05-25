@@ -114,6 +114,9 @@ describe("App login and configured Mail accounts", () => {
       },
       sync: {
         recentMessageWindowDays: 3650,
+        regularSyncIntervalMinutes: 5,
+        recentReconciliationIntervalMinutes: 30,
+        recentReconciliationWindowDays: 2,
       },
       mailAccounts: [
         {
@@ -155,6 +158,9 @@ describe("App login and configured Mail accounts", () => {
       },
       sync: {
         recentMessageWindowDays: 90,
+        regularSyncIntervalMinutes: 5,
+        recentReconciliationIntervalMinutes: 30,
+        recentReconciliationWindowDays: 2,
       },
       mailAccounts: [],
     });
@@ -180,7 +186,39 @@ describe("App login and configured Mail accounts", () => {
 
     expect(config.mailAccounts).toEqual([]);
     expect(config.storage.databaseDir).toBe(join(dirname(configPath), ".data"));
-    expect(config.sync.recentMessageWindowDays).toBe(90);
+    expect(config.sync).toEqual({
+      recentMessageWindowDays: 90,
+      regularSyncIntervalMinutes: 5,
+      recentReconciliationIntervalMinutes: 30,
+      recentReconciliationWindowDays: 2,
+    });
+  });
+
+  it("loads and validates queued Sync cadence configuration", () => {
+    const configPath = writeConfig(`
+        mail_accounts = []
+
+        [storage]
+        database_dir = ".data"
+
+        [sync]
+        recent_message_window_days = 3650
+        regular_sync_interval_minutes = 10
+        recent_reconciliation_interval_minutes = 60
+        recent_reconciliation_window_days = 7
+
+        [app_login]
+        username = "reader"
+        password = "secret"
+        session_secret = "test-session-secret"
+      `);
+
+    expect(loadConfigFromFile(configPath).sync).toEqual({
+      recentMessageWindowDays: 3650,
+      regularSyncIntervalMinutes: 10,
+      recentReconciliationIntervalMinutes: 60,
+      recentReconciliationWindowDays: 7,
+    });
   });
 
   it("rejects invalid App login credentials without issuing a session", async () => {

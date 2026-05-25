@@ -742,6 +742,9 @@ export const app = createApp({
   },
   sync: {
     recentMessageWindowDays: 90,
+    regularSyncIntervalMinutes: 5,
+    recentReconciliationIntervalMinutes: 30,
+    recentReconciliationWindowDays: 2,
   },
   mailAccounts: [],
   persistence: createHybridPersistence(),

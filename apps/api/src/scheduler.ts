@@ -1,74 +1,68 @@
-import type { ConfiguredMailAccount } from "./config.js";
-import type { HybridPersistence } from "./persistence.js";
-import type { MailboxSyncClient } from "./sync.js";
-import { syncMailboxTrees } from "./sync.js";
+import type { ConfiguredMailAccount, SyncConfig } from "./config.js";
+import type { SyncQueue } from "./sync-queue.js";
 
 export type SyncSchedulerOptions = {
   accounts: ConfiguredMailAccount[];
-  client: MailboxSyncClient;
-  intervalMs: number;
-  persistence: HybridPersistence;
+  sync: SyncConfig;
+  syncQueue: SyncQueue;
 };
 
 export type SyncScheduler = {
-  pollNow(): Promise<void>;
-  refreshAccount(mailAccountId: string): Promise<void>;
+  pollRegularNow(): void;
+  pollRecentReconciliationNow(): void;
   start(): void;
   stop(): void;
 };
 
 export function createSyncScheduler({
   accounts,
-  client,
-  intervalMs,
-  persistence,
+  sync,
+  syncQueue,
 }: SyncSchedulerOptions): SyncScheduler {
-  const activeSyncs = new Map<string, Promise<void>>();
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let regularTimer: ReturnType<typeof setInterval> | undefined;
+  let recentReconciliationTimer: ReturnType<typeof setInterval> | undefined;
 
-  async function syncAccount(account: ConfiguredMailAccount): Promise<void> {
-    const active = activeSyncs.get(account.id);
-
-    if (active) {
-      return active;
-    }
-
-    const sync = syncMailboxTrees({
-      accounts: [account],
-      persistence,
-      client,
-    })
-      .then(() => undefined)
-      .finally(() => {
-        activeSyncs.delete(account.id);
+  function scheduleRegular() {
+    for (const account of accounts) {
+      syncQueue.schedule({
+        accountId: account.id,
+        origin: "automatic",
+        scope: { type: "regular" },
       });
-    activeSyncs.set(account.id, sync);
+    }
+  }
 
-    return sync;
+  function scheduleRecentReconciliation() {
+    for (const account of accounts) {
+      syncQueue.schedule({
+        accountId: account.id,
+        origin: "automatic",
+        scope: {
+          type: "recentReconciliation",
+          days: sync.recentReconciliationWindowDays,
+        },
+      });
+    }
   }
 
   return {
-    async pollNow() {
-      await Promise.all(accounts.map((account) => syncAccount(account)));
-    },
-    async refreshAccount(mailAccountId) {
-      const account = accounts.find((candidate) => candidate.id === mailAccountId);
-
-      if (!account) {
-        throw new Error(`Unknown Mail account: ${mailAccountId}`);
-      }
-
-      await syncAccount(account);
-    },
+    pollRegularNow: scheduleRegular,
+    pollRecentReconciliationNow: scheduleRecentReconciliation,
     start() {
-      timer ??= setInterval(() => {
-        void this.pollNow();
-      }, intervalMs);
+      regularTimer ??= setInterval(scheduleRegular, sync.regularSyncIntervalMinutes * 60 * 1000);
+      recentReconciliationTimer ??= setInterval(
+        scheduleRecentReconciliation,
+        sync.recentReconciliationIntervalMinutes * 60 * 1000,
+      );
     },
     stop() {
-      if (timer) {
-        clearInterval(timer);
-        timer = undefined;
+      if (regularTimer) {
+        clearInterval(regularTimer);
+        regularTimer = undefined;
+      }
+      if (recentReconciliationTimer) {
+        clearInterval(recentReconciliationTimer);
+        recentReconciliationTimer = undefined;
       }
     },
   };

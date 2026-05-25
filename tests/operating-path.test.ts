@@ -6,8 +6,8 @@ import { loadConfigFromFile } from "../apps/api/src/config";
 import type { ConfiguredMailAccount } from "../apps/api/src/config";
 import { createApp } from "../apps/api/src/app";
 import { createHybridPersistence } from "../apps/api/src/persistence";
-import type { MailboxSyncClient } from "../apps/api/src/sync";
 import { createSyncScheduler } from "../apps/api/src/scheduler";
+import { createSyncQueue } from "../apps/api/src/sync-queue";
 
 describe("MVP operating path", () => {
   it("reports missing and invalid startup configuration clearly", () => {
@@ -57,44 +57,30 @@ describe("MVP operating path", () => {
     ).toThrow("Invalid app_login: unknown password_hint");
   });
 
-  it("polls configured Mail accounts and prevents overlapping sync for the same account", async () => {
+  it("polls configured Mail accounts through coalesced automatic Sync jobs", () => {
     const account: ConfiguredMailAccount = {
       id: "personal",
       emailAddress: "me@example.com",
       appPassword: "personal-app-password",
     };
-    const calls: string[] = [];
-    let releaseSync: (() => void) | undefined;
-    const client: MailboxSyncClient = {
-      async listVisibleMailboxes(syncAccount) {
-        calls.push(syncAccount.id);
-        if (calls.length === 1) {
-          await new Promise<void>((resolve) => {
-            releaseSync = resolve;
-          });
-        }
-
-        return [{ id: "inbox", name: "Inbox", unreadCount: 1 }];
-      },
-    };
+    const syncQueue = createSyncQueue({ async execute() {} });
     const scheduler = createSyncScheduler({
       accounts: [account],
-      client,
-      intervalMs: 1000,
-      persistence: createHybridPersistence(),
+      sync: {
+        recentMessageWindowDays: 90,
+        regularSyncIntervalMinutes: 5,
+        recentReconciliationIntervalMinutes: 30,
+        recentReconciliationWindowDays: 2,
+      },
+      syncQueue,
     });
 
-    const first = scheduler.pollNow();
-    const overlapping = scheduler.refreshAccount("personal");
-    await Promise.resolve();
+    scheduler.pollRegularNow();
+    scheduler.pollRegularNow();
 
-    expect(calls).toEqual(["personal"]);
-    releaseSync?.();
-    await first;
-    await overlapping;
-
-    await scheduler.refreshAccount("personal");
-    expect(calls).toEqual(["personal", "personal"]);
+    expect(syncQueue.listJobs()).toMatchObject([
+      { accountId: "personal", origin: "automatic", scope: { type: "regular" } },
+    ]);
   });
 
   it("covers the main home-network flow from login through AI unread access", async () => {
