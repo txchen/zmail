@@ -95,6 +95,43 @@ describe("per-account SQLite persistence", () => {
     });
   });
 
+  it("treats Starred mailbox membership as starred when reading messages", () => {
+    const persistence = createHybridPersistence();
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+
+    mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 0 });
+    mailDatabase.saveMailbox({ id: "[Gmail]/Starred", name: "[Gmail]/Starred", unreadCount: 0 });
+    mailDatabase.saveMessage({
+      id: "message-1",
+      stableIdentity: "gmail:personal:message-1",
+      subject: "Google Payment Corp: $110.29 USD",
+      receivedAt: "2026-05-23T10:00:00.000Z",
+      unread: false,
+      starred: false,
+      aiProcessed: false,
+      readableBody: "<p>Hello</p>",
+      attachments: [],
+    });
+    mailDatabase.saveMailboxEntry({
+      id: "message-1:inbox",
+      mailboxId: "inbox",
+      messageId: "message-1",
+    });
+    mailDatabase.saveMailboxEntry({
+      id: "message-1:[Gmail]/Starred",
+      mailboxId: "[Gmail]/Starred",
+      messageId: "message-1",
+    });
+
+    expect(mailDatabase.listMessagesForMailbox("personal", "[Gmail]/Starred").messages).toEqual([
+      expect.objectContaining({ id: "message-1", starred: true }),
+    ]);
+    expect(mailDatabase.getMessage("personal", "message-1")).toMatchObject({
+      id: "message-1",
+      starred: true,
+    });
+  });
+
   it("persists per-account mail data to SQLite files without app.sqlite", () => {
     const databaseDir = mkdtempSync(join(tmpdir(), "zmail-db-"));
     const persistence = createFileBackedHybridPersistence(databaseDir);

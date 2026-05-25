@@ -772,6 +772,7 @@ export class MailDatabase {
           attachments_json: string;
         };
         const attachments = JSON.parse(message.attachments_json) as AttachmentMetadata[];
+        const mailboxIds = this.listMailboxIdsForMessage(message.id);
 
         return {
           accountId: resolvedAccountId,
@@ -785,8 +786,8 @@ export class MailDatabase {
           bccRecipients: JSON.parse(message.bcc_recipients_json) as MessageParticipant[],
           receivedAt: message.received_at,
           unread: Boolean(message.unread),
-          starred: Boolean(message.starred),
-          mailboxIds: this.listMailboxIdsForMessage(message.id),
+          starred: starredFromState(Boolean(message.starred), mailboxIds),
+          mailboxIds,
           snippet: message.snippet,
           attachmentCount: attachments.length,
           updatedAt: message.updated_at || message.received_at,
@@ -851,6 +852,7 @@ export class MailDatabase {
     }
 
     const attachments = JSON.parse(row.attachments_json) as AttachmentMetadata[];
+    const mailboxIds = this.listMailboxIdsForMessage(row.id);
 
     return {
       accountId: resolvedAccountId,
@@ -864,8 +866,8 @@ export class MailDatabase {
       bccRecipients: JSON.parse(row.bcc_recipients_json) as MessageParticipant[],
       receivedAt: row.received_at,
       unread: Boolean(row.unread),
-      starred: Boolean(row.starred),
-      mailboxIds: this.listMailboxIdsForMessage(row.id),
+      starred: starredFromState(Boolean(row.starred), mailboxIds),
+      mailboxIds,
       snippet: row.snippet,
       attachmentCount: attachments.length,
       updatedAt: row.updated_at || row.received_at,
@@ -906,6 +908,7 @@ export class MailDatabase {
           attachments_json: string;
         };
         const attachments = JSON.parse(message.attachments_json) as AttachmentMetadata[];
+        const mailboxIds = this.listMailboxIdsForMessage(message.id);
 
         return {
           accountId: mailAccountId,
@@ -919,8 +922,8 @@ export class MailDatabase {
           bccRecipients: JSON.parse(message.bcc_recipients_json) as MessageParticipant[],
           receivedAt: message.received_at,
           unread: Boolean(message.unread),
-          starred: Boolean(message.starred),
-          mailboxIds: this.listMailboxIdsForMessage(message.id),
+          starred: starredFromState(Boolean(message.starred), mailboxIds),
+          mailboxIds,
           snippet: message.snippet,
           attachmentCount: attachments.length,
           updatedAt: message.updated_at || message.received_at,
@@ -962,6 +965,7 @@ export class MailDatabase {
           attachments_json: string;
         };
         const attachments = JSON.parse(message.attachments_json) as AttachmentMetadata[];
+        const mailboxIds = this.listMailboxIdsForMessage(message.id);
 
         return {
           accountId: mailAccountId,
@@ -975,8 +979,8 @@ export class MailDatabase {
           bccRecipients: JSON.parse(message.bcc_recipients_json) as MessageParticipant[],
           receivedAt: message.received_at,
           unread: Boolean(message.unread),
-          starred: Boolean(message.starred),
-          mailboxIds: this.listMailboxIdsForMessage(message.id),
+          starred: starredFromState(Boolean(message.starred), mailboxIds),
+          mailboxIds,
           snippet: message.snippet,
           attachmentCount: attachments.length,
           updatedAt: message.updated_at || message.received_at,
@@ -1024,6 +1028,7 @@ export class MailDatabase {
     }
 
     const attachments = JSON.parse(row.attachments_json) as AttachmentMetadata[];
+    const mailboxIds = this.listMailboxIdsForMessage(row.id);
 
     return {
       accountId: mailAccountId,
@@ -1037,8 +1042,8 @@ export class MailDatabase {
       bccRecipients: JSON.parse(row.bcc_recipients_json) as MessageParticipant[],
       receivedAt: row.received_at,
       unread: Boolean(row.unread),
-      starred: Boolean(row.starred),
-      mailboxIds: this.listMailboxIdsForMessage(row.id),
+      starred: starredFromState(Boolean(row.starred), mailboxIds),
+      mailboxIds,
       snippet: row.snippet,
       attachmentCount: attachments.length,
       updatedAt: row.updated_at || row.received_at,
@@ -1133,6 +1138,16 @@ function stripHtml(value: string): string {
 
 function encodeMessageCursor(receivedAt: string, id: string): string {
   return Buffer.from(JSON.stringify({ receivedAt, id }), "utf8").toString("base64url");
+}
+
+function starredFromState(starred: boolean, mailboxIds: string[]): boolean {
+  return starred || mailboxIds.some((mailboxId) => isStarredLikeMailboxId(mailboxId));
+}
+
+function isStarredLikeMailboxId(mailboxId: string): boolean {
+  const normalized = mailboxId.toLowerCase();
+
+  return normalized === "starred" || normalized.endsWith("/starred");
 }
 
 function isTrashLikeMailboxId(mailboxId: string): boolean {

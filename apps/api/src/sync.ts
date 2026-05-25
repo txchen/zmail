@@ -42,6 +42,7 @@ export type ImapMessage = {
   }>;
   receivedAt: string;
   unread: boolean;
+  starred: boolean;
   snippet?: string;
   bodyText?: string;
   readableBody: string;
@@ -282,7 +283,7 @@ export async function syncRecentMessages({
         bccRecipients: message.bccRecipients,
         receivedAt: message.receivedAt,
         unread: message.unread,
-        starred: false,
+        starred: message.starred,
         aiProcessed: false,
         snippet: message.snippet,
         bodyText: message.bodyText,
@@ -393,7 +394,7 @@ export async function syncRecentReconciliation({
         bccRecipients: message.bccRecipients,
         receivedAt: message.receivedAt,
         unread: message.unread,
-        starred: false,
+        starred: message.starred,
         aiProcessed: false,
         snippet: message.snippet,
         bodyText: message.bodyText,

@@ -793,11 +793,25 @@ function applyLocalMailboxAction(
   }
 
   if (action === "star") {
+    const message = mailDatabase.getMessage(messageId);
     mailDatabase.setMessageStarred(messageId, true);
+    const starredMailboxId = systemMailboxId(mailDatabase, "starred") ?? "[Gmail]/Starred";
+    ensureLocalMailbox(mailDatabase, starredMailboxId);
+    const alreadyInStarred = message?.mailboxIds.includes(starredMailboxId) ?? false;
+    mailDatabase.saveMailboxEntry({
+      id: `${messageId}:${starredMailboxId}`,
+      mailboxId: starredMailboxId,
+      messageId,
+    });
+    if (message?.unread && !alreadyInStarred) {
+      mailDatabase.adjustMailboxUnreadCount(starredMailboxId, 1);
+    }
   }
 
   if (action === "unstar") {
     mailDatabase.setMessageStarred(messageId, false);
+    const starredMailboxId = systemMailboxId(mailDatabase, "starred") ?? "[Gmail]/Starred";
+    mailDatabase.removeMailboxEntry(messageId, starredMailboxId);
   }
 
   if (action === "archive") {
@@ -825,7 +839,18 @@ function applyLocalMailboxAction(
   }
 }
 
-function systemMailboxId(mailDatabase: MailDatabase, role: "inbox" | "trash"): string | undefined {
+function ensureLocalMailbox(mailDatabase: MailDatabase, mailboxId: string): void {
+  if (mailDatabase.listMailboxes().some((mailbox) => mailbox.id === mailboxId)) {
+    return;
+  }
+
+  mailDatabase.saveMailbox({ id: mailboxId, name: mailboxId, unreadCount: 0 });
+}
+
+function systemMailboxId(
+  mailDatabase: MailDatabase,
+  role: "inbox" | "trash" | "starred",
+): string | undefined {
   const mailboxes = mailDatabase.listMailboxes();
 
   const roleMailbox = mailboxes.find((mailbox) => mailbox.systemRole === role)?.id;
@@ -837,6 +862,20 @@ function systemMailboxId(mailDatabase: MailDatabase, role: "inbox" | "trash"): s
     return mailboxes.find(
       (mailbox) => mailbox.id.toLowerCase() === "inbox" || mailbox.name.toLowerCase() === "inbox",
     )?.id;
+  }
+
+  if (role === "starred") {
+    return (
+      mailboxes.find(
+        (mailbox) =>
+          mailbox.id.toLowerCase().endsWith("/starred") ||
+          mailbox.name.toLowerCase().endsWith("/starred"),
+      )?.id ??
+      mailboxes.find(
+        (mailbox) =>
+          mailbox.id.toLowerCase() === "starred" || mailbox.name.toLowerCase() === "starred",
+      )?.id
+    );
   }
 
   return (

@@ -2,6 +2,7 @@
 import type {
   MailAccountMailboxTree,
   MailboxAction,
+  MailboxMessagesResponse,
   MailboxMessageSummary,
   MailboxSummary,
   MessageDetail,
@@ -270,7 +271,24 @@ const syncJobMutation = useMutation({
 const mailboxActionMutation = useMutation({
   mutationFn: ({ messageId, action }: { messageId: string; action: MailboxAction }) =>
     performMailboxAction(selectedAccountId.value, messageId, action),
-  onSuccess: async (_, variables) => {
+  onSuccess: async (response, variables) => {
+    queryClient.setQueryData(
+      ["message-detail", response.message.accountId, response.message.id],
+      response,
+    );
+    queryClient.setQueriesData<MailboxMessagesResponse>({ queryKey: ["message-list"] }, (page) =>
+      page
+        ? {
+            ...page,
+            messages: page.messages.map((message) =>
+              message.accountId === response.message.accountId && message.id === response.message.id
+                ? { ...message, ...response.message }
+                : message,
+            ),
+          }
+        : page,
+    );
+
     if (variables.action === "archive" || variables.action === "delete") {
       openAdjacentMessage(variables.messageId);
     }
@@ -451,6 +469,12 @@ function syncJobsPollingInterval(query: { state: { data: SyncJobsResponse | unde
 function accountContextMenuItems(account: MailAccountMailboxTree) {
   return [
     {
+      label: "Sync now",
+      icon: "i-lucide-refresh-cw",
+      disabled: syncingAccountIds.value.has(account.id) || syncJobMutation.isPending.value,
+      onSelect: () => syncJobMutation.mutate({ accountId: account.id }),
+    },
+    {
       label: "Custom sync...",
       icon: "i-lucide-calendar-clock",
       disabled: syncingAccountIds.value.has(account.id) || syncJobMutation.isPending.value,
@@ -520,6 +544,10 @@ function syncJobScopeLabel(job: SyncJobRecord): string {
   }
 
   return `Custom ${job.scope.days}d`;
+}
+
+function syncJobOriginLabel(job: SyncJobRecord): string {
+  return job.origin === "automatic" ? "⟳" : "👤";
 }
 
 function syncJobTime(job: SyncJobRecord): string {
@@ -873,12 +901,14 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                   </span>
                 </div>
                 <div class="mt-1 flex items-center justify-between gap-2 text-slate-500">
-                  <span class="truncate">{{ syncJobScopeLabel(job) }} · {{ job.state }}</span>
+                  <span class="truncate"
+                    >{{ syncJobOriginLabel(job) }} {{ syncJobScopeLabel(job) }} ·
+                    {{ syncJobSummary(job) }}</span
+                  >
                   <span v-if="syncJobDuration(job)" class="shrink-0">{{
                     syncJobDuration(job)
                   }}</span>
                 </div>
-                <div class="mt-1 truncate text-slate-600">{{ syncJobSummary(job) }}</div>
               </div>
             </div>
           </div>
@@ -981,18 +1011,6 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                         variant="subtle"
                         >{{ account.unreadCount }}</UBadge
                       >
-                      <UButton
-                        color="neutral"
-                        icon="i-lucide-refresh-cw"
-                        :loading="syncingAccountIds.has(account.id)"
-                        :disabled="
-                          syncingAccountIds.has(account.id) || syncJobMutation.isPending.value
-                        "
-                        square
-                        variant="ghost"
-                        aria-label="Refresh account"
-                        @click="syncJobMutation.mutate({ accountId: account.id })"
-                      />
                     </div>
                   </div>
                 </UContextMenu>
@@ -1134,18 +1152,22 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
                   message.unread
                     ? 'border-l-4 border-l-slate-800 bg-stone-50'
                     : 'border-l-4 border-l-transparent bg-stone-100',
+                  message.starred ? 'bg-amber-50' : '',
                   selectedMessageId === message.id ? 'bg-stone-200' : '',
                 ]"
                 type="button"
                 @click="selectMessage(message.id)"
               >
                 <div class="flex items-center justify-between gap-2">
-                  <span
-                    class="truncate text-xs"
-                    :class="message.unread ? 'font-bold text-slate-950' : 'font-medium'"
-                  >
-                    {{ senderLabel(message) }}
-                  </span>
+                  <div class="flex min-w-0 items-center gap-1">
+                    <span v-if="message.starred" class="shrink-0 text-amber-500">★</span>
+                    <span
+                      class="truncate text-xs"
+                      :class="message.unread ? 'font-bold text-slate-950' : 'font-medium'"
+                    >
+                      {{ senderLabel(message) }}
+                    </span>
+                  </div>
                   <span class="shrink-0 text-[11px] text-slate-500">{{
                     formatDate(message.receivedAt)
                   }}</span>

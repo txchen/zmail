@@ -247,7 +247,9 @@ describe("MVP Mailbox actions", () => {
   });
 
   it("stars and unstars a Message through Gmail before updating local state", async () => {
-    const { app, cookie, actions } = await createActionFixture();
+    const { app, cookie, persistence, actions } = await createActionFixture();
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    mailDatabase.saveMailbox({ id: "[Gmail]/Starred", name: "[Gmail]/Starred", unreadCount: 0 });
 
     const starResponse = await app.request(
       "/api/mail-accounts/personal/messages/message-1/actions",
@@ -262,8 +264,15 @@ describe("MVP Mailbox actions", () => {
       message: {
         id: "message-1",
         starred: true,
+        mailboxIds: expect.arrayContaining(["inbox", "[Gmail]/Starred"]),
       },
     });
+    expect(mailDatabase.listMessagesForMailbox("[Gmail]/Starred").messages).toEqual([
+      expect.objectContaining({ id: "message-1", starred: true }),
+    ]);
+    expect(mailDatabase.listMailboxes()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "[Gmail]/Starred", unreadCount: 1 })]),
+    );
 
     const unstarResponse = await app.request(
       "/api/mail-accounts/personal/messages/message-1/actions",
@@ -278,8 +287,13 @@ describe("MVP Mailbox actions", () => {
       message: {
         id: "message-1",
         starred: false,
+        mailboxIds: ["inbox"],
       },
     });
+    expect(mailDatabase.listMessagesForMailbox("[Gmail]/Starred").messages).toEqual([]);
+    expect(mailDatabase.listMailboxes()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "[Gmail]/Starred", unreadCount: 0 })]),
+    );
     expect(actions).toEqual([
       expect.objectContaining({ action: "star", accountId: "personal", messageId: "message-1" }),
       expect.objectContaining({ action: "unstar", accountId: "personal", messageId: "message-1" }),

@@ -192,11 +192,14 @@ export function createGmailImapMailboxSyncClient(
             const id = message.emailId ?? `${mailbox.path}:${message.uid}`;
             const stableIdentity = `gmail:${account.id}:${id}`;
             const existing = messagesByIdentity.get(stableIdentity);
+            const starred =
+              message.flags?.has("\\Flagged") === true || isStarredMailboxId(mailbox.path);
 
             if (existing) {
               if (!existing.mailboxIds.includes(mailbox.path)) {
                 existing.mailboxIds.push(mailbox.path);
               }
+              existing.starred = existing.starred || starred;
               continue;
             }
 
@@ -224,6 +227,7 @@ export function createGmailImapMailboxSyncClient(
               bccRecipients: message.envelope?.bcc?.map(participantFromAddress),
               receivedAt: (receivedAt ?? new Date()).toISOString(),
               unread: !message.flags?.has("\\Seen"),
+              starred,
               snippet: body.text.slice(0, 240),
               bodyText: body.text,
               readableBody: body.html,
@@ -370,6 +374,12 @@ function mailboxActionRange(
 
 function isNonSelectableMailbox(mailbox: { flags?: Set<string> }): boolean {
   return mailbox.flags?.has("\\Noselect") === true || mailbox.flags?.has("\\NonExistent") === true;
+}
+
+function isStarredMailboxId(mailboxId: string): boolean {
+  const normalized = mailboxId.toLowerCase();
+
+  return normalized === "starred" || normalized.endsWith("/starred");
 }
 
 function participantFromAddress(address: ImapAddress | undefined): {

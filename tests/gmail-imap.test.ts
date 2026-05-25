@@ -75,7 +75,7 @@ describe("Gmail IMAP mailbox sync client", () => {
         uid: 42,
         emailId: `178abc-${mailboxId}`,
         threadId: "thread-1",
-        flags: new Set(["\\Seen"]),
+        flags: new Set(["\\Seen", "\\Flagged"]),
         envelope: {
           subject: "Hello",
           date: new Date("2026-05-23T10:00:00.000Z"),
@@ -123,6 +123,8 @@ describe("Gmail IMAP mailbox sync client", () => {
       ccRecipients: [{ address: "copy@example.com", displayName: "Copy" }],
       bccRecipients: [{ address: "hidden@example.com" }],
       receivedAt: "2026-05-23T10:00:00.000Z",
+      unread: false,
+      starred: true,
     });
     expect(mailboxOpen).toHaveBeenCalledWith("INBOX");
     expect(mailboxOpen).toHaveBeenCalledWith("INBOX/Project");
@@ -141,6 +143,55 @@ describe("Gmail IMAP mailbox sync client", () => {
       { uid: false },
     );
     expect(logout).toHaveBeenCalledOnce();
+  });
+
+  it("marks a duplicate Gmail Message as starred when it is fetched from the Starred mailbox", async () => {
+    const imapFlow = vi.fn(function () {
+      return { connect, list, mailboxOpen, fetch, logout };
+    });
+    connect.mockResolvedValue(undefined);
+    list.mockResolvedValue([
+      { path: "INBOX", status: { unseen: 1 } },
+      { path: "[Gmail]/Starred", status: { unseen: 1 } },
+    ]);
+    mailboxOpen.mockResolvedValue({ exists: 1 });
+    fetch.mockImplementation(async function* () {
+      yield {
+        uid: 42,
+        emailId: "shared-message-id",
+        flags: new Set(["\\Seen"]),
+        envelope: {
+          subject: "Google Payment Corp: $110.29 USD",
+          date: new Date("2026-05-23T10:00:00.000Z"),
+          from: [{ address: "payments@example.com" }],
+          to: [{ address: "me@example.com" }],
+        },
+        source: Buffer.from("Subject: Google Payment Corp: $110.29 USD\r\n\r\nPlain body"),
+      };
+    });
+    logout.mockResolvedValue(undefined);
+
+    const client = createGmailImapMailboxSyncClient(imapFlow);
+
+    await expect(
+      client.listRecentMessages({
+        account: {
+          id: "personal",
+          emailAddress: "me@example.com",
+          appPassword: "gmail-app-password",
+        },
+        mailboxes: [
+          { id: "INBOX", since: new Date("2026-05-01T00:00:00.000Z") },
+          { id: "[Gmail]/Starred", since: new Date("2026-05-01T00:00:00.000Z") },
+        ],
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "shared-message-id",
+        starred: true,
+        mailboxIds: ["INBOX", "[Gmail]/Starred"],
+      }),
+    ]);
   });
 
   it("filters initial Gmail backfill by header date instead of internal delivery date", async () => {

@@ -19,13 +19,18 @@ describe("Sync jobs UI", () => {
     expect(appVue).toContain("function syncJobDuration(job: SyncJobRecord): string");
     expect(appVue).toContain("function syncJobStateIcon(job: SyncJobRecord): string");
     expect(appVue).toContain("function syncJobScopeLabel(job: SyncJobRecord): string");
+    expect(appVue).toContain("function syncJobOriginLabel(job: SyncJobRecord): string");
+    expect(appVue).toContain('job.origin === "automatic" ? "⟳" : "👤"');
     expect(appVue).toContain("function syncJobTime(job: SyncJobRecord): string");
     expect(appVue).toContain("job.result?.durationMs");
     expect(appVue).toMatch(
       /job\.startedAt && job\.finishedAt[\s\S]*new Date\(job\.finishedAt\)\.getTime\(\) - new Date\(job\.startedAt\)\.getTime\(\)[\s\S]*: job\.result\?\.durationMs/,
     );
     expect(appVue).toContain("{{ syncJobTime(job) }}");
-    expect(appVue).toContain("{{ syncJobScopeLabel(job) }} · {{ job.state }}");
+    expect(appVue).toContain("{{ syncJobOriginLabel(job) }}");
+    expect(appVue).toContain("{{ syncJobSummary(job) }}");
+    expect(appVue).not.toContain("{{ job.state }}");
+    expect(appVue).not.toContain('class="mt-1 truncate text-slate-600"');
     expect(appVue).toContain("{{ syncJobs.length }} total");
   });
 
@@ -60,6 +65,8 @@ describe("Sync jobs UI", () => {
   it("lets the App user schedule custom range Sync jobs from the account context menu", () => {
     expect(appVue).toContain("function accountContextMenuItems(account: MailAccountMailboxTree)");
     expect(appVue).toContain('<UContextMenu :items="accountContextMenuItems(account)">');
+    expect(appVue).toContain('label: "Sync now"');
+    expect(appVue).toContain("onSelect: () => syncJobMutation.mutate({ accountId: account.id })");
     expect(appVue).toContain("function submitCustomSync()");
     expect(appVue).toContain(
       "syncJobMutation.mutate({ accountId: customSyncAccountId.value, days: customSyncDays.value })",
@@ -70,6 +77,7 @@ describe("Sync jobs UI", () => {
     expect(appVue).toContain('type="submit"');
     expect(appVue).toContain("Start sync");
     expect(appVue).not.toContain('aria-label="Sync message range"');
+    expect(appVue).not.toContain('aria-label="Refresh account"');
   });
 
   it("formats message dates as local YYYY-MM-DD HH:mm", () => {
@@ -88,5 +96,13 @@ describe("Sync jobs UI", () => {
   it("does not show Archive in the message action toolbar", () => {
     expect(appVue).not.toContain('icon="i-lucide-archive"');
     expect(appVue).not.toContain(">Archive");
+  });
+
+  it("visually distinguishes starred messages and toggles the Star action", () => {
+    expect(appVue).toContain("message.starred ? 'bg-amber-50' : ''");
+    expect(appVue).toContain('v-if="message.starred"');
+    expect(appVue).toContain("★");
+    expect(appVue).toContain("selectedMessage.starred ? 'i-lucide-star-off' : 'i-lucide-star'");
+    expect(appVue).toContain("{{ selectedMessage.starred ? \"Unstar\" : \"Star\" }}");
   });
 });
