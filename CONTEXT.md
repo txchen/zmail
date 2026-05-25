@@ -128,6 +128,14 @@ _Avoid_: User-added account
 The expectation that Zmail refreshes each **Mail account** through background polling and App user-triggered manual refresh. Near-real-time IMAP IDLE is outside the MVP boundary.
 _Avoid_: Push sync, live sync
 
+**Sync job**:
+A server-side queued request to sync one **Mail account** into the **Local read model**. A **Sync job** can be created by the **App user** or by **Sync freshness** polling.
+_Avoid_: Synchronous refresh, UI loading state
+
+**Sync queue**:
+The server-side queue of **Sync jobs** for one Zmail installation. The **Sync queue** runs **Sync jobs** one at a time across all **Mail accounts**.
+_Avoid_: Per-account queue, parallel sync
+
 **Mail account diagnostics**:
 An authenticated operator check of a **Mail account credential** and Gmail connectivity that does not change the **Local read model**. **Mail account diagnostics** can expose raw provider errors to the **App user** for troubleshooting.
 _Avoid_: Sync, health check
@@ -135,6 +143,14 @@ _Avoid_: Sync, health check
 **Sync window**:
 The configurable recent time range of Gmail mail that Zmail syncs for each **Mail account**. The MVP default **Sync window** is 90 days.
 _Avoid_: Full history, unlimited sync
+
+**Sync scope**:
+The requested Gmail time range for a **Sync job**. A regular **Sync job** uses the configured **Sync window**, while an App user-triggered **Sync job** can request a wider **Sync scope** for one **Mail account**.
+_Avoid_: Job type, refresh mode
+
+**Recent reconciliation**:
+A less frequent sync pass that compares recently visible Gmail **Messages** against recent local **Mailbox entries** so external cleanup in another mail app is reflected in Zmail. **Recent reconciliation** is narrower than a custom historical sync and slower than regular incremental sync.
+_Avoid_: Full resync, deletion polling
 
 **Visible mailbox set**:
 All Gmail mailboxes and labels visible through IMAP for a **Mail account**, including Spam and Trash. The MVP syncs the **Visible mailbox set** within the **Sync window**.
