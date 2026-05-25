@@ -132,3 +132,54 @@ export type MailAccountDiagnosticsResponse =
       success: false;
       lastError: string;
     };
+
+export type SyncJobState =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "skipped"
+  | "superseded";
+
+export type SyncJobOrigin = "automatic" | "appUser";
+
+export type SyncScope =
+  | { type: "regular" }
+  | { type: "recentReconciliation"; days: number }
+  | { type: "customRange"; days: number };
+
+export type SyncJobResult = {
+  mailboxCount?: number;
+  scannedMailboxCount?: number;
+  skippedMailboxCount?: number;
+  fetchedMessageCount?: number;
+  storedMessageCount?: number;
+  removedMailboxEntryCount?: number;
+  durationMs?: number;
+};
+
+export type SyncJobRecord = {
+  id: string;
+  accountId: string;
+  origin: SyncJobOrigin;
+  scope: SyncScope;
+  state: SyncJobState;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  result?: SyncJobResult;
+  error?: string;
+};
+
+export type ScheduleSyncJobRequest = {
+  accountId: string;
+  days?: number;
+};
+
+export type SyncJobResponse = {
+  job: SyncJobRecord;
+};
+
+export type SyncJobsResponse = {
+  jobs: SyncJobRecord[];
+};

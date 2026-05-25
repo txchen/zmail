@@ -5,6 +5,7 @@ import { parse as parseToml } from "smol-toml";
 import type { MailboxActionClient } from "./mailbox-actions.js";
 import type { HybridPersistence } from "./persistence.js";
 import type { MailboxSyncClient, MessageSyncClient } from "./sync.js";
+import type { SyncQueue } from "./sync-queue.js";
 
 export type AppLogin = {
   username: string;
@@ -33,6 +34,7 @@ export type AppConfig = {
   persistence?: HybridPersistence;
   mailboxSyncClient?: MailboxSyncClient;
   messageSyncClient?: MessageSyncClient;
+  syncQueue?: SyncQueue;
   mailboxActionClient?: MailboxActionClient;
   attachmentDownloadClient?: AttachmentDownloadClient;
 };

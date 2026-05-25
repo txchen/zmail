@@ -1,4 +1,4 @@
-import { healthy } from "@zmail/shared";
+import { healthy, type ScheduleSyncJobRequest, type SyncJobRecord } from "@zmail/shared";
 import { Hono } from "hono";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { AppConfig, AppLogin } from "./config.js";
@@ -10,6 +10,7 @@ import {
   type MailDatabase,
 } from "./persistence.js";
 import { syncMailboxTrees, syncRecentMessages, type MailAccountSyncState } from "./sync.js";
+import { createSyncQueue, type SyncJob } from "./sync-queue.js";
 
 const sessionCookieName = "zmail_session";
 
@@ -22,6 +23,13 @@ export function createApp(config: AppConfig): Hono {
       : createHybridPersistence());
   const mailboxSyncClient = config.mailboxSyncClient;
   const messageSyncClient = config.messageSyncClient;
+  const syncQueue =
+    config.syncQueue ??
+    createSyncQueue({
+      async execute() {
+        return {};
+      },
+    });
   const mailboxActionClient = config.mailboxActionClient;
   const attachmentDownloadClient = config.attachmentDownloadClient;
   const sessionTtlDays = config.appLogin.sessionTtlDays ?? 365;
@@ -236,6 +244,40 @@ export function createApp(config: AppConfig): Hono {
       });
       throw error;
     }
+  });
+
+  app.post("/api/sync-jobs", async (c) => {
+    if (!isAuthenticated(c.req.header("cookie"))) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    const body = await c.req.json<ScheduleSyncJobRequest>();
+    const account = config.mailAccounts.find((candidate) => candidate.id === body.accountId);
+
+    if (!account) {
+      return c.json({ error: "Mail account not found" }, 404);
+    }
+
+    if (body.days !== undefined && !isValidCustomRangeDays(body.days)) {
+      return c.json({ error: "Invalid Sync scope days" }, 400);
+    }
+
+    const job = syncQueue.schedule({
+      accountId: account.id,
+      origin: "appUser",
+      scope:
+        body.days === undefined ? { type: "regular" } : { type: "customRange", days: body.days },
+    });
+
+    return c.json({ job: syncJobRecord(job) }, 202);
+  });
+
+  app.get("/api/sync-jobs", (c) => {
+    if (!isAuthenticated(c.req.header("cookie"))) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    return c.json({ jobs: syncQueue.listJobs().map(syncJobRecord) });
   });
 
   app.get("/api/mail-accounts/:accountId/sync-status", (c) => {
@@ -629,6 +671,25 @@ export function createApp(config: AppConfig): Hono {
 
     return { ok: true };
   }
+}
+
+function syncJobRecord(job: SyncJob): SyncJobRecord {
+  return {
+    id: job.id,
+    accountId: job.accountId,
+    origin: job.origin,
+    scope: job.scope,
+    state: job.state,
+    createdAt: job.createdAt,
+    ...(job.startedAt ? { startedAt: job.startedAt } : {}),
+    ...(job.finishedAt ? { finishedAt: job.finishedAt } : {}),
+    ...(job.result ? { result: job.result } : {}),
+    ...(job.error ? { error: job.error } : {}),
+  };
+}
+
+function isValidCustomRangeDays(days: number): boolean {
+  return Number.isInteger(days) && days >= 1 && days <= 3650;
 }
 
 function isMailboxAction(action: string): action is MailboxAction {

@@ -7,7 +7,10 @@ import type {
   MailboxTreeResponse,
   MailAccountsResponse,
   MessageResponse,
+  ScheduleSyncJobRequest,
   SessionResponse,
+  SyncJobResponse,
+  SyncJobsResponse,
 } from "@zmail/shared";
 
 export async function fetchHealth(fetcher: typeof fetch = fetch): Promise<HealthStatus> {
@@ -159,6 +162,33 @@ export async function runMailAccountDiagnostics(
 
   if (!response.ok) {
     throw new Error("Diagnostics unavailable");
+  }
+
+  return response.json();
+}
+
+export async function scheduleSyncJob(
+  request: ScheduleSyncJobRequest,
+  fetcher: typeof fetch = fetch,
+): Promise<SyncJobResponse> {
+  const response = await fetcher("/api/sync-jobs", {
+    method: "POST",
+    body: JSON.stringify(request),
+    headers: { "content-type": "application/json" },
+  });
+
+  if (!response.ok) {
+    throw new Error("Sync job scheduling failed");
+  }
+
+  return response.json();
+}
+
+export async function fetchSyncJobs(fetcher: typeof fetch = fetch): Promise<SyncJobsResponse> {
+  const response = await fetcher("/api/sync-jobs");
+
+  if (!response.ok) {
+    throw new Error("Sync jobs unavailable");
   }
 
   return response.json();

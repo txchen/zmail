@@ -1,6 +1,6 @@
 # Expose Sync jobs API
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -14,17 +14,17 @@ The scheduling endpoint should accept a **Mail account** and optional custom **S
 
 ## Acceptance criteria
 
-- [ ] `POST /api/sync-jobs` requires App login authentication.
-- [ ] `POST /api/sync-jobs` rejects unknown Mail accounts.
-- [ ] `POST /api/sync-jobs` accepts regular account sync scheduling.
-- [ ] `POST /api/sync-jobs` accepts custom range sync scheduling with integer days from 1 through 3650.
-- [ ] `POST /api/sync-jobs` rejects invalid custom range days.
-- [ ] `POST /api/sync-jobs` returns `202 Accepted` with a Sync job record.
-- [ ] `GET /api/sync-jobs` requires App login authentication.
-- [ ] `GET /api/sync-jobs` returns pending, running, succeeded, and failed jobs.
-- [ ] Completed job records include result counts when available and error details when failed.
-- [ ] Shared API contract types cover Sync job state, origin, Sync scope, job result, and jobs responses.
-- [ ] API tests cover authentication, validation, response status, and response shape.
+- [x] `POST /api/sync-jobs` requires App login authentication.
+- [x] `POST /api/sync-jobs` rejects unknown Mail accounts.
+- [x] `POST /api/sync-jobs` accepts regular account sync scheduling.
+- [x] `POST /api/sync-jobs` accepts custom range sync scheduling with integer days from 1 through 3650.
+- [x] `POST /api/sync-jobs` rejects invalid custom range days.
+- [x] `POST /api/sync-jobs` returns `202 Accepted` with a Sync job record.
+- [x] `GET /api/sync-jobs` requires App login authentication.
+- [x] `GET /api/sync-jobs` returns pending, running, succeeded, and failed jobs.
+- [x] Completed job records include result counts when available and error details when failed.
+- [x] Shared API contract types cover Sync job state, origin, Sync scope, job result, and jobs responses.
+- [x] API tests cover authentication, validation, response status, and response shape.
 
 ## Blocked by
 
