@@ -16,7 +16,12 @@ describe("web message list API pagination", () => {
 
     await fetchMessagesForMailbox("personal", "INBOX", { limit: 100, cursor: "cursor-1" }, fetcher);
     await fetchUnreadMessagesForAccount("personal", { limit: 100, cursor: "cursor-2" }, fetcher);
-    await searchMessagesForAccount("personal", "hello world", { limit: 100, cursor: "cursor-3" }, fetcher);
+    await searchMessagesForAccount(
+      "personal",
+      "hello world",
+      { limit: 100, cursor: "cursor-3" },
+      fetcher,
+    );
 
     expect(paths).toEqual([
       "/api/mail-accounts/personal/mailboxes/INBOX/messages?limit=100&cursor=cursor-1",

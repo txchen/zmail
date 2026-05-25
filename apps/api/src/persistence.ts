@@ -406,9 +406,7 @@ export class MailDatabase {
   }
 
   saveMessage(message: StoredMessage): { inserted: boolean } {
-    const existing = this.database
-      .prepare("SELECT 1 FROM messages WHERE id = ?")
-      .get(message.id);
+    const existing = this.database.prepare("SELECT 1 FROM messages WHERE id = ?").get(message.id);
 
     this.database
       .prepare(`

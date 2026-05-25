@@ -135,9 +135,8 @@ export function createGmailImapMailboxSyncClient(
         const messagesByIdentity = new Map<string, ImapMessage>();
         let fetchedMessageCount = 0;
 
-        for (const mailbox of mailboxes.filter(
-          (candidate) =>
-            requestedMailboxes.some((requestedMailbox) => requestedMailbox.id === candidate.path),
+        for (const mailbox of mailboxes.filter((candidate) =>
+          requestedMailboxes.some((requestedMailbox) => requestedMailbox.id === candidate.path),
         )) {
           if (isNonSelectableMailbox(mailbox)) {
             continue;
@@ -168,7 +167,8 @@ export function createGmailImapMailboxSyncClient(
           logInfo("gmail.messages.mailbox.fetch", {
             accountId: account.id,
             mailboxId: mailbox.path,
-            range: typeof range === "string" ? range : `since:${requestedMailbox?.since?.toISOString()}`,
+            range:
+              typeof range === "string" ? range : `since:${requestedMailbox?.since?.toISOString()}`,
             messageCount,
             mode: incremental ? "incremental" : "backfill",
           });

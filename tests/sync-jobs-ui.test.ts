@@ -44,9 +44,11 @@ describe("Sync jobs UI", () => {
 
   it("lets the App user schedule custom range Sync jobs from the account context menu", () => {
     expect(appVue).toContain("function accountContextMenuItems(account: MailAccountMailboxTree)");
-    expect(appVue).toContain("<UContextMenu :items=\"accountContextMenuItems(account)\">");
+    expect(appVue).toContain('<UContextMenu :items="accountContextMenuItems(account)">');
     expect(appVue).toContain("function submitCustomSync()");
-    expect(appVue).toContain("syncJobMutation.mutate({ accountId: customSyncAccountId.value, days: customSyncDays.value })");
+    expect(appVue).toContain(
+      "syncJobMutation.mutate({ accountId: customSyncAccountId.value, days: customSyncDays.value })",
+    );
     expect(appVue).toContain("<UModal");
     expect(appVue).toContain("<USelect");
     expect(appVue).toContain('@submit.prevent="submitCustomSync"');
@@ -57,7 +59,7 @@ describe("Sync jobs UI", () => {
 
   it("formats message dates as local YYYY-MM-DD HH:mm", () => {
     expect(appVue).toContain("function formatDate(value: string): string");
-    expect(appVue).toContain('return `${year}-${month}-${day} ${hour}:${minute}`;');
+    expect(appVue).toContain("return `${year}-${month}-${day} ${hour}:${minute}`;");
     expect(appVue).not.toContain('month: "short"');
   });
 
