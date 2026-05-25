@@ -16,10 +16,21 @@ describe("per-account SQLite persistence", () => {
 
     personal.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 1 });
     personal.saveMailbox({ id: "all-mail", name: "All Mail", unreadCount: 1 });
-    personal.saveMessage({
+    const firstSave = personal.saveMessage({
       id: "message-1",
       stableIdentity: "gmail:personal:thread-1:message-1",
       subject: "Shared identity",
+      receivedAt: "2026-05-23T10:00:00.000Z",
+      unread: true,
+      starred: false,
+      aiProcessed: false,
+      readableBody: "<p>Hello</p>",
+      attachments: [],
+    });
+    const secondSave = personal.saveMessage({
+      id: "message-1",
+      stableIdentity: "gmail:personal:thread-1:message-1",
+      subject: "Updated shared identity",
       receivedAt: "2026-05-23T10:00:00.000Z",
       unread: true,
       starred: false,
@@ -42,7 +53,7 @@ describe("per-account SQLite persistence", () => {
       {
         id: "message-1",
         stableIdentity: "gmail:personal:thread-1:message-1",
-        subject: "Shared identity",
+        subject: "Updated shared identity",
         receivedAt: "2026-05-23T10:00:00.000Z",
         unread: true,
         starred: false,
@@ -55,6 +66,8 @@ describe("per-account SQLite persistence", () => {
         ],
       },
     ]);
+    expect(firstSave).toEqual({ inserted: true });
+    expect(secondSave).toEqual({ inserted: false });
     expect(work.listMessagesWithMailboxEntries()).toEqual([]);
   });
 
@@ -107,6 +120,49 @@ describe("per-account SQLite persistence", () => {
         selectable: true,
       },
     ]);
+  });
+
+  it("stores per-message inline resources with reusable local ids", () => {
+    const persistence = createHybridPersistence();
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+
+    for (const messageId of ["message-1", "message-2"]) {
+      mailDatabase.saveMessage({
+        id: messageId,
+        stableIdentity: `gmail:personal:${messageId}`,
+        subject: "Inline image",
+        receivedAt: "2026-05-23T10:00:00.000Z",
+        unread: true,
+        starred: false,
+        aiProcessed: false,
+        readableBody: "<p>Hello</p>",
+        inlineResources: [
+          {
+            id: "inline-0",
+            contentId: "image001.png@example.com",
+            mimeType: "image/png",
+            sizeBytes: 3,
+            bytes: new Uint8Array([1, 2, 3]),
+          },
+        ],
+        attachments: [],
+      });
+    }
+
+    expect(mailDatabase.getMessage("personal", "message-1")?.inlineResources).toEqual([
+      {
+        id: "inline-0",
+        contentId: "image001.png@example.com",
+        mimeType: "image/png",
+        sizeBytes: 3,
+      },
+    ]);
+    expect(mailDatabase.getInlineMessageResource("message-2", "inline-0")).toMatchObject({
+      id: "message-2:inline-0",
+      contentId: "image001.png@example.com",
+      mimeType: "image/png",
+      sizeBytes: 3,
+    });
   });
 
   it("uses configured file-backed storage when the app creates persistence", async () => {

@@ -216,7 +216,7 @@ describe("recent Message sync", () => {
       scannedMailboxCount: 2,
       skippedMailboxCount: 0,
       fetchedMessageCount: 1,
-      storedMessageCount: 1,
+      storedMessageCount: 0,
       removedMailboxEntryCount: 1,
       durationMs: expect.any(Number),
     });
@@ -226,6 +226,60 @@ describe("recent Message sync", () => {
     expect(mailDatabase.listMessagesForMailbox("personal", "label-a").messages).toEqual([
       expect.objectContaining({ id: "old-stale", mailboxIds: ["label-a"] }),
     ]);
+  });
+
+  it("does not count unchanged reconciliation upserts as stored Messages", async () => {
+    const persistence = createHybridPersistence();
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "personal-app-password",
+    };
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    const client: MessageSyncClient = {
+      async listRecentMessages() {
+        return [
+          {
+            id: "recent-kept",
+            stableIdentity: "gmail:personal:recent-kept",
+            uid: 42,
+            subject: "Recent kept",
+            receivedAt: "2026-05-23T10:00:00.000Z",
+            unread: true,
+            readableBody: "<p>Hello</p>",
+            attachments: [],
+            mailboxIds: ["inbox"],
+          },
+        ];
+      },
+    };
+    mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 1 });
+
+    const firstResult = await syncRecentReconciliation({
+      accounts: [account],
+      persistence,
+      client,
+      now: new Date("2026-05-24T12:00:00.000Z"),
+      windowDays: 365,
+    });
+    const secondResult = await syncRecentReconciliation({
+      accounts: [account],
+      persistence,
+      client,
+      now: new Date("2026-05-24T12:05:00.000Z"),
+      windowDays: 365,
+    });
+
+    expect(firstResult).toMatchObject({
+      fetchedMessageCount: 1,
+      storedMessageCount: 1,
+      removedMailboxEntryCount: 0,
+    });
+    expect(secondResult).toMatchObject({
+      fetchedMessageCount: 1,
+      storedMessageCount: 0,
+      removedMailboxEntryCount: 0,
+    });
   });
 
   it("uses saved Mailbox checkpoints for incremental Message sync", async () => {

@@ -55,6 +55,9 @@ const collapsedAccounts = ref(new Set(savedReaderLayout.collapsedAccounts));
 const collapsedMailboxGroups = ref(new Set(savedReaderLayout.collapsedMailboxGroups));
 const activeResize = ref<"nav" | "list" | null>(null);
 const syncJobsOpen = ref(false);
+const customSyncDialogOpen = ref(false);
+const customSyncAccountId = ref("");
+const customSyncDays = ref(90);
 const documentVisible = ref(
   typeof document === "undefined" ? true : document.visibilityState !== "hidden",
 );
@@ -124,6 +127,15 @@ const activeSyncJobs = computed(() =>
   syncJobs.value.filter((job) => job.state === "pending" || job.state === "running"),
 );
 const syncingAccountIds = computed(() => new Set(activeSyncJobs.value.map((job) => job.accountId)));
+const customSyncAccount = computed(() =>
+  mailAccounts.value.find((account) => account.id === customSyncAccountId.value),
+);
+const customSyncRangeOptions = [
+  { label: "Last 30 days", value: 30 },
+  { label: "Last 90 days", value: 90 },
+  { label: "Last 365 days", value: 365 },
+  { label: "Last 10 years", value: 3650 },
+];
 
 const messageListQuery = useQuery({
   queryKey: computed(() => ["message-list", readerRoute.value]),
@@ -202,7 +214,7 @@ const logoutMutation = useMutation({
 });
 
 const syncJobMutation = useMutation({
-  mutationFn: (accountId: string) => scheduleSyncJob({ accountId }),
+  mutationFn: (request: { accountId: string; days?: number }) => scheduleSyncJob(request),
   onSuccess: async () => {
     await queryClient.invalidateQueries({ queryKey: ["sync-jobs"] });
   },
@@ -373,6 +385,32 @@ function syncJobsPollingInterval(query: { state: { data: SyncJobsResponse | unde
     false;
 
   return hasActiveJob ? 1_000 : 15_000;
+}
+
+function accountContextMenuItems(account: MailAccountMailboxTree) {
+  return [
+    {
+      label: "Custom sync...",
+      icon: "i-lucide-calendar-clock",
+      disabled: syncingAccountIds.value.has(account.id) || syncJobMutation.isPending.value,
+      onSelect: () => openCustomSyncDialog(account),
+    },
+  ];
+}
+
+function openCustomSyncDialog(account: MailAccountMailboxTree) {
+  customSyncAccountId.value = account.id;
+  customSyncDays.value = 90;
+  customSyncDialogOpen.value = true;
+}
+
+function submitCustomSync() {
+  if (!customSyncAccountId.value) {
+    return;
+  }
+
+  syncJobMutation.mutate({ accountId: customSyncAccountId.value, days: customSyncDays.value });
+  customSyncDialogOpen.value = false;
 }
 
 function syncJobSummary(job: SyncJobRecord): string {
@@ -614,12 +652,14 @@ function participantsLabel(participants: Array<{ address: string; displayName?: 
 }
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+  const date = new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+
+  return `${year}-${month}-${day} ${hour}:${minute}`;
 }
 
 function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): string {
@@ -748,6 +788,42 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
         </div>
       </header>
 
+      <UModal
+        v-model:open="customSyncDialogOpen"
+        title="Custom sync"
+        :description="customSyncAccount?.emailAddress ?? customSyncAccountId"
+      >
+        <template #body>
+          <form class="space-y-4" @submit.prevent="submitCustomSync">
+            <div class="space-y-2">
+              <label class="block text-sm font-medium text-slate-700" for="custom-sync-range">
+                Message range
+              </label>
+              <USelect
+                id="custom-sync-range"
+                v-model="customSyncDays"
+                :items="customSyncRangeOptions"
+                value-key="value"
+                label-key="label"
+                class="w-full"
+              />
+            </div>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="ghost" @click="customSyncDialogOpen = false">
+                Cancel
+              </UButton>
+              <button
+                class="h-8 rounded-md bg-slate-900 px-3 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                type="submit"
+                :disabled="!customSyncAccountId || syncJobMutation.isPending.value"
+              >
+                {{ syncJobMutation.isPending.value ? "Starting..." : "Start sync" }}
+              </button>
+            </div>
+          </form>
+        </template>
+      </UModal>
+
       <div v-if="mailAccounts.length === 0" class="grid flex-1 place-items-center px-6 text-center">
         <div>
           <h2 class="text-xl font-semibold">No mail accounts synced yet</h2>
@@ -766,51 +842,55 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
           <div class="flex h-full flex-col">
             <div class="min-h-0 flex-1 overflow-y-auto p-2">
               <div v-for="account in mailAccounts" :key="account.id" class="mb-3">
-                <div class="flex items-start justify-between gap-1">
-                  <button
-                    class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded text-slate-500 hover:bg-stone-200"
-                    type="button"
-                    :aria-label="
-                      accountCollapsed(account.id) ? 'Expand account' : 'Collapse account'
-                    "
-                    @click="toggleAccount(account.id)"
-                  >
-                    <span class="text-[10px]">{{ accountCollapsed(account.id) ? ">" : "v" }}</span>
-                  </button>
-                  <button
-                    class="min-w-0 flex-1 text-left"
-                    type="button"
-                    @click="selectAccountDefault(account)"
-                  >
-                    <span class="block min-w-0 truncate text-xs font-semibold">
-                      {{ account.id }}
-                    </span>
-                    <span class="block truncate text-[11px] text-slate-500">{{
-                      account.emailAddress
-                    }}</span>
-                  </button>
-                  <div class="flex shrink-0 items-center gap-1">
-                    <UBadge
-                      v-if="account.unreadCount > 0"
-                      color="neutral"
-                      size="sm"
-                      variant="subtle"
-                      >{{ account.unreadCount }}</UBadge
-                    >
-                    <UButton
-                      color="neutral"
-                      icon="i-lucide-refresh-cw"
-                      :loading="syncingAccountIds.has(account.id)"
-                      :disabled="
-                        syncingAccountIds.has(account.id) || syncJobMutation.isPending.value
+                <UContextMenu :items="accountContextMenuItems(account)">
+                  <div class="flex items-start justify-between gap-1">
+                    <button
+                      class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded text-slate-500 hover:bg-stone-200"
+                      type="button"
+                      :aria-label="
+                        accountCollapsed(account.id) ? 'Expand account' : 'Collapse account'
                       "
-                      square
-                      variant="ghost"
-                      aria-label="Refresh account"
-                      @click="syncJobMutation.mutate(account.id)"
-                    />
+                      @click="toggleAccount(account.id)"
+                    >
+                      <span class="text-[10px]">{{
+                        accountCollapsed(account.id) ? ">" : "v"
+                      }}</span>
+                    </button>
+                    <button
+                      class="min-w-0 flex-1 text-left"
+                      type="button"
+                      @click="selectAccountDefault(account)"
+                    >
+                      <span class="block min-w-0 truncate text-xs font-semibold">
+                        {{ account.id }}
+                      </span>
+                      <span class="block truncate text-[11px] text-slate-500">{{
+                        account.emailAddress
+                      }}</span>
+                    </button>
+                    <div class="flex shrink-0 items-center gap-1">
+                      <UBadge
+                        v-if="account.unreadCount > 0"
+                        color="neutral"
+                        size="sm"
+                        variant="subtle"
+                        >{{ account.unreadCount }}</UBadge
+                      >
+                      <UButton
+                        color="neutral"
+                        icon="i-lucide-refresh-cw"
+                        :loading="syncingAccountIds.has(account.id)"
+                        :disabled="
+                          syncingAccountIds.has(account.id) || syncJobMutation.isPending.value
+                        "
+                        square
+                        variant="ghost"
+                        aria-label="Refresh account"
+                        @click="syncJobMutation.mutate({ accountId: account.id })"
+                      />
+                    </div>
                   </div>
-                </div>
+                </UContextMenu>
                 <div v-if="!accountCollapsed(account.id)" class="mt-1 space-y-0.5">
                   <div
                     v-for="row in visibleMailboxRows(account)"

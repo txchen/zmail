@@ -271,7 +271,7 @@ export async function syncRecentMessages({
         continue;
       }
 
-      mailDatabase.saveMessage({
+      const saveResult = mailDatabase.saveMessage({
         id: message.id,
         stableIdentity: message.stableIdentity,
         threadId: message.threadId,
@@ -298,8 +298,10 @@ export async function syncRecentMessages({
           sizeBytes,
         })),
       });
-      storedMessageCount += 1;
-      result.storedMessageCount = (result.storedMessageCount ?? 0) + 1;
+      if (saveResult.inserted) {
+        storedMessageCount += 1;
+        result.storedMessageCount = (result.storedMessageCount ?? 0) + 1;
+      }
       mailDatabase.removeStaleMailboxEntries(message.id, syncedMailboxIds, message.mailboxIds);
 
       for (const mailboxId of message.mailboxIds) {
@@ -380,7 +382,7 @@ export async function syncRecentReconciliation({
         continue;
       }
 
-      mailDatabase.saveMessage({
+      const saveResult = mailDatabase.saveMessage({
         id: message.id,
         stableIdentity: message.stableIdentity,
         threadId: message.threadId,
@@ -407,7 +409,9 @@ export async function syncRecentReconciliation({
           sizeBytes,
         })),
       });
-      result.storedMessageCount = (result.storedMessageCount ?? 0) + 1;
+      if (saveResult.inserted) {
+        result.storedMessageCount = (result.storedMessageCount ?? 0) + 1;
+      }
 
       for (const mailboxId of message.mailboxIds.filter((mailboxId) =>
         mailboxIds.includes(mailboxId),

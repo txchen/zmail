@@ -405,7 +405,11 @@ export class MailDatabase {
       });
   }
 
-  saveMessage(message: StoredMessage): void {
+  saveMessage(message: StoredMessage): { inserted: boolean } {
+    const existing = this.database
+      .prepare("SELECT 1 FROM messages WHERE id = ?")
+      .get(message.id);
+
     this.database
       .prepare(`
         INSERT INTO messages (
@@ -457,6 +461,8 @@ export class MailDatabase {
         JSON.stringify(message.attachments),
       );
     this.saveInlineMessageResources(message.id, message.inlineResources ?? []);
+
+    return { inserted: existing === undefined };
   }
 
   private saveInlineMessageResources(messageId: string, resources: InlineMessageResource[]): void {
@@ -471,7 +477,7 @@ export class MailDatabase {
 
     for (const resource of resources) {
       statement.run(
-        resource.id,
+        `${messageId}:${resource.id}`,
         messageId,
         resource.contentId,
         resource.mimeType,
@@ -681,9 +687,9 @@ export class MailDatabase {
       .prepare(`
         SELECT id, content_id, mime_type, size_bytes, bytes
         FROM inline_message_resources
-        WHERE message_id = ? AND id = ?
+        WHERE message_id = ? AND id IN (?, ?)
       `)
-      .get(messageId, resourceId) as
+      .get(messageId, resourceId, `${messageId}:${resourceId}`) as
       | {
           id: string;
           content_id: string;
@@ -1039,7 +1045,9 @@ export class MailDatabase {
         };
 
         return {
-          id: resource.id,
+          id: resource.id.startsWith(`${messageId}:`)
+            ? resource.id.slice(messageId.length + 1)
+            : resource.id,
           contentId: resource.content_id,
           mimeType: resource.mime_type,
           sizeBytes: resource.size_bytes,

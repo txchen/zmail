@@ -128,7 +128,7 @@ describe("Gmail IMAP mailbox sync client", () => {
     expect(mailboxOpen).toHaveBeenCalledWith("[Gmail]/All Mail");
     expect(mailboxOpen).not.toHaveBeenCalledWith("[Gmail]");
     expect(fetch).toHaveBeenCalledWith(
-      "33:*",
+      { since: new Date("2026-05-01T00:00:00.000Z") },
       {
         uid: true,
         flags: true,

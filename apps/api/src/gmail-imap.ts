@@ -28,7 +28,7 @@ type ImapFlowClient = {
     flags: string[],
   ): Promise<boolean>;
   fetch(
-    range: string,
+    range: string | { since: Date },
     query: {
       uid: true;
       flags: true;
@@ -160,11 +160,15 @@ export function createGmailImapMailboxSyncClient(
 
           const afterUid = requestedMailbox?.afterUid;
           const incremental = afterUid !== undefined;
-          const range = incremental ? `${afterUid + 1}:*` : `${Math.max(1, messageCount - 9)}:*`;
+          const range = incremental
+            ? `${afterUid + 1}:*`
+            : requestedMailbox?.since
+              ? { since: requestedMailbox.since }
+              : "1:*";
           logInfo("gmail.messages.mailbox.fetch", {
             accountId: account.id,
             mailboxId: mailbox.path,
-            range,
+            range: typeof range === "string" ? range : `since:${requestedMailbox?.since?.toISOString()}`,
             messageCount,
             mode: incremental ? "incremental" : "backfill",
           });
