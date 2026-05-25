@@ -1,3 +1,5 @@
+import { logError, logInfo } from "./logger.js";
+
 export type SyncJobState =
   | "pending"
   | "running"
@@ -77,6 +79,7 @@ export function createSyncQueue({
     job.state = state;
     job.finishedAt = stamp();
     inactive.unshift(job);
+    logInfo("sync.queue.inactive", syncJobLogFields(job));
   }
 
   async function drain() {
@@ -93,14 +96,23 @@ export function createSyncQueue({
       running = job;
       job.state = "running";
       job.startedAt = stamp();
+      logInfo("sync.queue.start", syncJobLogFields(job));
 
       try {
         const result = await execute(job);
         job.state = "succeeded";
         job.result = result ?? {};
+        logInfo("sync.queue.finish", {
+          ...syncJobLogFields(job),
+          ...syncJobResultLogFields(job.result),
+        });
       } catch (error) {
         job.state = "failed";
         job.error = error instanceof Error ? error.message : String(error);
+        logError("sync.queue.error", {
+          ...syncJobLogFields(job),
+          error: job.error,
+        });
       } finally {
         job.finishedAt = stamp();
         running = undefined;
@@ -146,6 +158,11 @@ export function createSyncQueue({
     schedule(request) {
       const duplicate = findDuplicateAutomatic(request);
       if (duplicate) {
+        logInfo("sync.queue.coalesce", {
+          ...syncJobLogFields(duplicate),
+          requestedOrigin: request.origin,
+          requestedScope: syncScopeLabel(request.scope),
+        });
         return duplicate;
       }
 
@@ -177,6 +194,7 @@ export function createSyncQueue({
       }
 
       pending.push(job);
+      logInfo("sync.queue.schedule", syncJobLogFields(job));
       startDrain();
 
       return job;
@@ -209,6 +227,40 @@ function sameScope(left: SyncScope, right: SyncScope) {
   }
 
   return "days" in left && "days" in right && left.days === right.days;
+}
+
+function syncJobLogFields(job: SyncJob) {
+  return {
+    jobId: job.id,
+    accountId: job.accountId,
+    origin: job.origin,
+    scope: syncScopeLabel(job.scope),
+    state: job.state,
+  };
+}
+
+function syncJobResultLogFields(result: SyncJobResult | undefined) {
+  if (!result) {
+    return {};
+  }
+
+  return {
+    mailboxCount: result.mailboxCount,
+    scannedMailboxCount: result.scannedMailboxCount,
+    skippedMailboxCount: result.skippedMailboxCount,
+    fetchedMessageCount: result.fetchedMessageCount,
+    storedMessageCount: result.storedMessageCount,
+    removedMailboxEntryCount: result.removedMailboxEntryCount,
+    durationMs: result.durationMs,
+  };
+}
+
+function syncScopeLabel(scope: SyncScope): string {
+  if (scope.type === "regular") {
+    return "regular";
+  }
+
+  return `${scope.type}:${scope.days}`;
 }
 
 function isSmallerCustomRange(left: SyncScope, right: Extract<SyncScope, { type: "customRange" }>) {

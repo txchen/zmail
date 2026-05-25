@@ -1,4 +1,5 @@
 import type { ConfiguredMailAccount, SyncConfig } from "./config.js";
+import { logInfo } from "./logger.js";
 import type { SyncQueue } from "./sync-queue.js";
 
 export type SyncSchedulerOptions = {
@@ -23,6 +24,12 @@ export function createSyncScheduler({
   let recentReconciliationTimer: ReturnType<typeof setInterval> | undefined;
 
   function scheduleRegular() {
+    logInfo("sync.scheduler.poll", {
+      scope: "regular",
+      accountCount: accounts.length,
+      intervalMinutes: sync.regularSyncIntervalMinutes,
+    });
+
     for (const account of accounts) {
       syncQueue.schedule({
         accountId: account.id,
@@ -33,6 +40,13 @@ export function createSyncScheduler({
   }
 
   function scheduleRecentReconciliation() {
+    logInfo("sync.scheduler.poll", {
+      scope: "recentReconciliation",
+      accountCount: accounts.length,
+      days: sync.recentReconciliationWindowDays,
+      intervalMinutes: sync.recentReconciliationIntervalMinutes,
+    });
+
     for (const account of accounts) {
       syncQueue.schedule({
         accountId: account.id,
