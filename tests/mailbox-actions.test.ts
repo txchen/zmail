@@ -185,6 +185,67 @@ describe("MVP Mailbox actions", () => {
     ]);
   });
 
+  it("deletes into the configured Gmail Trash mailbox when it is not named trash", async () => {
+    const { app, cookie, persistence, actions } = await createActionFixture({
+      async delete(target) {
+        actions.push({ action: "delete", ...target });
+      },
+    });
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    mailDatabase.removeMailboxEntry("message-1", "inbox");
+    mailDatabase.removeMailboxEntry("message-1", "trash");
+    mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 0 });
+    mailDatabase.saveMailbox({ id: "INBOX/Project", name: "INBOX/Project", unreadCount: 0 });
+    mailDatabase.saveMailbox({ id: "[Gmail]/All Mail", name: "[Gmail]/All Mail", unreadCount: 0 });
+    mailDatabase.saveMailbox({ id: "[Gmail]/Trash", name: "[Gmail]/Trash", unreadCount: 0 });
+    mailDatabase.saveMailboxEntry({
+      id: "message-1:inbox",
+      mailboxId: "inbox",
+      messageId: "message-1",
+    });
+    mailDatabase.saveMailboxEntry({
+      id: "message-1:INBOX/Project",
+      mailboxId: "INBOX/Project",
+      messageId: "message-1",
+    });
+    mailDatabase.saveMailboxEntry({
+      id: "message-1:[Gmail]/All Mail",
+      mailboxId: "[Gmail]/All Mail",
+      messageId: "message-1",
+    });
+
+    const response = await app.request("/api/mail-accounts/personal/messages/message-1/actions", {
+      method: "POST",
+      body: JSON.stringify({ action: "delete" }),
+      headers: { cookie, "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(actions).toEqual([
+      expect.objectContaining({ action: "delete", accountId: "personal", messageId: "message-1" }),
+    ]);
+    expect(
+      persistence.mailDatabaseFor("personal").listMessagesForMailbox("[Gmail]/Trash").messages,
+    ).toEqual([
+      expect.objectContaining({
+        id: "message-1",
+        mailboxIds: ["[Gmail]/Trash"],
+      }),
+    ]);
+    const unreadResponse = await app.request("/api/mail-accounts/personal/messages/unread", {
+      headers: { cookie },
+    });
+    expect(await unreadResponse.json()).toMatchObject({ messages: [] });
+    expect(mailDatabase.listMailboxes()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "inbox", unreadCount: 0 }),
+        expect.objectContaining({ id: "INBOX/Project", unreadCount: 0 }),
+        expect.objectContaining({ id: "[Gmail]/All Mail", unreadCount: 0 }),
+        expect.objectContaining({ id: "[Gmail]/Trash", unreadCount: 1 }),
+      ]),
+    );
+  });
+
   it("stars and unstars a Message through Gmail before updating local state", async () => {
     const { app, cookie, actions } = await createActionFixture();
 

@@ -7,6 +7,7 @@ const mailboxOpen = vi.fn();
 const fetch = vi.fn();
 const messageFlagsAdd = vi.fn();
 const messageFlagsRemove = vi.fn();
+const messageMove = vi.fn();
 const logout = vi.fn();
 
 describe("Gmail IMAP mailbox sync client", () => {
@@ -260,6 +261,30 @@ describe("Gmail IMAP mailbox sync client", () => {
 
     expect(mailboxOpen).toHaveBeenCalledWith("INBOX/Project");
     expect(messageFlagsRemove).toHaveBeenCalledWith("42", ["\\Seen"]);
+    expect(logout).toHaveBeenCalledOnce();
+  });
+
+  it("moves Gmail Messages to Trash for delete actions", async () => {
+    const imapFlow = vi.fn(function () {
+      return { connect, mailboxOpen, messageMove, logout };
+    });
+    connect.mockResolvedValue(undefined);
+    mailboxOpen.mockResolvedValue({ exists: 42 });
+    messageMove.mockResolvedValue({ path: "[Gmail]/Trash" });
+    logout.mockResolvedValue(undefined);
+
+    const client = createGmailImapMailboxSyncClient(imapFlow);
+
+    await client.delete({
+      accountId: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "gmail-app-password",
+      messageId: "178abc",
+      mailboxIds: ["INBOX", "[Gmail]/All Mail"],
+    });
+
+    expect(mailboxOpen).toHaveBeenCalledWith("INBOX");
+    expect(messageMove).toHaveBeenCalledWith({ emailId: "178abc" }, "[Gmail]/Trash");
     expect(logout).toHaveBeenCalledOnce();
   });
 });

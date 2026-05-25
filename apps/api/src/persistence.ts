@@ -616,12 +616,34 @@ export class MailDatabase {
   }
 
   removeMailboxEntry(messageId: string, mailboxId: string): void {
-    this.database
+    const result = this.database
       .prepare(`
         DELETE FROM mailbox_entries
         WHERE message_id = ? AND mailbox_id = ?
       `)
       .run(messageId, mailboxId);
+
+    if (result.changes === 0) {
+      return;
+    }
+
+    const message = this.database
+      .prepare("SELECT unread FROM messages WHERE id = ?")
+      .get(messageId) as { unread: number } | undefined;
+
+    if (message?.unread) {
+      this.adjustMailboxUnreadCount(mailboxId, -1);
+    }
+  }
+
+  adjustMailboxUnreadCount(mailboxId: string, delta: number): void {
+    this.database
+      .prepare(`
+        UPDATE mailboxes
+        SET unread_count = max(0, unread_count + ?)
+        WHERE id = ?
+      `)
+      .run(delta, mailboxId);
   }
 
   listMessagesWithMailboxEntries(): MessageWithMailboxEntries[] {
@@ -903,7 +925,10 @@ export class MailDatabase {
           attachmentCount: attachments.length,
           updatedAt: message.updated_at || message.received_at,
         };
-      });
+      })
+      .filter(
+        (message) => !message.mailboxIds.some((mailboxId) => isTrashLikeMailboxId(mailboxId)),
+      );
   }
 
   searchMessages(mailAccountId: string, query: string): MessageSummary[] {
@@ -1108,4 +1133,10 @@ function stripHtml(value: string): string {
 
 function encodeMessageCursor(receivedAt: string, id: string): string {
   return Buffer.from(JSON.stringify({ receivedAt, id }), "utf8").toString("base64url");
+}
+
+function isTrashLikeMailboxId(mailboxId: string): boolean {
+  const normalized = mailboxId.toLowerCase();
+
+  return normalized === "trash" || normalized.endsWith("/trash");
 }

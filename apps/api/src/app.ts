@@ -801,17 +801,54 @@ function applyLocalMailboxAction(
   }
 
   if (action === "archive") {
-    mailDatabase.removeMailboxEntry(messageId, "inbox");
+    const inboxMailboxId = systemMailboxId(mailDatabase, "inbox") ?? "inbox";
+    mailDatabase.removeMailboxEntry(messageId, inboxMailboxId);
   }
 
   if (action === "delete") {
-    mailDatabase.removeMailboxEntry(messageId, "inbox");
+    const trashMailboxId = systemMailboxId(mailDatabase, "trash") ?? "[Gmail]/Trash";
+    const message = mailDatabase.getMessage(messageId);
+
+    for (const mailboxId of message?.mailboxIds ?? []) {
+      if (mailboxId !== trashMailboxId) {
+        mailDatabase.removeMailboxEntry(messageId, mailboxId);
+      }
+    }
     mailDatabase.saveMailboxEntry({
-      id: `${messageId}:trash`,
-      mailboxId: "trash",
+      id: `${messageId}:${trashMailboxId}`,
+      mailboxId: trashMailboxId,
       messageId,
     });
+    if (message?.unread) {
+      mailDatabase.adjustMailboxUnreadCount(trashMailboxId, 1);
+    }
   }
+}
+
+function systemMailboxId(mailDatabase: MailDatabase, role: "inbox" | "trash"): string | undefined {
+  const mailboxes = mailDatabase.listMailboxes();
+
+  const roleMailbox = mailboxes.find((mailbox) => mailbox.systemRole === role)?.id;
+  if (roleMailbox) {
+    return roleMailbox;
+  }
+
+  if (role === "inbox") {
+    return mailboxes.find(
+      (mailbox) => mailbox.id.toLowerCase() === "inbox" || mailbox.name.toLowerCase() === "inbox",
+    )?.id;
+  }
+
+  return (
+    mailboxes.find(
+      (mailbox) =>
+        mailbox.id.toLowerCase().endsWith("/trash") ||
+        mailbox.name.toLowerCase().endsWith("/trash"),
+    )?.id ??
+    mailboxes.find(
+      (mailbox) => mailbox.id.toLowerCase() === "trash" || mailbox.name.toLowerCase() === "trash",
+    )?.id
+  );
 }
 
 export const app = createApp({

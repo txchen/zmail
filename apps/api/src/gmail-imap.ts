@@ -27,6 +27,10 @@ type ImapFlowClient = {
     range: string | number[] | { emailId: string },
     flags: string[],
   ): Promise<boolean>;
+  messageMove(
+    range: string | number[] | { emailId: string },
+    destination: string,
+  ): Promise<unknown>;
   fetch(
     range: string | { since: Date },
     query: {
@@ -255,8 +259,49 @@ export function createGmailImapMailboxSyncClient(
       await applyMessageFlag(target, "\\Flagged", false, ImapFlowClient);
     },
     async archive() {},
-    async delete() {},
+    async delete(target) {
+      await moveMessageToTrash(target, ImapFlowClient);
+    },
   };
+}
+
+async function moveMessageToTrash(
+  target: MailboxActionTarget,
+  ImapFlowClient: ImapFlowConstructor,
+): Promise<void> {
+  const client = new ImapFlowClient({
+    host: "imap.gmail.com",
+    port: 993,
+    secure: true,
+    auth: {
+      user: target.emailAddress,
+      pass: target.appPassword,
+    },
+    logger: false,
+  });
+
+  await client.connect();
+
+  try {
+    for (const mailboxId of mailboxActionCandidates(target).filter(
+      (mailboxId) => !isTrashMailboxId(mailboxId),
+    )) {
+      await client.mailboxOpen(mailboxId);
+
+      const moved = await client.messageMove(
+        mailboxActionRange(target, mailboxId),
+        "[Gmail]/Trash",
+      );
+
+      if (moved) {
+        return;
+      }
+    }
+
+    throw new Error("Gmail message not found");
+  } finally {
+    await client.logout();
+  }
 }
 
 async function applyMessageFlag(
@@ -302,6 +347,12 @@ function mailboxActionCandidates(target: MailboxActionTarget): string[] {
   const candidates = target.mailboxIds.length ? target.mailboxIds : ["INBOX"];
 
   return [...new Set([...candidates, "INBOX"])];
+}
+
+function isTrashMailboxId(mailboxId: string): boolean {
+  const normalized = mailboxId.toLowerCase();
+
+  return normalized === "trash" || normalized.endsWith("/trash");
 }
 
 function mailboxActionRange(
