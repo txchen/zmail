@@ -1,6 +1,6 @@
 # Document queued sync API and config
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -12,16 +12,16 @@ Update operator and API documentation for queued tiered sync. Documentation shou
 
 ## Acceptance criteria
 
-- [ ] API docs describe `POST /api/sync-jobs`.
-- [ ] API docs describe `GET /api/sync-jobs`.
-- [ ] API docs document Sync job states, origins, Sync scope, result counts, and error shape.
-- [ ] Config example documents `regular_sync_interval_minutes`.
-- [ ] Config example documents `recent_reconciliation_interval_minutes`.
-- [ ] Config example documents `recent_reconciliation_window_days`.
-- [ ] Documentation explains that Sync jobs are in memory and completed history is limited to the last 200 jobs.
-- [ ] Documentation explains the difference between regular sync, Recent reconciliation, and custom range sync.
-- [ ] Documentation mentions that the web UI polls Sync jobs while visible rather than using realtime push.
-- [ ] Existing API docs tests or documentation checks are updated if present.
+- [x] API docs describe `POST /api/sync-jobs`.
+- [x] API docs describe `GET /api/sync-jobs`.
+- [x] API docs document Sync job states, origins, Sync scope, result counts, and error shape.
+- [x] Config example documents `regular_sync_interval_minutes`.
+- [x] Config example documents `recent_reconciliation_interval_minutes`.
+- [x] Config example documents `recent_reconciliation_window_days`.
+- [x] Documentation explains that Sync jobs are in memory and completed history is limited to the last 200 jobs.
+- [x] Documentation explains the difference between regular sync, Recent reconciliation, and custom range sync.
+- [x] Documentation mentions that the web UI polls Sync jobs while visible rather than using realtime push.
+- [x] Existing API docs tests or documentation checks are updated if present.
 
 ## Blocked by
 

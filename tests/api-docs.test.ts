@@ -5,6 +5,8 @@ import type {
   MailboxMessagesResponse,
   MailboxTreeResponse,
   MessageResponse,
+  SyncJobResponse,
+  SyncJobsResponse,
 } from "../packages/shared/src";
 
 describe("API documentation", () => {
@@ -15,12 +17,16 @@ describe("API documentation", () => {
       "MailboxTreeResponse",
       "MailboxMessagesResponse",
       "MessageResponse",
+      "SyncJobResponse",
+      "SyncJobsResponse",
     ] satisfies Array<
       keyof {
         MailAccountsResponse: MailAccountsResponse;
         MailboxTreeResponse: MailboxTreeResponse;
         MailboxMessagesResponse: MailboxMessagesResponse;
         MessageResponse: MessageResponse;
+        SyncJobResponse: SyncJobResponse;
+        SyncJobsResponse: SyncJobsResponse;
       }
     >;
 

@@ -37,9 +37,42 @@ All endpoints below require `zmail_session`; unauthenticated requests return `40
 - Returns configured Mail accounts with sync status, unread count, and flat Mailbox arrays.
 - Mailboxes include `id`, `name`, `path`, optional `parentId`, optional `systemRole`, `unreadCount`, `totalCount`, and `selectable`.
 
+### Sync Jobs
+
+Sync jobs are in-memory server-side work items. The queue runs one job at a time across all Mail accounts and retains only the last 200 completed jobs. Pending and running jobs are also returned while they are active. Job history is lost when the API process restarts.
+
+The web UI polls Sync jobs every 15 seconds while authenticated and visible. It does not use realtime push.
+
+`POST /api/sync-jobs`
+
+- Response type: `SyncJobResponse`.
+- Body for regular sync: `{ "accountId": string }`.
+- Body for custom range sync: `{ "accountId": string, "days": number }`, where `days` is an integer from `1` through `3650`.
+- Success: `202 { "job": SyncJobRecord }`.
+- Unknown account: `404`.
+- Invalid custom range: `400`.
+
+`GET /api/sync-jobs`
+
+- Response type: `SyncJobsResponse`.
+- Success: `{ "jobs": SyncJobRecord[] }`.
+
+`SyncJobRecord` fields:
+
+- `id`: stable in-memory job id.
+- `accountId`: target Mail account id.
+- `origin`: `"automatic"` or `"appUser"`.
+- `scope`: `{ "type": "regular" }`, `{ "type": "recentReconciliation", "days": number }`, or `{ "type": "customRange", "days": number }`.
+- `state`: `"pending"`, `"running"`, `"succeeded"`, `"failed"`, `"skipped"`, or `"superseded"`.
+- `createdAt`, optional `startedAt`, optional `finishedAt`.
+- `result`: optional standard count object with `mailboxCount`, `scannedMailboxCount`, `skippedMailboxCount`, `fetchedMessageCount`, `storedMessageCount`, `removedMailboxEntryCount`, and `durationMs`.
+- `error`: optional stable failure string for failed jobs.
+
+Regular sync is the frequent freshness path: it uses the configured initial Sync window only for Mailboxes without checkpoints, then fetches incrementally and can skip unchanged Mailboxes when Gmail provides sufficient status metadata. Recent reconciliation scans a short configured recent date window across the Visible mailbox set and removes stale local Mailbox entries found in that window. Custom range sync is App user-triggered and fetches plus reconciles the requested number of days for one Mail account.
+
 `POST /api/mail-accounts/:accountId/refresh`
 
-- Triggers sync for one Mail account.
+- Legacy blocking refresh endpoint for one Mail account.
 - Success: `MailboxTreeResponse`.
 - Unknown account: `404`.
 - Missing sync client: `503`.

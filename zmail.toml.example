@@ -11,6 +11,12 @@ database_dir = ".data"
 # Optional initial backfill window for a Mailbox with no sync checkpoint.
 # Refreshes after that are incremental. Defaults to 90. Valid range: 1..3650.
 recent_message_window_days = 90
+# Optional regular Sync job cadence in minutes. Defaults to 5. Valid range: 1..1440.
+regular_sync_interval_minutes = 5
+# Optional Recent reconciliation cadence in minutes. Defaults to 30. Valid range: 1..1440.
+recent_reconciliation_interval_minutes = 30
+# Optional Recent reconciliation window in days. Defaults to 2. Valid range: 1..3650.
+recent_reconciliation_window_days = 2
 
 [app_login]
 username = "reader"
