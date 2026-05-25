@@ -37,8 +37,12 @@ describe("Sync jobs UI", () => {
   it("dismisses the Sync jobs popover on outside click", () => {
     expect(appVue).toContain('ref="syncJobsMenu"');
     expect(appVue).toContain("function dismissSyncJobsOnOutsidePointer(event: PointerEvent): void");
-    expect(appVue).toContain('document.addEventListener("pointerdown", dismissSyncJobsOnOutsidePointer)');
-    expect(appVue).toContain('document.removeEventListener("pointerdown", dismissSyncJobsOnOutsidePointer)');
+    expect(appVue).toContain(
+      'document.addEventListener("pointerdown", dismissSyncJobsOnOutsidePointer)',
+    );
+    expect(appVue).toContain(
+      'document.removeEventListener("pointerdown", dismissSyncJobsOnOutsidePointer)',
+    );
   });
 
   it("keeps long Sync job histories scrollable", () => {
@@ -103,6 +107,6 @@ describe("Sync jobs UI", () => {
     expect(appVue).toContain('v-if="message.starred"');
     expect(appVue).toContain("★");
     expect(appVue).toContain("selectedMessage.starred ? 'i-lucide-star-off' : 'i-lucide-star'");
-    expect(appVue).toContain("{{ selectedMessage.starred ? \"Unstar\" : \"Star\" }}");
+    expect(appVue).toContain('{{ selectedMessage.starred ? "Unstar" : "Star" }}');
   });
 });

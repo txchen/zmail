@@ -936,9 +936,7 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
           >
             <div class="flex shrink-0 items-center justify-between gap-2 px-2 pb-2">
               <p class="text-xs font-semibold uppercase text-slate-500">Sync activity</p>
-              <p class="text-[11px] text-slate-400">
-                {{ displayedSyncJobs.length }} shown
-              </p>
+              <p class="text-[11px] text-slate-400">{{ displayedSyncJobs.length }} shown</p>
             </div>
             <div v-if="displayedSyncJobs.length === 0" class="px-2 py-3 text-sm text-slate-500">
               No recent jobs.
@@ -951,7 +949,8 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
               >
                 <div class="flex items-center justify-between gap-2">
                   <span class="min-w-0 truncate font-medium">
-                    <span class="mr-1">{{ syncJobStateIcon(job) }}</span>{{ job.accountId }}
+                    <span class="mr-1">{{ syncJobStateIcon(job) }}</span
+                    >{{ job.accountId }}
                   </span>
                   <span class="shrink-0 text-slate-500">
                     {{ syncJobTime(job) }}

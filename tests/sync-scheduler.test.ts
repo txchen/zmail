@@ -26,7 +26,11 @@ describe("Sync scheduler", () => {
       mailAccounts: [accounts[0]],
       syncQueue,
     });
-    const scheduler = createSyncScheduler({ accounts: [accounts[0]], sync, syncQueue: appSyncQueue });
+    const scheduler = createSyncScheduler({
+      accounts: [accounts[0]],
+      sync,
+      syncQueue: appSyncQueue,
+    });
 
     scheduler.pollRegularNow();
 
