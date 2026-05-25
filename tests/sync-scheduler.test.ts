@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { createAppWithServices } from "../apps/api/src/app";
 import type { ConfiguredMailAccount, SyncConfig } from "../apps/api/src/config";
+import { createHybridPersistence } from "../apps/api/src/persistence";
 import { createSyncScheduler } from "../apps/api/src/scheduler";
 import { createSyncQueue } from "../apps/api/src/sync-queue";
 
@@ -21,7 +22,7 @@ describe("Sync scheduler", () => {
     const syncQueue = createSyncQueue({ async execute() {} });
     const { app, syncQueue: appSyncQueue } = createAppWithServices({
       appLogin: { username: "reader", password: "secret", sessionSecret: "test-session-secret" },
-      storage: { databaseDir: ":memory:" },
+      persistence: createHybridPersistence(),
       sync,
       mailAccounts: [accounts[0]],
       syncQueue,
