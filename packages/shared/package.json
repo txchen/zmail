@@ -1,6 +1,10 @@
 {
   "name": "@zmail/shared",
   "private": true,
+  "files": [
+    "dist",
+    "src"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./src/index.ts",
@@ -10,6 +14,5 @@
       "development": "./src/index.ts",
       "default": "./dist/index.js"
     }
-  },
-  "files": ["dist", "src"]
+  }
 }
