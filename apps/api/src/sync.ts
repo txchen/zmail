@@ -10,6 +10,8 @@ import type {
 } from "./persistence.js";
 import type { SyncJobResult } from "./sync-queue.js";
 
+const messagePersistenceYieldInterval = 100;
+
 export type ImapMailbox = Omit<StoredMailbox, "systemRole"> & {
   specialUse?: string;
 };
@@ -251,7 +253,14 @@ export async function syncRecentMessages({
     let skippedMessageCount = 0;
     const syncedMailboxIds = mailboxes.map((mailbox) => mailbox.id);
 
+    let processedMessageCount = 0;
+
     for (const message of messages) {
+      processedMessageCount += 1;
+      if (processedMessageCount % messagePersistenceYieldInterval === 0) {
+        await yieldToEventLoop();
+      }
+
       if (
         message.mailboxIds.some(
           (mailboxId) => !mailboxes.some((mailbox) => mailbox.id === mailboxId),
@@ -378,7 +387,14 @@ export async function syncRecentReconciliation({
     const reportedEntries: Array<{ messageId: string; mailboxId: string }> = [];
     result.fetchedMessageCount = (result.fetchedMessageCount ?? 0) + messages.length;
 
+    let processedMessageCount = 0;
+
     for (const message of messages) {
+      processedMessageCount += 1;
+      if (processedMessageCount % messagePersistenceYieldInterval === 0) {
+        await yieldToEventLoop();
+      }
+
       if (new Date(message.receivedAt) < since) {
         continue;
       }
@@ -442,4 +458,8 @@ export async function syncRecentReconciliation({
 
   result.durationMs = Date.now() - syncStartedAt;
   return result;
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
 }
