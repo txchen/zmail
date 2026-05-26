@@ -13,8 +13,8 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 
-RUN pnpm --filter @zmail/web exec vite build
 RUN pnpm exec tsc -b --force
+RUN pnpm --filter @zmail/web exec vite build
 RUN pnpm deploy --filter @zmail/api --prod --legacy /runtime
 
 FROM node:24-bookworm-slim AS runtime
