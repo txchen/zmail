@@ -331,6 +331,55 @@ describe("recent Message sync", () => {
     ).toHaveLength(200);
   });
 
+  it("yields while persisting fewer than one hundred reconciliation messages", async () => {
+    const persistence = createHybridPersistence();
+    const account: ConfiguredMailAccount = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "personal-app-password",
+    };
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+    mailDatabase.saveMailbox({ id: "inbox", name: "Inbox", unreadCount: 99 });
+    let syncFinished = false;
+    let timerRanBeforeSyncFinished = false;
+    const client: MessageSyncClient = {
+      async listRecentMessages() {
+        return Array.from({ length: 99 }, (_, index) => ({
+          id: `message-${index}`,
+          stableIdentity: `gmail:personal:message-${index}`,
+          subject: "Medium sync Message",
+          receivedAt: "2026-05-23T10:00:00.000Z",
+          unread: true,
+          readableBody: "<p>Hello</p>",
+          attachments: [],
+          mailboxIds: ["inbox"],
+        }));
+      },
+    };
+
+    const syncPromise = syncRecentReconciliation({
+      accounts: [account],
+      persistence,
+      client,
+      now: new Date("2026-05-24T12:00:00.000Z"),
+      windowDays: 7,
+    }).finally(() => {
+      syncFinished = true;
+    });
+    await new Promise<void>((resolve) =>
+      setTimeout(() => {
+        timerRanBeforeSyncFinished = !syncFinished;
+        resolve();
+      }, 0),
+    );
+    await syncPromise;
+
+    expect(timerRanBeforeSyncFinished).toBe(true);
+    expect(
+      mailDatabase.listMessagesForMailbox("personal", "inbox", { limit: 99 }).messages,
+    ).toHaveLength(99);
+  });
+
   it("uses saved Mailbox checkpoints for incremental Message sync", async () => {
     const persistence = createHybridPersistence();
     const account: ConfiguredMailAccount = {

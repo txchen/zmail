@@ -10,7 +10,7 @@ import type {
 } from "./persistence.js";
 import type { SyncJobResult } from "./sync-queue.js";
 
-const messagePersistenceYieldInterval = 100;
+const messagePersistenceYieldInterval = 10;
 
 export type ImapMailbox = Omit<StoredMailbox, "systemRole"> & {
   specialUse?: string;
