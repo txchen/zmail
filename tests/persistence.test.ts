@@ -202,6 +202,51 @@ describe("per-account SQLite persistence", () => {
     });
   });
 
+  it("ignores duplicate inline content ids for one message", () => {
+    const persistence = createHybridPersistence();
+    const mailDatabase = persistence.mailDatabaseFor("personal");
+
+    mailDatabase.saveMessage({
+      id: "message-1",
+      stableIdentity: "gmail:personal:message-1",
+      subject: "Duplicate inline image",
+      receivedAt: "2026-05-23T10:00:00.000Z",
+      unread: true,
+      starred: false,
+      aiProcessed: false,
+      readableBody: '<img src="cid:image001.png@example.com">',
+      inlineResources: [
+        {
+          id: "inline-0",
+          contentId: "image001.png@example.com",
+          mimeType: "image/png",
+          sizeBytes: 3,
+          bytes: new Uint8Array([1, 2, 3]),
+        },
+        {
+          id: "inline-1",
+          contentId: "image001.png@example.com",
+          mimeType: "image/png",
+          sizeBytes: 3,
+          bytes: new Uint8Array([4, 5, 6]),
+        },
+      ],
+      attachments: [],
+    });
+
+    expect(mailDatabase.getMessage("personal", "message-1")?.inlineResources).toEqual([
+      {
+        id: "inline-0",
+        contentId: "image001.png@example.com",
+        mimeType: "image/png",
+        sizeBytes: 3,
+      },
+    ]);
+    expect(mailDatabase.getInlineMessageResource("message-1", "inline-0")?.bytes).toEqual(
+      new Uint8Array([1, 2, 3]),
+    );
+  });
+
   it("uses configured file-backed storage when the app creates persistence", async () => {
     const databaseDir = mkdtempSync(join(tmpdir(), "zmail-app-db-"));
     const app = createApp({

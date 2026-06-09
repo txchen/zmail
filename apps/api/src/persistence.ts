@@ -469,7 +469,7 @@ export class MailDatabase {
       .run(messageId);
 
     const statement = this.database.prepare(`
-      INSERT INTO inline_message_resources (id, message_id, content_id, mime_type, size_bytes, bytes)
+      INSERT OR IGNORE INTO inline_message_resources (id, message_id, content_id, mime_type, size_bytes, bytes)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
 
