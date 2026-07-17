@@ -2,6 +2,7 @@
 import type {
   AccountRefreshRequest,
   LiveMailAccount,
+  LiveMessageDetail,
   MailAccountSummary,
   MailAccountMailboxTree,
   LiveMessagePage,
@@ -9,7 +10,6 @@ import type {
   MailboxMessagesResponse,
   MailboxMessageSummary,
   MailboxSummary,
-  MessageDetail,
   SyncJobRecord,
   SyncJobsResponse,
 } from "@zmail/shared";
@@ -18,6 +18,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   fetchHealth,
+  attachmentDownloadUrl,
   fetchMailAccounts,
   fetchMessage,
   fetchMessagesForMailbox,
@@ -36,6 +37,7 @@ import {
   appendLiveMessagePage,
   cacheManualRefresh,
   ephemeralMailQueryPolicy,
+  liveMessageDetailKey,
   liveMessageListKey,
 } from "./live-mail-memory";
 import { renderReadableMessage } from "./message-rendering";
@@ -323,14 +325,15 @@ const loadMoreMessagesMutation = useMutation({
 });
 
 const messageDetailQuery = useQuery({
-  queryKey: computed(() => ["message-detail", selectedAccountId.value, selectedMessageId.value]),
+  queryKey: computed(() => liveMessageDetailKey(selectedAccountId.value, selectedMessageId.value)),
   queryFn: () => fetchMessage(selectedAccountId.value, selectedMessageId.value),
+  ...ephemeralMailQueryPolicy,
   enabled: computed(
     () => authenticated.value && !!selectedAccountId.value && !!selectedMessageId.value,
   ),
 });
 
-const selectedMessage = computed<MessageDetail | null>(
+const selectedMessage = computed<LiveMessageDetail | null>(
   () => messageDetailQuery.data.value?.message ?? null,
 );
 const selectedMessageKey = computed(() =>
@@ -377,6 +380,7 @@ const logoutMutation = useMutation({
   onSuccess: async () => {
     loggedOut.value = true;
     openedMailAccounts.value = new Map();
+    remoteImagesAllowedMessageKeys.value = new Set();
     queryClient.clear();
     queryClient.setQueryData(["session"], { authenticated: false });
     await router.push("/");
@@ -464,7 +468,7 @@ const mailboxActionMutation = useMutation({
     performMailboxAction(selectedAccountId.value, messageId, action),
   onSuccess: async (response, variables) => {
     queryClient.setQueryData(
-      ["message-detail", response.message.accountId, response.message.id],
+      liveMessageDetailKey(response.message.accountId, response.message.id),
       response,
     );
     queryClient.setQueriesData<MailboxMessagesResponse>({ queryKey: ["message-list"] }, (page) =>
@@ -607,7 +611,7 @@ function allowRemoteImagesForSelectedMessage() {
   ]);
 }
 
-function messageRemoteImagesKey(message: MessageDetail): string {
+function messageRemoteImagesKey(message: LiveMessageDetail): string {
   return `${message.accountId}:${message.id}`;
 }
 
@@ -1526,6 +1530,24 @@ function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailbo
                 Loading message...
               </div>
               <div
+                v-else-if="messageDetailQuery.isError.value"
+                class="grid h-full place-items-center p-6 text-center text-sm text-slate-600"
+              >
+                <div>
+                  <p>
+                    Message {{ selectedMessageId }} is unavailable for account
+                    {{ selectedAccountId }}.
+                  </p>
+                  <button
+                    class="mt-3 h-8 rounded-md border border-stone-300 bg-white px-3 font-medium text-slate-900 hover:bg-stone-100"
+                    type="button"
+                    @click="messageDetailQuery.refetch()"
+                  >
+                    Manual retry
+                  </button>
+                </div>
+              </div>
+              <div
                 v-else-if="!selectedMessage"
                 class="grid h-full place-items-center p-6 text-center text-sm text-slate-500"
               >
@@ -1593,8 +1615,23 @@ function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailbo
                       :key="attachment.id"
                       class="rounded-md border border-stone-200 px-3 py-2 text-sm"
                     >
-                      {{ attachment.filename }} · {{ attachment.mimeType }} ·
-                      {{ attachment.sizeBytes }} bytes
+                      <span>
+                        {{ attachment.filename }} · {{ attachment.mimeType }} ·
+                        {{ attachment.sizeBytes }} bytes
+                      </span>
+                      <a
+                        class="ml-3 font-medium text-blue-700 hover:underline"
+                        :href="
+                          attachmentDownloadUrl(
+                            selectedMessage.accountId,
+                            selectedMessage.id,
+                            attachment.id,
+                          )
+                        "
+                        download
+                      >
+                        Download
+                      </a>
                     </li>
                   </ul>
                 </div>

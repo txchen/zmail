@@ -65,6 +65,19 @@ export type LiveMessageSummary = {
   starred: boolean;
 };
 
+export type LiveMessageDetail = LiveMessageSummary & {
+  ccRecipients: MessageParticipant[];
+  bccRecipients: MessageParticipant[];
+  readableBody: string;
+  plainTextBody?: string;
+  inlineResources: InlineMessageResourceMetadata[];
+  attachments: AttachmentMetadata[];
+};
+
+export type LiveMessageResponse = {
+  message: LiveMessageDetail;
+};
+
 export type AccountOpenResponse = {
   mailAccount: LiveMailAccount;
   inbox: {

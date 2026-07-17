@@ -2,13 +2,15 @@ import type {
   AccountOpenResponse,
   AccountRefreshRequest,
   AccountRefreshResponse,
+  LiveMessageDetail,
   LiveMessageSummary,
   LiveMessagePage,
   MessageParticipant,
   SystemMailboxRole,
 } from "@zmail/shared";
 import { ImapFlow } from "imapflow";
-import type { ImapFlowOptions } from "imapflow";
+import type { ImapFlowOptions, MessageStructureObject } from "imapflow";
+import type { Readable } from "node:stream";
 import type { ConfiguredMailAccount } from "./config.js";
 import {
   createImapSessionCoordinator,
@@ -29,7 +31,32 @@ export type GmailImapReader = {
     account: ConfiguredMailAccount,
     request: AccountRefreshRequest,
   ): Promise<AccountRefreshResponse>;
+  readMessage(
+    account: ConfiguredMailAccount,
+    messageId: string,
+  ): Promise<LiveMessageDetail | undefined>;
+  readInlineResource(
+    account: ConfiguredMailAccount,
+    messageId: string,
+    resourceId: string,
+  ): Promise<LiveMessageResource | undefined>;
+  downloadAttachment(
+    account: ConfiguredMailAccount,
+    messageId: string,
+    attachmentId: string,
+  ): Promise<LiveAttachmentDownload | undefined>;
   closeAllSessions(): Promise<void>;
+};
+
+type LiveMessageResource = {
+  mimeType: string;
+  bytes: Uint8Array;
+};
+
+type LiveAttachmentDownload = {
+  filename: string;
+  mimeType: string;
+  body: ReadableStream<Uint8Array>;
 };
 
 type LiveImapClient = {
@@ -75,6 +102,45 @@ type LiveImapClient = {
     };
     internalDate?: Date | string;
   }>;
+  fetchOne(
+    range: string,
+    query: {
+      flags?: true;
+      envelope?: true;
+      internalDate?: true;
+      threadId?: true;
+      bodyStructure?: true;
+      bodyParts?: string[];
+    },
+    options: { uid: true },
+  ): Promise<
+    | false
+    | {
+        uid?: number;
+        emailId?: string;
+        threadId?: string;
+        flags?: Set<string>;
+        envelope?: {
+          subject?: string;
+          date?: Date;
+          from?: ImapAddress[];
+          to?: ImapAddress[];
+          cc?: ImapAddress[];
+          bcc?: ImapAddress[];
+        };
+        internalDate?: Date | string;
+        bodyStructure?: MessageStructureObject;
+        bodyParts?: Map<string, Buffer>;
+      }
+  >;
+  download(
+    range: string,
+    part: string,
+    options: { uid: true; maxBytes?: number },
+  ): Promise<{
+    meta: { contentType: string; filename?: string };
+    content: Readable;
+  }>;
   logout(): Promise<void>;
 };
 
@@ -89,7 +155,10 @@ export function createGmailImapReader(
   ImapFlowClient: ImapFlowConstructor = ImapFlow,
   coordinator: ImapSessionCoordinator<ImapClientSession> = createImapSessionCoordinator(),
 ): GmailImapReader {
-  const connect = async (account: ConfiguredMailAccount): Promise<ImapClientSession> => {
+  const connect = async (
+    account: ConfiguredMailAccount,
+    boundedStream = false,
+  ): Promise<ImapClientSession> => {
     const client = new ImapFlowClient({
       host: "imap.gmail.com",
       port: 993,
@@ -100,6 +169,7 @@ export function createGmailImapReader(
       },
       disableAutoIdle: true,
       logger: false,
+      ...(boundedStream ? { socketTimeout: 30_000 } : {}),
     });
 
     try {
@@ -249,6 +319,75 @@ export function createGmailImapReader(
           };
         },
       ),
+    readMessage: (account, messageId) =>
+      coordinator.run(
+        account.id,
+        () => connect(account),
+        async (session) => {
+          const client = session.client as LiveImapClient;
+          const located = await locateMessage(client, messageId);
+          return located ? readMessageDetail(client, account.id, messageId, located) : undefined;
+        },
+      ),
+    readInlineResource: (account, messageId, resourceId) =>
+      coordinator.run(
+        account.id,
+        () => connect(account),
+        async (session) => {
+          const client = session.client as LiveImapClient;
+          const located = await locateMessage(client, messageId);
+          if (!located) {
+            return undefined;
+          }
+
+          const part = inlineResourceParts(located.bodyStructure).find(
+            (candidate) => partId(candidate.part) === resourceId,
+          );
+          if (!part?.part) {
+            return undefined;
+          }
+
+          const downloaded = await client.download(String(located.uid), part.part, { uid: true });
+          return {
+            mimeType: part.type,
+            bytes: await readStreamBytes(downloaded.content),
+          };
+        },
+      ),
+    async downloadAttachment(account, messageId, attachmentId) {
+      const session = await connect(account, true);
+      const client = session.client as LiveImapClient;
+
+      try {
+        const located = await locateMessage(client, messageId);
+        if (!located) {
+          await session.close();
+          return undefined;
+        }
+
+        const part = attachmentParts(located.bodyStructure).find(
+          (candidate) => partId(candidate.part) === attachmentId,
+        );
+        if (!part?.part) {
+          await session.close();
+          return undefined;
+        }
+
+        const downloaded = await client.download(String(located.uid), part.part, {
+          uid: true,
+          maxBytes: Math.max(1, part.size ?? 1),
+        });
+
+        return {
+          filename: partFilename(part) ?? "attachment",
+          mimeType: part.type,
+          body: closingWebStream(downloaded.content, session.close),
+        };
+      } catch (error) {
+        await closeClient(client);
+        throw error;
+      }
+    },
     closeAllSessions: () => coordinator.closeAll(),
   };
 }
@@ -256,6 +395,243 @@ export function createGmailImapReader(
 async function listMailboxes(client: LiveImapClient) {
   return client.list({
     statusQuery: { unseen: true, messages: true },
+  });
+}
+
+type LocatedMessage = {
+  uid: number;
+  emailId: string;
+  threadId?: string;
+  flags?: Set<string>;
+  envelope?: {
+    subject?: string;
+    date?: Date;
+    from?: ImapAddress[];
+    to?: ImapAddress[];
+    cc?: ImapAddress[];
+    bcc?: ImapAddress[];
+  };
+  internalDate?: Date | string;
+  bodyStructure: MessageStructureObject;
+};
+
+async function locateMessage(
+  client: LiveImapClient,
+  messageId: string,
+): Promise<LocatedMessage | undefined> {
+  const mailboxes = await listMailboxes(client);
+  const uid = await findMessageUid(client, messageId, messageMailboxIds(mailboxes));
+  if (uid === undefined) {
+    return undefined;
+  }
+
+  const message = await client.fetchOne(
+    String(uid),
+    {
+      flags: true,
+      envelope: true,
+      internalDate: true,
+      threadId: true,
+      bodyStructure: true,
+    },
+    { uid: true },
+  );
+
+  if (
+    !message ||
+    message.emailId !== messageId ||
+    message.uid === undefined ||
+    !message.bodyStructure
+  ) {
+    return undefined;
+  }
+
+  return {
+    uid: message.uid,
+    emailId: message.emailId,
+    ...(message.threadId ? { threadId: message.threadId } : {}),
+    ...(message.flags ? { flags: message.flags } : {}),
+    ...(message.envelope ? { envelope: message.envelope } : {}),
+    ...(message.internalDate ? { internalDate: message.internalDate } : {}),
+    bodyStructure: message.bodyStructure,
+  };
+}
+
+async function readMessageDetail(
+  client: LiveImapClient,
+  accountId: string,
+  messageId: string,
+  located: LocatedMessage,
+): Promise<LiveMessageDetail> {
+  const textParts = readableBodyParts(located.bodyStructure).filter(
+    (part) =>
+      (part.type.toLowerCase() === "text/plain" || part.type.toLowerCase() === "text/html") &&
+      !isAttachmentPart(part),
+  );
+  const bodyPartIds = textParts.flatMap((part) => (part.part ? [part.part] : []));
+  const bodyResponse =
+    bodyPartIds.length > 0
+      ? await client.fetchOne(String(located.uid), { bodyParts: bodyPartIds }, { uid: true })
+      : false;
+  const decodedBodyParts = new Map(
+    textParts.map((part) => [
+      part.type.toLowerCase(),
+      decodeTextPart(
+        bodyResponse && part.part ? bodyResponse.bodyParts?.get(part.part) : undefined,
+        part,
+      ),
+    ]),
+  );
+  const readableBody = decodedBodyParts.get("text/html") ?? "";
+  const plainTextBody = decodedBodyParts.get("text/plain");
+
+  return {
+    accountId,
+    id: messageId,
+    ...(located.threadId ? { threadId: located.threadId } : {}),
+    subject: located.envelope?.subject ?? "(no subject)",
+    sender: participant(located.envelope?.from?.[0]),
+    recipients: (located.envelope?.to ?? []).map(participant),
+    ccRecipients: (located.envelope?.cc ?? []).map(participant),
+    bccRecipients: (located.envelope?.bcc ?? []).map(participant),
+    receivedAt: normalizeDate(located.envelope?.date ?? located.internalDate).toISOString(),
+    unread: !located.flags?.has("\\Seen"),
+    starred: located.flags?.has("\\Flagged") === true,
+    readableBody,
+    ...(plainTextBody ? { plainTextBody } : {}),
+    inlineResources: inlineResourceParts(located.bodyStructure).map((part) => ({
+      id: partId(part.part),
+      contentId: normalizeContentId(part.id ?? ""),
+      mimeType: part.type,
+      sizeBytes: part.size ?? 0,
+    })),
+    attachments: attachmentParts(located.bodyStructure).map((part) => ({
+      id: partId(part.part),
+      filename: partFilename(part) ?? "attachment",
+      mimeType: part.type,
+      sizeBytes: part.size ?? 0,
+    })),
+  };
+}
+
+function readableBodyParts(root: MessageStructureObject): MessageStructureObject[] {
+  if (isAttachmentPart(root)) {
+    return [];
+  }
+  if (!root.childNodes?.length) {
+    return [root];
+  }
+  return root.childNodes.flatMap(readableBodyParts);
+}
+
+function inlineResourceParts(root: MessageStructureObject): MessageStructureObject[] {
+  return readableBodyParts(root).filter(
+    (part) =>
+      Boolean(part.id) &&
+      Boolean(part.part) &&
+      part.type.toLowerCase() !== "text/plain" &&
+      part.type.toLowerCase() !== "text/html",
+  );
+}
+
+function attachmentParts(root: MessageStructureObject): MessageStructureObject[] {
+  if (isAttachmentPart(root)) {
+    return root.part ? [root] : [];
+  }
+  return root.childNodes?.flatMap(attachmentParts) ?? [];
+}
+
+function isAttachmentPart(part: MessageStructureObject): boolean {
+  return part.disposition?.toLowerCase() === "attachment" || Boolean(partFilename(part));
+}
+
+function partFilename(part: MessageStructureObject): string | undefined {
+  return part.dispositionParameters?.filename ?? part.parameters?.name;
+}
+
+function partId(part: string | undefined): string {
+  return Buffer.from(part ?? "", "utf8").toString("base64url");
+}
+
+function normalizeContentId(value: string): string {
+  return value.trim().replace(/^</, "").replace(/>$/, "");
+}
+
+function decodeTextPart(bytes: Buffer | undefined, part: MessageStructureObject): string {
+  if (!bytes) {
+    return "";
+  }
+
+  const encoding = part.encoding?.toLowerCase();
+  let decoded = bytes;
+  if (encoding === "base64") {
+    decoded = Buffer.from(bytes.toString("ascii").replaceAll(/\s/g, ""), "base64");
+  } else if (encoding === "quoted-printable") {
+    decoded = decodeQuotedPrintable(bytes);
+  }
+
+  try {
+    return new TextDecoder(part.parameters?.charset ?? "utf-8").decode(decoded);
+  } catch {
+    return decoded.toString("utf8");
+  }
+}
+
+function decodeQuotedPrintable(bytes: Buffer): Buffer {
+  const value = bytes.toString("binary").replaceAll(/=\r?\n/g, "");
+  const decoded: number[] = [];
+
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] === "=" && /^[\da-f]{2}$/i.test(value.slice(index + 1, index + 3))) {
+      decoded.push(Number.parseInt(value.slice(index + 1, index + 3), 16));
+      index += 2;
+    } else {
+      decoded.push(value.charCodeAt(index));
+    }
+  }
+
+  return Buffer.from(decoded);
+}
+
+async function readStreamBytes(stream: Readable): Promise<Uint8Array> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Uint8Array.from(Buffer.concat(chunks));
+}
+
+function closingWebStream(
+  stream: Readable,
+  close: () => Promise<void>,
+): ReadableStream<Uint8Array> {
+  const iterator = stream[Symbol.asyncIterator]();
+  let closePromise: Promise<void> | undefined;
+  const closeOnce = () => {
+    closePromise ??= close().catch(() => undefined);
+    return closePromise;
+  };
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await iterator.next();
+        if (next.done) {
+          controller.close();
+          await closeOnce();
+          return;
+        }
+        controller.enqueue(Uint8Array.from(next.value as Uint8Array));
+      } catch (error) {
+        controller.error(error);
+        await closeOnce();
+      }
+    },
+    async cancel() {
+      stream.destroy();
+      await iterator.return?.();
+      await closeOnce();
+    },
   });
 }
 
@@ -274,6 +650,36 @@ function mailboxSummaries(listedMailboxes: Awaited<ReturnType<LiveImapClient["li
       selectable: !mailbox.flags?.has("\\Noselect"),
     };
   });
+}
+
+function messageMailboxIds(
+  listedMailboxes: Awaited<ReturnType<LiveImapClient["list"]>>,
+  currentMailboxId?: string,
+): string[] {
+  return [
+    ...(currentMailboxId ? [currentMailboxId] : []),
+    ...["allMail", "spam", "trash"].flatMap((role) =>
+      listedMailboxes
+        .filter((mailbox) => systemMailboxRole(mailbox.specialUse) === role)
+        .map((mailbox) => mailbox.path),
+    ),
+  ];
+}
+
+async function findMessageUid(
+  client: LiveImapClient,
+  messageId: string,
+  mailboxIds: string[],
+): Promise<number | undefined> {
+  for (const mailboxId of new Set(mailboxIds)) {
+    await client.mailboxOpen(mailboxId, { readOnly: true });
+    const matchingUids = (await client.search({ emailId: messageId }, { uid: true })) || [];
+    if (matchingUids[0] !== undefined) {
+      return matchingUids[0];
+    }
+  }
+
+  return undefined;
 }
 
 type CursorScope = "mailbox" | "unread";
@@ -398,28 +804,16 @@ async function readMessageState(
   currentMailboxId: string,
   listedMailboxes: Awaited<ReturnType<LiveImapClient["list"]>>,
 ): Promise<LiveMessageSummary | undefined> {
-  const candidateMailboxIds = [
-    currentMailboxId,
-    ...listedMailboxes
-      .filter((mailbox) =>
-        ["allMail", "spam", "trash"].includes(systemMailboxRole(mailbox.specialUse) ?? ""),
-      )
-      .map((mailbox) => mailbox.path),
-  ];
-
-  for (const mailboxId of new Set(candidateMailboxIds)) {
-    await client.mailboxOpen(mailboxId, { readOnly: true });
-    const matchingUids = (await client.search({ emailId: messageId }, { uid: true })) || [];
-    const message = (await readMessagesByUid(client, accountId, matchingUids)).find(
-      (candidate) => candidate.id === messageId,
-    );
-
-    if (message) {
-      return message;
-    }
-  }
-
-  return undefined;
+  const uid = await findMessageUid(
+    client,
+    messageId,
+    messageMailboxIds(listedMailboxes, currentMailboxId),
+  );
+  return uid === undefined
+    ? undefined
+    : (await readMessagesByUid(client, accountId, [uid])).find(
+        (candidate) => candidate.id === messageId,
+      );
 }
 
 function encodeCursor(cursor: LiveMessageCursor): string {

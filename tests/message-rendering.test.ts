@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { fetchMessage, fetchMessagesForMailbox } from "../apps/web/src/api";
+import { attachmentDownloadUrl, fetchMessage, fetchMessagesForMailbox } from "../apps/web/src/api";
 import { renderReadableMessage } from "../apps/web/src/message-rendering";
 
 describe("readable Message rendering", () => {
@@ -57,6 +57,12 @@ describe("readable Message rendering", () => {
 
     expect(rendered.srcdoc).toContain(
       '<img src="/api/mail-accounts/personal/messages/message-1/inline-resources/inline-0">',
+    );
+  });
+
+  it("builds an encoded Attachment URL used only by the explicit Download control", () => {
+    expect(attachmentDownloadUrl("personal account", "gmail/message", "part 4")).toBe(
+      "/api/mail-accounts/personal%20account/messages/gmail%2Fmessage/attachments/part%204",
     );
   });
 

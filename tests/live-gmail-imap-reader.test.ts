@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { Readable } from "node:stream";
 import { createGmailImapMailboxSyncClient } from "../apps/api/src/gmail-imap";
 import {
   createImapSessionCoordinator,
@@ -400,6 +401,289 @@ describe("Gmail Live IMAP Account open mapping", () => {
   });
 });
 
+describe("Gmail Live IMAP Message content mapping", () => {
+  it("locates a Message by X-GM-MSGID across All Mail, Spam, and Trash and peeks only body text", async () => {
+    let selectedMailbox = "";
+    const list = vi.fn(async () => messageMailboxes());
+    const mailboxOpen = vi.fn(async (path: string) => {
+      selectedMailbox = path;
+      return { exists: 1, uidValidity: 1n };
+    });
+    const search = vi.fn(async () => (selectedMailbox === "[Gmail]/Trash" ? [42] : []));
+    const fetchOne = vi
+      .fn()
+      .mockResolvedValueOnce(messageStructureFixture())
+      .mockResolvedValueOnce({
+        uid: 42,
+        bodyParts: new Map([
+          ["1", Buffer.from("Plain fallback")],
+          ["2", Buffer.from('<p>Hello <img src="cid:logo@example.com"></p>')],
+        ]),
+      });
+    const download = vi.fn();
+    const logout = vi.fn(async () => undefined);
+    const ImapFlowClient = vi.fn(function () {
+      return {
+        connect: vi.fn(async () => undefined),
+        list,
+        mailboxOpen,
+        search,
+        fetchOne,
+        download,
+        logout,
+      };
+    });
+    const reader = createGmailImapReader(ImapFlowClient);
+
+    const result = await reader.readMessage(accountFixture(), "1876543210");
+    await reader.closeAllSessions();
+
+    expect(mailboxOpen.mock.calls.map(([path]) => path)).toEqual([
+      "[Gmail]/All Mail",
+      "[Gmail]/Spam",
+      "[Gmail]/Trash",
+    ]);
+    expect(search).toHaveBeenCalledTimes(3);
+    expect(search).toHaveBeenLastCalledWith({ emailId: "1876543210" }, { uid: true });
+    expect(fetchOne).toHaveBeenNthCalledWith(
+      1,
+      "42",
+      {
+        flags: true,
+        envelope: true,
+        internalDate: true,
+        threadId: true,
+        bodyStructure: true,
+      },
+      { uid: true },
+    );
+    expect(fetchOne).toHaveBeenNthCalledWith(2, "42", { bodyParts: ["1", "2"] }, { uid: true });
+    expect(download).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      accountId: "personal",
+      id: "1876543210",
+      threadId: "thread-1",
+      subject: "Live Message",
+      sender: { address: "sender@example.com", displayName: "Sender" },
+      recipients: [{ address: "me@example.com" }],
+      ccRecipients: [{ address: "copy@example.com" }],
+      bccRecipients: [],
+      receivedAt: "2026-07-17T12:00:00.000Z",
+      unread: true,
+      starred: true,
+      readableBody: '<p>Hello <img src="cid:logo@example.com"></p>',
+      plainTextBody: "Plain fallback",
+      inlineResources: [
+        {
+          id: "Mw",
+          contentId: "logo@example.com",
+          mimeType: "image/png",
+          sizeBytes: 3,
+        },
+      ],
+      attachments: [
+        {
+          id: "NA",
+          filename: "agenda.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 4,
+        },
+      ],
+    });
+  });
+
+  it("peeks one Inline message resource without writing it to disk or server cache", async () => {
+    const client = contentClient({
+      download: vi.fn(async () => ({
+        meta: { expectedSize: 3, contentType: "image/png" },
+        content: Readable.from([Buffer.from([1, 2, 3])]),
+      })),
+    });
+    const ImapFlowClient = vi.fn(function () {
+      return client;
+    });
+    const reader = createGmailImapReader(ImapFlowClient);
+
+    const resource = await reader.readInlineResource(accountFixture(), "1876543210", "Mw");
+    await reader.closeAllSessions();
+
+    expect(client.download).toHaveBeenCalledWith("42", "3", { uid: true });
+    expect(resource).toEqual({
+      mimeType: "image/png",
+      bytes: Uint8Array.from([1, 2, 3]),
+    });
+  });
+
+  it("keeps attached Messages out of the Readable body and accepts CID resources without disposition", async () => {
+    const structure = messageStructureFixture();
+    structure.bodyStructure.childNodes = [
+      {
+        part: "1",
+        type: "text/html",
+        id: "<related-root@example.com>",
+        parameters: { charset: "utf-8" },
+        encoding: "7bit",
+        size: 18,
+      },
+      {
+        part: "2",
+        type: "message/rfc822",
+        disposition: "attachment",
+        dispositionParameters: { filename: "forwarded.eml" },
+        size: 80,
+        childNodes: [
+          {
+            part: "2.1",
+            type: "text/html",
+            parameters: { charset: "utf-8" },
+            encoding: "7bit",
+            size: 28,
+          },
+        ],
+      },
+      {
+        part: "3",
+        type: "image/png",
+        id: "<logo@example.com>",
+        encoding: "base64",
+        size: 3,
+      },
+    ];
+    const client = contentClient();
+    client.fetchOne = vi
+      .fn()
+      .mockResolvedValueOnce(structure)
+      .mockResolvedValueOnce({
+        uid: 42,
+        bodyParts: new Map([
+          ["1", Buffer.from("<p>Actual body</p>")],
+          ["2.1", Buffer.from("<p>Attached body</p>")],
+        ]),
+      });
+    const ImapFlowClient = vi.fn(function () {
+      return client;
+    });
+    const reader = createGmailImapReader(ImapFlowClient);
+
+    const detail = await reader.readMessage(accountFixture(), "1876543210");
+
+    expect(client.fetchOne).toHaveBeenNthCalledWith(2, "42", { bodyParts: ["1"] }, { uid: true });
+    expect(detail?.readableBody).toBe("<p>Actual body</p>");
+    expect(detail?.inlineResources).toEqual([
+      {
+        id: "Mw",
+        contentId: "logo@example.com",
+        mimeType: "image/png",
+        sizeBytes: 3,
+      },
+    ]);
+    expect(detail?.attachments).toEqual([
+      {
+        id: "Mg",
+        filename: "forwarded.eml",
+        mimeType: "message/rfc822",
+        sizeBytes: 80,
+      },
+    ]);
+    await reader.closeAllSessions();
+  });
+
+  it("closes an independent bounded Attachment session after stream completion", async () => {
+    const ordinaryClient = contentClient();
+    const attachmentClient = contentClient({
+      download: vi.fn(async () => ({
+        meta: {
+          expectedSize: 4,
+          contentType: "application/pdf",
+          filename: "agenda.pdf",
+        },
+        content: Readable.from([Buffer.from([4, 5]), Buffer.from([6, 7])]),
+      })),
+    });
+    let clientCount = 0;
+    const ImapFlowClient = vi.fn(function () {
+      clientCount += 1;
+      return clientCount === 1 ? ordinaryClient : attachmentClient;
+    });
+    const reader = createGmailImapReader(ImapFlowClient);
+    const detail = await reader.readMessage(accountFixture(), "1876543210");
+    const attachment = await reader.downloadAttachment(
+      accountFixture(),
+      "1876543210",
+      detail?.attachments[0]?.id ?? "",
+    );
+
+    expect(attachmentClient.logout).not.toHaveBeenCalled();
+    expect(new Uint8Array(await new Response(attachment?.body).arrayBuffer())).toEqual(
+      Uint8Array.from([4, 5, 6, 7]),
+    );
+    expect(attachmentClient.download).toHaveBeenCalledWith("42", "4", {
+      uid: true,
+      maxBytes: 4,
+    });
+    expect(attachmentClient.logout).toHaveBeenCalledOnce();
+    expect(ImapFlowClient).toHaveBeenLastCalledWith(
+      expect.objectContaining({ socketTimeout: 30_000, disableAutoIdle: true }),
+    );
+    await reader.closeAllSessions();
+  });
+
+  it("closes an independent Attachment session when the browser cancels the stream", async () => {
+    const attachmentClient = contentClient({
+      download: vi.fn(async () => ({
+        meta: {
+          expectedSize: 8,
+          contentType: "application/octet-stream",
+          filename: "large.bin",
+        },
+        content: Readable.from(
+          (async function* () {
+            yield Buffer.from([1, 2]);
+            await new Promise(() => undefined);
+          })(),
+        ),
+      })),
+    });
+    const ImapFlowClient = vi.fn(function () {
+      return attachmentClient;
+    });
+    const reader = createGmailImapReader(ImapFlowClient);
+
+    const attachment = await reader.downloadAttachment(accountFixture(), "1876543210", "NA");
+    const streamReader = attachment?.body.getReader();
+    await streamReader?.read();
+    await streamReader?.cancel();
+
+    await vi.waitFor(() => expect(attachmentClient.logout).toHaveBeenCalledOnce());
+  });
+
+  it("closes an independent Attachment session when streaming fails", async () => {
+    const attachmentClient = contentClient({
+      download: vi.fn(async () => ({
+        meta: {
+          expectedSize: 4,
+          contentType: "application/octet-stream",
+          filename: "broken.bin",
+        },
+        content: new Readable({
+          read() {
+            this.destroy(new Error("Gmail stream failed"));
+          },
+        }),
+      })),
+    });
+    const ImapFlowClient = vi.fn(function () {
+      return attachmentClient;
+    });
+    const reader = createGmailImapReader(ImapFlowClient);
+
+    const attachment = await reader.downloadAttachment(accountFixture(), "1876543210", "NA");
+
+    await expect(attachment?.body.getReader().read()).rejects.toThrow("Gmail stream failed");
+    await vi.waitFor(() => expect(attachmentClient.logout).toHaveBeenCalledOnce());
+  });
+});
+
 function messageFixture(uid: number, emailId: string) {
   return {
     uid,
@@ -411,5 +695,114 @@ function messageFixture(uid: number, emailId: string) {
       from: [{ address: "sender@example.com" }],
       to: [{ address: "me@example.com" }],
     },
+  };
+}
+
+function accountFixture() {
+  return {
+    id: "personal",
+    emailAddress: "me@example.com",
+    appPassword: "gmail-app-password",
+  };
+}
+
+function messageMailboxes() {
+  return [
+    {
+      path: "[Gmail]/All Mail",
+      specialUse: "\\All",
+      flags: new Set<string>(),
+      status: { unseen: 1, messages: 1 },
+    },
+    {
+      path: "[Gmail]/Spam",
+      specialUse: "\\Junk",
+      flags: new Set<string>(),
+      status: { unseen: 0, messages: 0 },
+    },
+    {
+      path: "[Gmail]/Trash",
+      specialUse: "\\Trash",
+      flags: new Set<string>(),
+      status: { unseen: 0, messages: 1 },
+    },
+  ];
+}
+
+function messageStructureFixture() {
+  return {
+    uid: 42,
+    emailId: "1876543210",
+    threadId: "thread-1",
+    flags: new Set(["\\Flagged"]),
+    envelope: {
+      subject: "Live Message",
+      date: new Date("2026-07-17T12:00:00.000Z"),
+      from: [{ address: "sender@example.com", name: "Sender" }],
+      to: [{ address: "me@example.com" }],
+      cc: [{ address: "copy@example.com" }],
+      bcc: [],
+    },
+    bodyStructure: {
+      type: "multipart/mixed",
+      childNodes: [
+        {
+          part: "1",
+          type: "text/plain",
+          parameters: { charset: "utf-8" },
+          encoding: "7bit",
+          size: 14,
+        },
+        {
+          part: "2",
+          type: "text/html",
+          parameters: { charset: "utf-8" },
+          encoding: "7bit",
+          size: 52,
+        },
+        {
+          part: "3",
+          type: "image/png",
+          id: "<logo@example.com>",
+          disposition: "inline",
+          encoding: "base64",
+          size: 3,
+        },
+        {
+          part: "4",
+          type: "application/pdf",
+          disposition: "attachment",
+          dispositionParameters: { filename: "agenda.pdf" },
+          encoding: "base64",
+          size: 4,
+        },
+      ],
+    },
+  };
+}
+
+function contentClient(overrides: Record<string, unknown> = {}) {
+  let selectedMailbox = "";
+  return {
+    connect: vi.fn(async () => undefined),
+    list: vi.fn(async () => messageMailboxes()),
+    mailboxOpen: vi.fn(async (path: string) => {
+      selectedMailbox = path;
+      return { exists: 1, uidValidity: 1n };
+    }),
+    search: vi.fn(async () => (selectedMailbox === "[Gmail]/All Mail" ? [42] : [])),
+    fetchOne: vi
+      .fn()
+      .mockResolvedValueOnce(messageStructureFixture())
+      .mockResolvedValueOnce({
+        uid: 42,
+        bodyParts: new Map([
+          ["1", Buffer.from("Plain fallback")],
+          ["2", Buffer.from('<p>Hello <img src="cid:logo@example.com"></p>')],
+        ]),
+      }),
+    download: vi.fn(),
+    logout: vi.fn(async () => undefined),
+    ...overrides,
   };
 }

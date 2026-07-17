@@ -592,14 +592,34 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
     );
   });
 
-  app.get("/api/mail-accounts/:accountId/messages/:messageId", (c) => {
+  app.get("/api/mail-accounts/:accountId/messages/:messageId", async (c) => {
     if (!isAuthenticated(c.req.header("cookie"))) {
       return c.json({ error: "Authentication required" }, 401);
     }
 
+    const account = config.mailAccounts.find(
+      (candidate) => candidate.id === c.req.param("accountId"),
+    );
+    if (!account) {
+      return c.json({ error: "Mail account not found" }, 404);
+    }
+    if (config.gmailImapReader) {
+      try {
+        const message = await config.gmailImapReader.readMessage(account, c.req.param("messageId"));
+        c.header("cache-control", "no-store");
+        return message ? c.json({ message }) : c.json({ error: "Message not found" }, 404);
+      } catch (error) {
+        logError("mail.message.read.error", {
+          accountId: account.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return c.json({ error: "Message unavailable", accountId: account.id }, 502);
+      }
+    }
+
     const message = persistence
-      .mailDatabaseFor(c.req.param("accountId"))
-      .getMessage(c.req.param("accountId"), c.req.param("messageId"));
+      .mailDatabaseFor(account.id)
+      .getMessage(account.id, c.req.param("messageId"));
 
     if (!message) {
       return c.json({ error: "Message not found" }, 404);
@@ -608,35 +628,62 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
     return c.json({ message });
   });
 
-  app.get("/api/mail-accounts/:accountId/messages/:messageId/inline-resources/:resourceId", (c) => {
-    if (!isAuthenticated(c.req.header("cookie"))) {
-      return c.json({ error: "Authentication required" }, 401);
-    }
+  app.get(
+    "/api/mail-accounts/:accountId/messages/:messageId/inline-resources/:resourceId",
+    async (c) => {
+      if (!isAuthenticated(c.req.header("cookie"))) {
+        return c.json({ error: "Authentication required" }, 401);
+      }
 
-    const accountId = c.req.param("accountId");
-    if (!config.mailAccounts.some((account) => account.id === accountId)) {
-      return c.json({ error: "Mail account not found" }, 404);
-    }
+      const accountId = c.req.param("accountId");
+      const account = config.mailAccounts.find((candidate) => candidate.id === accountId);
+      if (!account) {
+        return c.json({ error: "Mail account not found" }, 404);
+      }
 
-    const messageId = c.req.param("messageId");
-    const resource = persistence
-      .mailDatabaseFor(accountId)
-      .getInlineMessageResource(messageId, c.req.param("resourceId"));
+      const messageId = c.req.param("messageId");
+      if (config.gmailImapReader) {
+        try {
+          const resource = await config.gmailImapReader.readInlineResource(
+            account,
+            messageId,
+            c.req.param("resourceId"),
+          );
+          if (!resource) {
+            return c.json({ error: "Inline message resource not found" }, 404);
+          }
 
-    if (!resource) {
-      return c.json({ error: "Inline message resource not found" }, 404);
-    }
+          return new Response(copyBytes(resource.bytes), {
+            headers: {
+              "content-type": resource.mimeType,
+              "cache-control": "no-store",
+            },
+          });
+        } catch (error) {
+          logError("mail.inline-resource.read.error", {
+            accountId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return c.json({ error: "Inline message resource unavailable" }, 502);
+        }
+      }
 
-    const body = new ArrayBuffer(resource.bytes.byteLength);
-    new Uint8Array(body).set(resource.bytes);
+      const resource = persistence
+        .mailDatabaseFor(accountId)
+        .getInlineMessageResource(messageId, c.req.param("resourceId"));
 
-    return new Response(body, {
-      headers: {
-        "content-type": resource.mimeType,
-        "cache-control": "private, max-age=86400",
-      },
-    });
-  });
+      if (!resource) {
+        return c.json({ error: "Inline message resource not found" }, 404);
+      }
+
+      return new Response(copyBytes(resource.bytes), {
+        headers: {
+          "content-type": resource.mimeType,
+          "cache-control": "private, max-age=86400",
+        },
+      });
+    },
+  );
 
   app.get(
     "/api/mail-accounts/:accountId/messages/:messageId/attachments/:attachmentId",
@@ -645,17 +692,45 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
         return c.json({ error: "Authentication required" }, 401);
       }
 
-      if (!attachmentDownloadClient) {
-        return c.json({ error: "Attachment download is not configured" }, 503);
-      }
-
       const accountId = c.req.param("accountId");
-      if (!config.mailAccounts.some((account) => account.id === accountId)) {
+      const account = config.mailAccounts.find((candidate) => candidate.id === accountId);
+      if (!account) {
         return c.json({ error: "Mail account not found" }, 404);
       }
 
       const messageId = c.req.param("messageId");
       const attachmentId = c.req.param("attachmentId");
+      if (config.gmailImapReader) {
+        try {
+          const attachment = await config.gmailImapReader.downloadAttachment(
+            account,
+            messageId,
+            attachmentId,
+          );
+          if (!attachment) {
+            return c.json({ error: "Attachment not found" }, 404);
+          }
+
+          return new Response(attachment.body, {
+            headers: {
+              "content-type": attachment.mimeType,
+              "content-disposition": attachmentDisposition(attachment.filename),
+              "cache-control": "no-store",
+            },
+          });
+        } catch (error) {
+          logError("mail.attachment.download.error", {
+            accountId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return c.json({ error: "Attachment download failed" }, 502);
+        }
+      }
+
+      if (!attachmentDownloadClient) {
+        return c.json({ error: "Attachment download is not configured" }, 503);
+      }
+
       const message = persistence.mailDatabaseFor(accountId).getMessage(accountId, messageId);
 
       if (!message) {
@@ -1163,4 +1238,15 @@ function paginateMessageSummaries<T extends MessageSummaryLike>(
 
 function encodeMessageCursor(receivedAt: string, id: string): string {
   return Buffer.from(JSON.stringify({ receivedAt, id }), "utf8").toString("base64url");
+}
+
+function copyBytes(bytes: Uint8Array): ArrayBuffer {
+  const body = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(body).set(bytes);
+  return body;
+}
+
+function attachmentDisposition(filename: string): string {
+  const safeFilename = filename.replaceAll(/[\r\n"]/g, "_");
+  return `attachment; filename="${safeFilename}"`;
 }

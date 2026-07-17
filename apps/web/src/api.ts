@@ -5,6 +5,7 @@ import type {
   AccountSyncStatusResponse,
   HealthStatus,
   LiveMessagePage,
+  LiveMessageResponse,
   MailAccountDiagnosticsResponse,
   MailboxMessagesResponse,
   MailboxAction,
@@ -276,14 +277,28 @@ export async function fetchMessage(
   mailAccountId: string,
   messageId: string,
   fetcher: typeof fetch = fetch,
-): Promise<MessageResponse> {
-  const response = await fetcher(`/api/mail-accounts/${mailAccountId}/messages/${messageId}`);
+): Promise<LiveMessageResponse> {
+  const response = await fetcher(
+    `/api/mail-accounts/${encodeURIComponent(mailAccountId)}/messages/${encodeURIComponent(
+      messageId,
+    )}`,
+  );
 
   if (!response.ok) {
     throw new Error("Message unavailable");
   }
 
   return response.json();
+}
+
+export function attachmentDownloadUrl(
+  mailAccountId: string,
+  messageId: string,
+  attachmentId: string,
+): string {
+  return `/api/mail-accounts/${encodeURIComponent(mailAccountId)}/messages/${encodeURIComponent(
+    messageId,
+  )}/attachments/${encodeURIComponent(attachmentId)}`;
 }
 
 export async function performMailboxAction(

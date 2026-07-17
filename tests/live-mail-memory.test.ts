@@ -3,6 +3,7 @@ import {
   appendLiveMessagePage,
   cacheManualRefresh,
   createEphemeralMailState,
+  liveMessageDetailQueryOptions,
   liveMessageListKey,
   liveMessageListQueryOptions,
 } from "../apps/web/src/live-mail-memory";
@@ -25,6 +26,38 @@ describe("Ephemeral mail state", () => {
     await queryClient.fetchQuery(liveMessageListQueryOptions(inboxView, readInbox));
 
     expect(readInbox).toHaveBeenCalledOnce();
+  });
+
+  it("returns to an opened Message from browser memory without another Gmail request", async () => {
+    const queryClient = createEphemeralMailState();
+    const readMessage = vi.fn(async () => ({
+      message: {
+        ...message("opened"),
+        ccRecipients: [],
+        bccRecipients: [],
+        readableBody: "<p>Cached body</p>",
+        inlineResources: [],
+        attachments: [],
+      },
+    }));
+
+    await queryClient.fetchQuery(liveMessageDetailQueryOptions("personal", "opened", readMessage));
+    await queryClient.fetchQuery(liveMessageDetailQueryOptions("personal", "opened", readMessage));
+
+    expect(readMessage).toHaveBeenCalledOnce();
+  });
+
+  it("stops after a failed Message read until the App user explicitly retries", async () => {
+    const queryClient = createEphemeralMailState();
+    const readMessage = vi.fn(async () => {
+      throw new Error("Gmail unavailable");
+    });
+
+    await expect(
+      queryClient.fetchQuery(liveMessageDetailQueryOptions("personal", "missing", readMessage)),
+    ).rejects.toThrow("Gmail unavailable");
+
+    expect(readMessage).toHaveBeenCalledOnce();
   });
 
   it("appends only after explicit Load more and retains loaded pagination", () => {

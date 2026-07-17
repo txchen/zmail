@@ -1,8 +1,8 @@
 import type {
   AccountRefreshResponse,
+  LiveMessageResponse,
   LiveMessageListView,
   LiveMessagePage,
-  MessageResponse,
 } from "@zmail/shared";
 import { QueryClient } from "@tanstack/vue-query";
 
@@ -25,6 +25,7 @@ export const ephemeralMailQueryPolicy = {
   refetchOnMount: false as const,
   refetchOnReconnect: false as const,
   refetchOnWindowFocus: false as const,
+  retry: false as const,
 };
 
 export function liveMessageListQueryOptions(
@@ -34,6 +35,22 @@ export function liveMessageListQueryOptions(
   return {
     queryKey: liveMessageListKey(view),
     queryFn: readPage,
+    ...ephemeralMailQueryPolicy,
+  };
+}
+
+export function liveMessageDetailKey(accountId: string, messageId: string) {
+  return ["message-detail", accountId, messageId] as const;
+}
+
+export function liveMessageDetailQueryOptions(
+  accountId: string,
+  messageId: string,
+  readMessage: () => Promise<LiveMessageResponse>,
+) {
+  return {
+    queryKey: liveMessageDetailKey(accountId, messageId),
+    queryFn: readMessage,
     ...ephemeralMailQueryPolicy,
   };
 }
@@ -81,14 +98,14 @@ export function cacheManualRefresh(
 
   if (response.selectedMessageId && !response.selectedMessage) {
     queryClient.removeQueries({
-      queryKey: ["message-detail", accountId, response.selectedMessageId],
+      queryKey: liveMessageDetailKey(accountId, response.selectedMessageId),
       exact: true,
     });
   }
 
   if (response.selectedMessage) {
-    queryClient.setQueryData<MessageResponse>(
-      ["message-detail", accountId, response.selectedMessage.id],
+    queryClient.setQueryData<LiveMessageResponse>(
+      liveMessageDetailKey(accountId, response.selectedMessage.id),
       (current) =>
         current
           ? {
