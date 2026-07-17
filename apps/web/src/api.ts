@@ -1,4 +1,5 @@
 import type {
+  AccountOpenResponse,
   AccountSyncStatusResponse,
   HealthStatus,
   MailAccountDiagnosticsResponse,
@@ -60,6 +61,21 @@ export async function fetchMailAccounts(
 
   if (!response.ok) {
     throw new Error("Authentication required");
+  }
+
+  return response.json();
+}
+
+export async function openMailAccount(
+  mailAccountId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<AccountOpenResponse> {
+  const response = await fetcher(`/api/mail-accounts/${encodeURIComponent(mailAccountId)}/open`, {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new Error("Mail account unavailable");
   }
 
   return response.json();

@@ -205,7 +205,11 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
     });
   });
 
-  app.post("/api/logout", (c) => {
+  app.post("/api/logout", async (c) => {
+    if (isAuthenticated(c.req.header("cookie"))) {
+      await config.gmailImapReader?.closeAllSessions();
+    }
+
     c.header("set-cookie", `${sessionCookieName}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
 
     return c.body(null, 204);
@@ -222,6 +226,33 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
         emailAddress,
       })),
     });
+  });
+
+  app.post("/api/mail-accounts/:accountId/open", async (c) => {
+    if (!isAuthenticated(c.req.header("cookie"))) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    const accountId = c.req.param("accountId");
+    const account = config.mailAccounts.find((candidate) => candidate.id === accountId);
+
+    if (!account) {
+      return c.json({ error: "Mail account not found" }, 404);
+    }
+
+    if (!config.gmailImapReader) {
+      return c.json({ error: "Live IMAP access is not configured" }, 503);
+    }
+
+    try {
+      return c.json(await config.gmailImapReader.openAccount(account));
+    } catch (error) {
+      logError("mail.account.open.error", {
+        accountId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return c.json({ error: "Mail account unavailable", accountId }, 502);
+    }
   });
 
   app.get("/ai-api/mail-accounts", (c) =>

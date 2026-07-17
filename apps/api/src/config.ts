@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, parse, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import type { MailboxActionClient } from "./mailbox-actions.js";
+import type { GmailImapReader } from "./live-imap.js";
 import type { HybridPersistence } from "./persistence.js";
 import type { MailboxSyncClient, MessageSyncClient } from "./sync.js";
 import type { SyncQueue } from "./sync-queue.js";
@@ -40,6 +41,7 @@ export type AppConfig = {
   syncQueue?: SyncQueue;
   mailboxActionClient?: MailboxActionClient;
   attachmentDownloadClient?: AttachmentDownloadClient;
+  gmailImapReader?: GmailImapReader;
 };
 
 export type AttachmentDownloadClient = {

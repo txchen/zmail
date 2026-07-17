@@ -1,6 +1,7 @@
 import { ImapFlow } from "imapflow";
 import type { ImapFlowOptions } from "imapflow";
 import { simpleParser } from "mailparser";
+import type { ImapClientSession, ImapSessionCoordinator } from "./imap-session-coordinator.js";
 import { logInfo } from "./logger.js";
 import type { MailboxActionClient, MailboxActionTarget } from "./mailbox-actions.js";
 import type { ImapMessage, MailboxSyncClient, MessageSyncClient } from "./sync.js";
@@ -70,25 +71,13 @@ type ImapAddress = {
 
 export function createGmailImapMailboxSyncClient(
   ImapFlowClient: ImapFlowConstructor = ImapFlow,
+  coordinator?: ImapSessionCoordinator<ImapClientSession>,
 ): MailboxSyncClient & MessageSyncClient & MailboxActionClient {
   return {
     async listVisibleMailboxes(account) {
       const startedAt = Date.now();
       logInfo("gmail.mailboxes.start", { accountId: account.id });
-      const client = new ImapFlowClient({
-        host: "imap.gmail.com",
-        port: 993,
-        secure: true,
-        auth: {
-          user: account.emailAddress,
-          pass: account.appPassword,
-        },
-        logger: false,
-      });
-
-      await client.connect();
-
-      try {
+      return usingImapClient(account, ImapFlowClient, coordinator, async (client) => {
         const mailboxes = await client.list({
           statusQuery: { unseen: true, messages: true, uidNext: true },
         });
@@ -108,9 +97,7 @@ export function createGmailImapMailboxSyncClient(
           uidNext: mailbox.status?.uidNext,
           selectable: !isNonSelectableMailbox(mailbox),
         }));
-      } finally {
-        await client.logout();
-      }
+      });
     },
     async listRecentMessages({ account, mailboxes: requestedMailboxes }) {
       const startedAt = Date.now();
@@ -121,20 +108,7 @@ export function createGmailImapMailboxSyncClient(
           (mailbox) => mailbox.afterUid !== undefined,
         ).length,
       });
-      const client = new ImapFlowClient({
-        host: "imap.gmail.com",
-        port: 993,
-        secure: true,
-        auth: {
-          user: account.emailAddress,
-          pass: account.appPassword,
-        },
-        logger: false,
-      });
-
-      await client.connect();
-
-      try {
+      return usingImapClient(account, ImapFlowClient, coordinator, async (client) => {
         const mailboxes = await client.list({ statusQuery: { unseen: true } });
         const messagesByIdentity = new Map<string, ImapMessage>();
         let fetchedMessageCount = 0;
@@ -246,47 +220,98 @@ export function createGmailImapMailboxSyncClient(
           returnedMessageCount: messagesByIdentity.size,
         });
         return [...messagesByIdentity.values()];
-      } finally {
-        await client.logout();
-      }
+      });
     },
     async markRead(target) {
-      await applyMessageFlag(target, "\\Seen", true, ImapFlowClient);
+      await applyMessageFlag(target, "\\Seen", true, ImapFlowClient, coordinator);
     },
     async markUnread(target) {
-      await applyMessageFlag(target, "\\Seen", false, ImapFlowClient);
+      await applyMessageFlag(target, "\\Seen", false, ImapFlowClient, coordinator);
     },
     async star(target) {
-      await applyMessageFlag(target, "\\Flagged", true, ImapFlowClient);
+      await applyMessageFlag(target, "\\Flagged", true, ImapFlowClient, coordinator);
     },
     async unstar(target) {
-      await applyMessageFlag(target, "\\Flagged", false, ImapFlowClient);
+      await applyMessageFlag(target, "\\Flagged", false, ImapFlowClient, coordinator);
     },
     async archive() {},
     async delete(target) {
-      await moveMessageToTrash(target, ImapFlowClient);
+      await moveMessageToTrash(target, ImapFlowClient, coordinator);
     },
   };
+}
+
+async function usingImapClient<Result>(
+  credentials:
+    | { id: string; emailAddress: string; appPassword: string }
+    | { accountId: string; emailAddress: string; appPassword: string },
+  ImapFlowClient: ImapFlowConstructor,
+  coordinator: ImapSessionCoordinator<ImapClientSession> | undefined,
+  operation: (client: ImapFlowClient) => Promise<Result>,
+): Promise<Result> {
+  const accountId = "id" in credentials ? credentials.id : credentials.accountId;
+
+  if (coordinator) {
+    return coordinator.run(
+      accountId,
+      async () => {
+        const client = createClient(credentials, ImapFlowClient, true);
+
+        try {
+          await client.connect();
+        } catch (error) {
+          await closeClient(client);
+          throw error;
+        }
+
+        return { client, close: () => client.logout() };
+      },
+      (session) => operation(session.client as ImapFlowClient),
+    );
+  }
+
+  const client = createClient(credentials, ImapFlowClient, false);
+  await client.connect();
+
+  try {
+    return await operation(client);
+  } finally {
+    await client.logout();
+  }
+}
+
+function createClient(
+  credentials: { emailAddress: string; appPassword: string },
+  ImapFlowClient: ImapFlowConstructor,
+  disableAutoIdle: boolean,
+): ImapFlowClient {
+  return new ImapFlowClient({
+    host: "imap.gmail.com",
+    port: 993,
+    secure: true,
+    auth: {
+      user: credentials.emailAddress,
+      pass: credentials.appPassword,
+    },
+    ...(disableAutoIdle ? { disableAutoIdle: true } : {}),
+    logger: false,
+  });
+}
+
+async function closeClient(client: ImapFlowClient): Promise<void> {
+  try {
+    await client.logout();
+  } catch {
+    // A failed connection is already unusable.
+  }
 }
 
 async function moveMessageToTrash(
   target: MailboxActionTarget,
   ImapFlowClient: ImapFlowConstructor,
+  coordinator?: ImapSessionCoordinator<ImapClientSession>,
 ): Promise<void> {
-  const client = new ImapFlowClient({
-    host: "imap.gmail.com",
-    port: 993,
-    secure: true,
-    auth: {
-      user: target.emailAddress,
-      pass: target.appPassword,
-    },
-    logger: false,
-  });
-
-  await client.connect();
-
-  try {
+  await usingImapClient(target, ImapFlowClient, coordinator, async (client) => {
     for (const mailboxId of mailboxActionCandidates(target).filter(
       (mailboxId) => !isTrashMailboxId(mailboxId),
     )) {
@@ -303,9 +328,7 @@ async function moveMessageToTrash(
     }
 
     throw new Error("Gmail message not found");
-  } finally {
-    await client.logout();
-  }
+  });
 }
 
 async function applyMessageFlag(
@@ -313,21 +336,9 @@ async function applyMessageFlag(
   flag: "\\Seen" | "\\Flagged",
   enabled: boolean,
   ImapFlowClient: ImapFlowConstructor,
+  coordinator?: ImapSessionCoordinator<ImapClientSession>,
 ): Promise<void> {
-  const client = new ImapFlowClient({
-    host: "imap.gmail.com",
-    port: 993,
-    secure: true,
-    auth: {
-      user: target.emailAddress,
-      pass: target.appPassword,
-    },
-    logger: false,
-  });
-
-  await client.connect();
-
-  try {
+  await usingImapClient(target, ImapFlowClient, coordinator, async (client) => {
     for (const mailboxId of mailboxActionCandidates(target)) {
       await client.mailboxOpen(mailboxId);
 
@@ -342,9 +353,7 @@ async function applyMessageFlag(
     }
 
     throw new Error("Gmail message not found");
-  } finally {
-    await client.logout();
-  }
+  });
 }
 
 function mailboxActionCandidates(target: MailboxActionTarget): string[] {

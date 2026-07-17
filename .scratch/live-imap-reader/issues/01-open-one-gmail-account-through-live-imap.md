@@ -4,16 +4,15 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] App login and a full page load expose configured Mail accounts without opening an IMAP connection.
-- [ ] The post-login UI renders Account selection rather than automatically opening the first account.
-- [ ] Selecting one Mail account performs one Account open operation and opens that account's Inbox.
-- [ ] Account open returns the Visible mailbox set, Special-Use roles, Mailbox counts, and the newest 50 Inbox Messages in one response.
-- [ ] Message rows expose `(accountId, X-GM-MSGID)` identity plus envelope and state metadata without fetching or returning body snippets.
-- [ ] One failing Mail account produces an account-scoped error without preventing another configured account from opening.
-- [ ] The Gmail reader is injected behind one stable application boundary that can be faked by authenticated API tests.
-- [ ] Each Mail account has at most one ordinary active IMAP session and commands for that account are serialized.
-- [ ] The active session uses a ten-second Interaction lease, resets the lease after authorized operations, disables automatic IMAP IDLE, and closes on expiry or failure.
-- [ ] Tests cover no Gmail access during login, the full Account open response, account failure isolation, one connection per account, command serialization, lease reset, and lease expiry.
-
+- [x] App login and a full page load expose configured Mail accounts without opening an IMAP connection.
+- [x] The post-login UI renders Account selection rather than automatically opening the first account.
+- [x] Selecting one Mail account performs one Account open operation and opens that account's Inbox.
+- [x] Account open returns the Visible mailbox set, Special-Use roles, Mailbox counts, and the newest 50 Inbox Messages in one response.
+- [x] Message rows expose `(accountId, X-GM-MSGID)` identity plus envelope and state metadata without fetching or returning body snippets.
+- [x] One failing Mail account produces an account-scoped error without preventing another configured account from opening.
+- [x] The Gmail reader is injected behind one stable application boundary that can be faked by authenticated API tests.
+- [x] Each Mail account has at most one ordinary active IMAP session and commands for that account are serialized.
+- [x] The active session uses a ten-second Interaction lease, resets the lease after authorized operations, disables automatic IMAP IDLE, and closes on expiry or failure.
+- [x] Tests cover no Gmail access during login, the full Account open response, account failure isolation, one connection per account, command serialization, lease reset, and lease expiry.

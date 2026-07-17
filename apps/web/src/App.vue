@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type {
+  AccountOpenResponse,
+  MailAccountSummary,
   MailAccountMailboxTree,
   MailboxAction,
   MailboxMessagesResponse,
@@ -14,7 +16,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   fetchHealth,
-  fetchMailboxTree,
+  fetchMailAccounts,
   fetchMessage,
   fetchMessagesForMailbox,
   fetchSession,
@@ -22,6 +24,7 @@ import {
   fetchUnreadMessagesForAccount,
   login,
   logout,
+  openMailAccount,
   performMailboxAction,
   scheduleSyncJob,
   searchMessagesForAccount,
@@ -48,6 +51,8 @@ const mobilePane = ref<"nav" | "list" | "message">("nav");
 const lastListRouteByAccount = ref(new Map<string, string>());
 const searchDraft = ref("");
 const loggedOut = ref(false);
+const openedMailAccounts = ref(new Map<string, MailAccountMailboxTree>());
+const accountOpenErrorId = ref("");
 const readerLayoutStorageKey = "zmail.readerLayout.v1";
 const savedReaderLayout = readSavedReaderLayout();
 const navColumnWidth = ref(savedReaderLayout.navColumnWidth);
@@ -94,9 +99,9 @@ const authenticated = computed(
   () => !loggedOut.value && sessionQuery.data.value?.authenticated === true,
 );
 
-const mailboxTreeQuery = useQuery({
-  queryKey: ["mailbox-tree"],
-  queryFn: () => fetchMailboxTree(),
+const mailAccountsQuery = useQuery({
+  queryKey: ["mail-accounts"],
+  queryFn: () => fetchMailAccounts(),
   enabled: authenticated,
 });
 
@@ -107,7 +112,8 @@ const syncJobsQuery = useQuery({
   refetchInterval: syncJobsPollingInterval,
 });
 
-const mailAccounts = computed(() => mailboxTreeQuery.data.value?.mailAccounts ?? []);
+const configuredMailAccounts = computed(() => mailAccountsQuery.data.value?.mailAccounts ?? []);
+const mailAccounts = computed(() => [...openedMailAccounts.value.values()]);
 const readerRoute = computed(() => parseReaderRoute(route.path, route.query));
 const selectedAccountId = computed(() =>
   readerRoute.value.kind === "none" ? "" : readerRoute.value.accountId,
@@ -189,7 +195,13 @@ const messageListQuery = useQuery({
 
     return { messages: [] };
   },
-  enabled: computed(() => authenticated.value && readerRoute.value.kind !== "none"),
+  enabled: computed(
+    () =>
+      authenticated.value &&
+      readerRoute.value.kind !== "none" &&
+      openedMailAccounts.value.has(selectedAccountId.value),
+  ),
+  staleTime: Number.POSITIVE_INFINITY,
 });
 
 const messages = computed(() => messageListQuery.data.value?.messages ?? []);
@@ -277,7 +289,7 @@ const loginMutation = useMutation({
     loggedOut.value = false;
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["session"] }),
-      queryClient.invalidateQueries({ queryKey: ["mailbox-tree"] }),
+      queryClient.invalidateQueries({ queryKey: ["mail-accounts"] }),
     ]);
   },
   onError: () => {
@@ -289,9 +301,42 @@ const logoutMutation = useMutation({
   mutationFn: () => logout(),
   onSuccess: async () => {
     loggedOut.value = true;
+    openedMailAccounts.value = new Map();
     queryClient.clear();
     queryClient.setQueryData(["session"], { authenticated: false });
     await router.push("/");
+  },
+});
+
+const accountOpenMutation = useMutation({
+  mutationFn: (accountId: string) => openMailAccount(accountId),
+  onSuccess: async (response) => {
+    accountOpenErrorId.value = "";
+    const account = accountTreeFromOpen(response);
+    openedMailAccounts.value = new Map(openedMailAccounts.value).set(account.id, account);
+    const inboxRoute = {
+      kind: "mailbox" as const,
+      accountId: account.id,
+      mailboxId: response.inbox.mailboxId,
+    };
+
+    queryClient.setQueryData(["message-list", inboxRoute], {
+      messages: response.inbox.messages.map((message) => ({
+        ...message,
+        stableIdentity: `gmail:${message.accountId}:${message.id}`,
+        ccRecipients: [],
+        bccRecipients: [],
+        mailboxIds: [response.inbox.mailboxId],
+        snippet: "",
+        attachmentCount: 0,
+        updatedAt: message.receivedAt,
+      })),
+      ...(response.inbox.nextCursor ? { nextCursor: response.inbox.nextCursor } : {}),
+    });
+    await router.push(mailboxPath(account.id, response.inbox.mailboxId));
+  },
+  onError: (_error, accountId) => {
+    accountOpenErrorId.value = accountId;
   },
 });
 
@@ -334,20 +379,6 @@ const mailboxActionMutation = useMutation({
     ]);
   },
 });
-
-watch(
-  () => [authenticated.value, mailAccounts.value.length, readerRoute.value.kind] as const,
-  async ([isAuthenticated, accountCount, routeKind]) => {
-    if (!isAuthenticated || accountCount === 0 || routeKind !== "none") {
-      return;
-    }
-
-    const path = defaultReaderPath(mailAccounts.value);
-    if (path) {
-      await router.replace(path);
-    }
-  },
-);
 
 watch(
   () => route.fullPath,
@@ -408,6 +439,7 @@ onBeforeUnmount(() => {
 });
 
 onMounted(() => {
+  void router.replace("/");
   document.addEventListener("visibilitychange", updateDocumentVisible);
   document.addEventListener("pointerdown", dismissSyncJobsOnOutsidePointer);
 });
@@ -857,6 +889,18 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
     await selectList(path);
   }
 }
+
+function openConfiguredAccount(account: MailAccountSummary): void {
+  accountOpenErrorId.value = "";
+  accountOpenMutation.mutate(account.id);
+}
+
+function accountTreeFromOpen(response: AccountOpenResponse): MailAccountMailboxTree {
+  return {
+    ...response.mailAccount,
+    syncStatus: "synced",
+  };
+}
 </script>
 
 <template>
@@ -908,7 +952,9 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
         class="flex h-10 shrink-0 items-center justify-between border-b border-stone-300 bg-stone-200 px-3"
       >
         <div class="min-w-0">
-          <p class="text-sm font-semibold">ZMail</p>
+          <button class="text-sm font-semibold" type="button" @click="router.push('/')">
+            ZMail
+          </button>
         </div>
         <div ref="syncJobsMenu" class="relative flex items-center gap-2">
           <UButton
@@ -1015,12 +1061,45 @@ async function selectAccountDefault(account: MailAccountMailboxTree) {
         </template>
       </UModal>
 
-      <div v-if="mailAccounts.length === 0" class="grid flex-1 place-items-center px-6 text-center">
-        <div>
-          <h2 class="text-xl font-semibold">No mail accounts synced yet</h2>
+      <div
+        v-if="readerRoute.kind === 'none'"
+        class="grid flex-1 place-items-center px-6 text-center"
+      >
+        <div class="w-full max-w-lg">
+          <h2 class="text-xl font-semibold">Choose a Mail account</h2>
           <p class="mt-2 text-sm text-slate-600">
-            Configure a Mail account and refresh the reader.
+            Zmail connects to Gmail only after you select an account.
           </p>
+          <p v-if="configuredMailAccounts.length === 0" class="mt-6 text-sm text-slate-500">
+            No Mail accounts are configured.
+          </p>
+          <div v-else class="mt-6 space-y-2 text-left">
+            <button
+              v-for="account in configuredMailAccounts"
+              :key="account.id"
+              class="flex w-full items-center justify-between rounded-md border border-stone-300 bg-white px-4 py-3 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-60"
+              type="button"
+              :disabled="accountOpenMutation.isPending.value"
+              @click="openConfiguredAccount(account)"
+            >
+              <span class="min-w-0">
+                <span class="block truncate text-sm font-semibold">{{ account.id }}</span>
+                <span class="block truncate text-xs text-slate-500">{{
+                  account.emailAddress
+                }}</span>
+              </span>
+              <span class="shrink-0 text-sm text-slate-600">
+                {{ accountOpenMutation.isPending.value ? "Opening..." : "Open Inbox" }}
+              </span>
+            </button>
+            <UAlert
+              v-if="accountOpenErrorId"
+              color="error"
+              variant="soft"
+              title="Mail account unavailable"
+              :description="`Could not open ${accountOpenErrorId}. Choose another account or retry.`"
+            />
+          </div>
         </div>
       </div>
 

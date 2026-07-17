@@ -48,6 +48,32 @@ export type MailboxTreeResponse = {
   mailAccounts: MailAccountMailboxTree[];
 };
 
+export type LiveMailAccount = MailAccountSummary & {
+  unreadCount: number;
+  mailboxes: MailboxSummary[];
+};
+
+export type LiveMessageSummary = {
+  accountId: string;
+  id: string;
+  threadId?: string;
+  subject: string;
+  sender: MessageParticipant;
+  recipients: MessageParticipant[];
+  receivedAt: string;
+  unread: boolean;
+  starred: boolean;
+};
+
+export type AccountOpenResponse = {
+  mailAccount: LiveMailAccount;
+  inbox: {
+    mailboxId: string;
+    messages: LiveMessageSummary[];
+    nextCursor?: string;
+  };
+};
+
 export type AttachmentMetadata = {
   id: string;
   filename: string;
