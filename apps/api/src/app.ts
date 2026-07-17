@@ -302,14 +302,27 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
       return c.json({ error: "Authentication required" }, 401);
     }
 
-    if (!mailboxSyncClient) {
-      return c.json({ error: "Mailbox sync is not configured" }, 503);
-    }
-
     const account = config.mailAccounts.find((candidate) => candidate.id === c.req.param("id"));
 
     if (!account) {
       return c.json({ error: "Mail account not found" }, 404);
+    }
+
+    if (config.gmailImapReader) {
+      try {
+        const request = await c.req.json();
+        return c.json(await config.gmailImapReader.refreshAccount(account, request));
+      } catch (error) {
+        logError("mail.refresh.error", {
+          accountId: account.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return c.json({ error: "Mail account unavailable", accountId: account.id }, 502);
+      }
+    }
+
+    if (!mailboxSyncClient) {
+      return c.json({ error: "Mailbox sync is not configured" }, 503);
     }
 
     const startedAt = Date.now();
@@ -445,9 +458,32 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
     }
   });
 
-  app.get("/api/mail-accounts/:accountId/mailboxes/:mailboxId/messages", (c) => {
+  app.get("/api/mail-accounts/:accountId/mailboxes/:mailboxId/messages", async (c) => {
     if (!isAuthenticated(c.req.header("cookie"))) {
       return c.json({ error: "Authentication required" }, 401);
+    }
+
+    const accountId = c.req.param("accountId");
+    const account = config.mailAccounts.find((candidate) => candidate.id === accountId);
+    if (!account) {
+      return c.json({ error: "Mail account not found" }, 404);
+    }
+    if (config.gmailImapReader) {
+      try {
+        return c.json(
+          await config.gmailImapReader.listMailbox(
+            account,
+            c.req.param("mailboxId"),
+            c.req.query("cursor"),
+          ),
+        );
+      } catch (error) {
+        logError("mail.mailbox.list.error", {
+          accountId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return c.json({ error: "Messages unavailable", accountId }, 502);
+      }
     }
 
     const cursor = parseMessageCursor(c.req.query("cursor"));
@@ -457,8 +493,8 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
 
     return c.json({
       ...persistence
-        .mailDatabaseFor(c.req.param("accountId"))
-        .listMessagesForMailbox(c.req.param("accountId"), c.req.param("mailboxId"), {
+        .mailDatabaseFor(accountId)
+        .listMessagesForMailbox(accountId, c.req.param("mailboxId"), {
           limit: parseLimit(c.req.query("limit")),
           ...(cursor ? { cursor } : {}),
           filters: {
@@ -473,14 +509,26 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
     });
   });
 
-  app.get("/api/mail-accounts/:accountId/messages/unread", (c) => {
+  app.get("/api/mail-accounts/:accountId/messages/unread", async (c) => {
     if (!isAuthenticated(c.req.header("cookie"))) {
       return c.json({ error: "Authentication required" }, 401);
     }
 
     const accountId = c.req.param("accountId");
-    if (!config.mailAccounts.some((account) => account.id === accountId)) {
+    const account = config.mailAccounts.find((candidate) => candidate.id === accountId);
+    if (!account) {
       return c.json({ error: "Mail account not found" }, 404);
+    }
+    if (config.gmailImapReader) {
+      try {
+        return c.json(await config.gmailImapReader.listUnread(account, c.req.query("cursor")));
+      } catch (error) {
+        logError("mail.unread.list.error", {
+          accountId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return c.json({ error: "Messages unavailable", accountId }, 502);
+      }
     }
 
     const cursor = parseMessageCursor(c.req.query("cursor"));

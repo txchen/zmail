@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import type {
-  AccountOpenResponse,
+  AccountRefreshRequest,
+  LiveMailAccount,
   MailAccountSummary,
   MailAccountMailboxTree,
+  LiveMessagePage,
   MailboxAction,
   MailboxMessagesResponse,
   MailboxMessageSummary,
@@ -26,17 +28,26 @@ import {
   logout,
   openMailAccount,
   performMailboxAction,
+  refreshMailAccount,
   scheduleSyncJob,
   searchMessagesForAccount,
 } from "./api";
+import {
+  appendLiveMessagePage,
+  cacheManualRefresh,
+  ephemeralMailQueryPolicy,
+  liveMessageListKey,
+} from "./live-mail-memory";
 import { renderReadableMessage } from "./message-rendering";
 import {
   defaultReaderPath,
+  listPath,
   mailboxPath,
   messagePath,
   nextMessagePathAfterRemoval,
   parseReaderRoute,
   searchPath,
+  unreadPath,
 } from "./reader-routes";
 
 const route = useRoute();
@@ -69,7 +80,8 @@ const documentVisible = ref(
   typeof document === "undefined" ? true : document.visibilityState !== "hidden",
 );
 const observedActiveSyncJobIds = ref(new Set<string>());
-const messageListPageSize = 100;
+const liveMessageListPageSize = 50;
+const searchMessageListPageSize = 100;
 let resizeStartX = 0;
 let resizeStartWidth = 0;
 
@@ -124,6 +136,33 @@ const selectedAccount = computed(() =>
 const selectedMessageId = computed(() =>
   readerRoute.value.kind === "none" ? "" : (readerRoute.value.messageId ?? ""),
 );
+const messageListView = computed(() => {
+  const current = readerRoute.value;
+
+  if (current.kind === "mailbox") {
+    return {
+      kind: current.kind,
+      accountId: current.accountId,
+      mailboxId: current.mailboxId,
+    };
+  }
+
+  if (current.kind === "unread") {
+    return {
+      kind: current.kind,
+      accountId: current.accountId,
+    };
+  }
+
+  if (current.kind === "search") {
+    return current;
+  }
+
+  return current;
+});
+const isLiveMessageListView = computed(
+  () => messageListView.value.kind === "mailbox" || messageListView.value.kind === "unread",
+);
 const searchQuery = computed(() =>
   readerRoute.value.kind === "search" ? readerRoute.value.query : "",
 );
@@ -173,23 +212,25 @@ const customSyncRangeOptions = [
 ];
 
 const messageListQuery = useQuery({
-  queryKey: computed(() => ["message-list", readerRoute.value]),
+  queryKey: computed(() => ["message-list", messageListView.value]),
   queryFn: () => {
     const current = readerRoute.value;
 
     if (current.kind === "unread") {
-      return fetchUnreadMessagesForAccount(current.accountId, { limit: messageListPageSize });
+      return fetchUnreadMessagesForAccount(current.accountId, {
+        limit: liveMessageListPageSize,
+      });
     }
 
     if (current.kind === "mailbox") {
       return fetchMessagesForMailbox(current.accountId, current.mailboxId, {
-        limit: messageListPageSize,
+        limit: liveMessageListPageSize,
       });
     }
 
     if (current.kind === "search") {
       return searchMessagesForAccount(current.accountId, current.query, {
-        limit: messageListPageSize,
+        limit: searchMessageListPageSize,
       });
     }
 
@@ -202,6 +243,19 @@ const messageListQuery = useQuery({
       openedMailAccounts.value.has(selectedAccountId.value),
   ),
   staleTime: Number.POSITIVE_INFINITY,
+  gcTime: computed(() =>
+    isLiveMessageListView.value ? ephemeralMailQueryPolicy.gcTime : 5 * 60 * 1_000,
+  ),
+  refetchInterval: false,
+  refetchOnMount: computed(() =>
+    isLiveMessageListView.value ? ephemeralMailQueryPolicy.refetchOnMount : true,
+  ),
+  refetchOnReconnect: computed(() =>
+    isLiveMessageListView.value ? ephemeralMailQueryPolicy.refetchOnReconnect : true,
+  ),
+  refetchOnWindowFocus: computed(() =>
+    isLiveMessageListView.value ? ephemeralMailQueryPolicy.refetchOnWindowFocus : true,
+  ),
 });
 
 const messages = computed(() => messageListQuery.data.value?.messages ?? []);
@@ -213,37 +267,58 @@ const loadMoreMessagesMutation = useMutation({
     const cursor = messageListNextCursor.value;
 
     if (!cursor) {
-      return { messages: [] };
+      return { view: messageListView.value, page: { messages: [] } };
     }
 
     if (current.kind === "unread") {
-      return fetchUnreadMessagesForAccount(current.accountId, {
-        limit: messageListPageSize,
-        cursor,
-      });
+      return {
+        view: {
+          kind: current.kind,
+          accountId: current.accountId,
+        },
+        page: await fetchUnreadMessagesForAccount(current.accountId, {
+          limit: liveMessageListPageSize,
+          cursor,
+        }),
+      };
     }
 
     if (current.kind === "mailbox") {
-      return fetchMessagesForMailbox(current.accountId, current.mailboxId, {
-        limit: messageListPageSize,
-        cursor,
-      });
+      return {
+        view: {
+          kind: current.kind,
+          accountId: current.accountId,
+          mailboxId: current.mailboxId,
+        },
+        page: await fetchMessagesForMailbox(current.accountId, current.mailboxId, {
+          limit: liveMessageListPageSize,
+          cursor,
+        }),
+      };
     }
 
     if (current.kind === "search") {
-      return searchMessagesForAccount(current.accountId, current.query, {
-        limit: messageListPageSize,
-        cursor,
-      });
+      return {
+        view: current,
+        page: await searchMessagesForAccount(current.accountId, current.query, {
+          limit: searchMessageListPageSize,
+          cursor,
+        }),
+      };
     }
 
-    return { messages: [] };
+    return { view: current, page: { messages: [] } };
   },
-  onSuccess: (nextPage) => {
-    queryClient.setQueryData(["message-list", readerRoute.value], {
-      messages: [...messages.value, ...nextPage.messages],
-      ...(nextPage.nextCursor ? { nextCursor: nextPage.nextCursor } : {}),
-    });
+  onSuccess: ({ view, page }) => {
+    if (view.kind === "mailbox" || view.kind === "unread") {
+      appendLiveMessagePage(queryClient, view, page as LiveMessagePage);
+      return;
+    }
+
+    queryClient.setQueryData(["message-list", view], (currentPage: MailboxMessagesResponse) => ({
+      messages: [...(currentPage?.messages ?? []), ...page.messages],
+      ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+    }));
   },
 });
 
@@ -312,7 +387,7 @@ const accountOpenMutation = useMutation({
   mutationFn: (accountId: string) => openMailAccount(accountId),
   onSuccess: async (response) => {
     accountOpenErrorId.value = "";
-    const account = accountTreeFromOpen(response);
+    const account = accountTreeFromLiveAccount(response.mailAccount);
     openedMailAccounts.value = new Map(openedMailAccounts.value).set(account.id, account);
     const inboxRoute = {
       kind: "mailbox" as const,
@@ -320,23 +395,60 @@ const accountOpenMutation = useMutation({
       mailboxId: response.inbox.mailboxId,
     };
 
-    queryClient.setQueryData(["message-list", inboxRoute], {
-      messages: response.inbox.messages.map((message) => ({
-        ...message,
-        stableIdentity: `gmail:${message.accountId}:${message.id}`,
-        ccRecipients: [],
-        bccRecipients: [],
-        mailboxIds: [response.inbox.mailboxId],
-        snippet: "",
-        attachmentCount: 0,
-        updatedAt: message.receivedAt,
-      })),
+    queryClient.setQueryData(liveMessageListKey(inboxRoute), {
+      messages: response.inbox.messages,
       ...(response.inbox.nextCursor ? { nextCursor: response.inbox.nextCursor } : {}),
     });
     await router.push(mailboxPath(account.id, response.inbox.mailboxId));
   },
   onError: (_error, accountId) => {
     accountOpenErrorId.value = accountId;
+  },
+});
+
+const manualRefreshMutation = useMutation({
+  mutationFn: async (accountId: string) => {
+    const current = readerRoute.value;
+    let view: AccountRefreshRequest["view"];
+
+    if (current.kind === "mailbox" && current.accountId === accountId) {
+      view = { kind: "mailbox", mailboxId: current.mailboxId };
+    } else if (current.kind === "unread" && current.accountId === accountId) {
+      view = { kind: "unread" };
+    } else {
+      const account = openedMailAccounts.value.get(accountId);
+      const inbox = account?.mailboxes.find((mailbox) => mailbox.systemRole === "inbox");
+
+      if (!inbox) {
+        throw new Error("Inbox unavailable");
+      }
+      view = { kind: "mailbox", mailboxId: inbox.id };
+    }
+
+    const response = await refreshMailAccount(accountId, {
+      view,
+      ...(current.kind !== "none" && current.accountId === accountId && current.messageId
+        ? { selectedMessageId: current.messageId }
+        : {}),
+    });
+
+    return { accountId, response };
+  },
+  onSuccess: async ({ accountId, response }) => {
+    if (
+      response.selectedMessageId &&
+      !response.selectedMessage &&
+      selectedAccountId.value === accountId &&
+      selectedMessageId.value === response.selectedMessageId
+    ) {
+      await router.replace(listPath(readerRoute.value, route.fullPath));
+    }
+
+    openedMailAccounts.value = new Map(openedMailAccounts.value).set(
+      accountId,
+      accountTreeFromLiveAccount(response.mailAccount),
+    );
+    cacheManualRefresh(queryClient, accountId, response);
   },
 });
 
@@ -547,6 +659,12 @@ function syncJobsPollingInterval(query: { state: { data: SyncJobsResponse | unde
 
 function accountContextMenuItems(account: MailAccountMailboxTree) {
   return [
+    {
+      label: "Refresh",
+      icon: "i-lucide-refresh-cw",
+      disabled: manualRefreshMutation.isPending.value,
+      onSelect: () => manualRefreshMutation.mutate(account.id),
+    },
     {
       label: "Sync now",
       icon: "i-lucide-refresh-cw",
@@ -895,9 +1013,9 @@ function openConfiguredAccount(account: MailAccountSummary): void {
   accountOpenMutation.mutate(account.id);
 }
 
-function accountTreeFromOpen(response: AccountOpenResponse): MailAccountMailboxTree {
+function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailboxTree {
   return {
-    ...response.mailAccount,
+    ...account,
     syncStatus: "synced",
   };
 }
@@ -1150,6 +1268,26 @@ function accountTreeFromOpen(response: AccountOpenResponse): MailAccountMailboxT
                   </div>
                 </UContextMenu>
                 <div v-if="!accountCollapsed(account.id)" class="mt-1 space-y-0.5">
+                  <button
+                    class="flex w-full items-center justify-between rounded-md px-6 py-1 text-left text-xs hover:bg-stone-200"
+                    :class="
+                      readerRoute.kind === 'unread' && readerRoute.accountId === account.id
+                        ? 'bg-stone-200'
+                        : ''
+                    "
+                    type="button"
+                    @click="selectList(unreadPath(account.id))"
+                  >
+                    <span>Unread</span>
+                    <UBadge
+                      v-if="account.unreadCount > 0"
+                      color="neutral"
+                      size="sm"
+                      variant="subtle"
+                    >
+                      {{ account.unreadCount }}
+                    </UBadge>
+                  </button>
                   <div
                     v-for="row in visibleMailboxRows(account)"
                     :key="row.key"
@@ -1312,12 +1450,6 @@ function accountTreeFromOpen(response: AccountOpenResponse): MailAccountMailboxT
                   :class="message.unread ? 'font-bold text-slate-950' : 'text-slate-700'"
                 >
                   {{ message.subject || "(No subject)" }}
-                </p>
-                <p
-                  class="mt-0.5 line-clamp-2 text-[11px] leading-4"
-                  :class="message.unread ? 'font-medium text-slate-700' : 'text-slate-500'"
-                >
-                  {{ message.snippet }}
                 </p>
               </button>
               <div v-if="messageListNextCursor" class="p-3">

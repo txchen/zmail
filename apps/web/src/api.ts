@@ -1,7 +1,10 @@
 import type {
   AccountOpenResponse,
+  AccountRefreshRequest,
+  AccountRefreshResponse,
   AccountSyncStatusResponse,
   HealthStatus,
+  LiveMessagePage,
   MailAccountDiagnosticsResponse,
   MailboxMessagesResponse,
   MailboxAction,
@@ -93,13 +96,35 @@ export async function fetchMailboxTree(
   return response.json();
 }
 
+export function refreshMailAccount(
+  mailAccountId: string,
+  request: AccountRefreshRequest,
+  fetcher?: typeof fetch,
+): Promise<AccountRefreshResponse>;
+/** @deprecated Retained for the persisted-mail path until ticket 07 removes legacy surfaces. */
+export function refreshMailAccount(
+  mailAccountId: string,
+  fetcher?: typeof fetch,
+): Promise<MailboxTreeResponse>;
 export async function refreshMailAccount(
   mailAccountId: string,
+  requestOrFetcher: AccountRefreshRequest | typeof fetch = fetch,
   fetcher: typeof fetch = fetch,
-): Promise<MailboxTreeResponse> {
-  const response = await fetcher(`/api/mail-accounts/${mailAccountId}/refresh`, {
-    method: "POST",
-  });
+): Promise<AccountRefreshResponse | MailboxTreeResponse> {
+  const request = typeof requestOrFetcher === "function" ? undefined : requestOrFetcher;
+  const resolvedFetcher = typeof requestOrFetcher === "function" ? requestOrFetcher : fetcher;
+  const response = await resolvedFetcher(
+    `/api/mail-accounts/${encodeURIComponent(mailAccountId)}/refresh`,
+    {
+      method: "POST",
+      ...(request
+        ? {
+            body: JSON.stringify(request),
+            headers: { "content-type": "application/json" },
+          }
+        : {}),
+    },
+  );
 
   if (!response.ok) {
     throw new Error("Refresh failed");
@@ -113,7 +138,7 @@ export async function fetchMessagesForMailbox(
   mailboxId: string,
   optionsOrFetcher: { limit?: number; cursor?: string } | typeof fetch = {},
   fetcher: typeof fetch = fetch,
-): Promise<MailboxMessagesResponse> {
+): Promise<LiveMessagePage> {
   const options = typeof optionsOrFetcher === "function" ? {} : optionsOrFetcher;
   const resolvedFetcher = typeof optionsOrFetcher === "function" ? optionsOrFetcher : fetcher;
   const search = new URLSearchParams();
@@ -141,7 +166,7 @@ export async function fetchUnreadMessagesForAccount(
   mailAccountId: string,
   optionsOrFetcher: { limit?: number; cursor?: string } | typeof fetch = {},
   fetcher: typeof fetch = fetch,
-): Promise<MailboxMessagesResponse> {
+): Promise<LiveMessagePage> {
   const options = typeof optionsOrFetcher === "function" ? {} : optionsOrFetcher;
   const resolvedFetcher = typeof optionsOrFetcher === "function" ? optionsOrFetcher : fetcher;
   const search = new URLSearchParams();

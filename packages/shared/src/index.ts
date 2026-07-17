@@ -74,6 +74,32 @@ export type AccountOpenResponse = {
   };
 };
 
+export type LiveMessagePage = {
+  messages: LiveMessageSummary[];
+  nextCursor?: string;
+};
+
+export type LiveMessageListView =
+  | {
+      kind: "mailbox";
+      mailboxId: string;
+    }
+  | {
+      kind: "unread";
+    };
+
+export type AccountRefreshRequest = {
+  view: LiveMessageListView;
+  selectedMessageId?: string;
+};
+
+export type AccountRefreshResponse = {
+  mailAccount: LiveMailAccount;
+  view: LiveMessageListView & LiveMessagePage;
+  selectedMessageId?: string;
+  selectedMessage?: LiveMessageSummary;
+};
+
 export type AttachmentMetadata = {
   id: string;
   filename: string;
