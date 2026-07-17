@@ -33,6 +33,48 @@ describe("readable Message rendering", () => {
       '<p>Hello</p><img data-remote-src="https://tracker.example/open.png"><a target="_blank" rel="noopener noreferrer">bad</a>',
     );
     expect(rendered.srcdoc).not.toContain("<script>");
+    expect(rendered.srcdoc).toContain(
+      `content="default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'none'; connect-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'"`,
+    );
+  });
+
+  it("uses CSP to block every HTML and CSS network path until remote images are allowed", () => {
+    const readableBody = `
+      <picture>
+        <source srcset="https://images.example/wide.png 2x">
+        <img srcset="https://images.example/small.png 1x" src="data:image/png;base64,AA==">
+      </picture>
+      <div style="background-image: url(https://images.example/background.png)">Hello</div>
+      <style>
+        @import url("https://styles.example/tracker.css");
+        p { background-image: url("https://images.example/style.png"); }
+      </style>
+      <link rel="stylesheet" href="https://styles.example/message.css">
+    `;
+
+    const blocked = renderReadableMessage({
+      accountId: "personal",
+      messageId: "message-1",
+      readableBody,
+      inlineResources: [],
+      showRemoteImages: false,
+    });
+    const allowed = renderReadableMessage({
+      accountId: "personal",
+      messageId: "message-1",
+      readableBody,
+      inlineResources: [],
+      showRemoteImages: true,
+    });
+
+    expect(blocked.blockedRemoteImageCount).toBe(4);
+    expect(blocked.srcdoc).toContain("img-src 'self' data:;");
+    expect(blocked.srcdoc).not.toContain("img-src 'self' data: http: https:");
+    expect(allowed.srcdoc).toContain("img-src 'self' data: http: https:;");
+    expect(allowed.srcdoc).toContain("style-src 'unsafe-inline';");
+    expect(allowed.srcdoc).not.toContain("style-src 'unsafe-inline' http: https:");
+    expect(allowed.srcdoc).toContain("script-src 'none'");
+    expect(allowed.srcdoc).toContain("form-action 'none'");
   });
 
   it("escapes plain text when HTML is unavailable and can show remote images manually", () => {
@@ -55,6 +97,7 @@ describe("readable Message rendering", () => {
     const rendered = renderReadableMessage({
       accountId: "personal",
       messageId: "message-1",
+      applicationOrigin: "https://zmail.test",
       readableBody: '<img src="cid:image-1@example.com">',
       inlineResources: [{ id: "inline-0", contentId: "image-1@example.com" }],
       showRemoteImages: false,
@@ -63,6 +106,29 @@ describe("readable Message rendering", () => {
     expect(rendered.srcdoc).toContain(
       '<img src="/api/mail-accounts/personal/messages/message-1/inline-resources/inline-0">',
     );
+    expect(rendered.srcdoc).toContain("img-src 'self' data: https://zmail.test;");
+  });
+
+  it("does not interpolate malformed or non-origin application URLs into CSP", () => {
+    for (const applicationOrigin of [
+      'https://zmail.test"; img-src https://evil.test',
+      "https://user:secret@zmail.test",
+      "https://zmail.test/path",
+      "javascript:alert(1)",
+    ]) {
+      const rendered = renderReadableMessage({
+        accountId: "personal",
+        messageId: "message-1",
+        applicationOrigin,
+        readableBody: '<img src="cid:image-1@example.com">',
+        inlineResources: [{ id: "inline-0", contentId: "image-1@example.com" }],
+        showRemoteImages: false,
+      });
+
+      expect(rendered.srcdoc).toContain("img-src 'self' data:;");
+      expect(rendered.srcdoc).not.toContain(applicationOrigin);
+      expect(rendered.srcdoc).not.toContain("evil.test");
+    }
   });
 
   it("builds an encoded Attachment URL used only by the explicit Download control", () => {

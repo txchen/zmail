@@ -15,6 +15,7 @@ import { useRoute, useRouter } from "vue-router";
 import {
   fetchHealth,
   downloadAttachment,
+  fetchInlineResource,
   fetchMailAccounts,
   fetchMessage,
   fetchMessagesForMailbox,
@@ -42,6 +43,7 @@ import {
   createMailboxActionController,
 } from "./mailbox-action-controller";
 import { confirmedRenderedMessageKey, createReadDwellController } from "./read-dwell";
+import { readSavedReaderLayout, saveReaderLayout } from "./reader-layout";
 import {
   defaultReaderPath,
   listPath,
@@ -69,18 +71,18 @@ const searchDraft = ref("");
 const loggedOut = ref(false);
 const openedMailAccounts = ref(new Map<string, LiveMailAccount>());
 const accountOpenErrorId = ref("");
-const readerLayoutStorageKey = "zmail.readerLayout.v1";
 const savedReaderLayout = readSavedReaderLayout();
 const navColumnWidth = ref(savedReaderLayout.navColumnWidth);
 const listColumnWidth = ref(savedReaderLayout.listColumnWidth);
-const collapsedAccounts = ref(new Set(savedReaderLayout.collapsedAccounts));
-const collapsedMailboxGroups = ref(new Set(savedReaderLayout.collapsedMailboxGroups));
+const collapsedAccounts = ref(new Set<string>());
+const collapsedMailboxGroups = ref(new Set<string>());
 const activeResize = ref<"nav" | "list" | null>(null);
 const documentVisible = ref(
   typeof document === "undefined" ? true : document.visibilityState !== "hidden",
 );
 const windowFocused = ref(typeof document === "undefined" ? true : document.hasFocus());
 const renderedBodyMessageKey = ref("");
+const inlineResourceDataUrls = ref(new Map<string, string>());
 const mailboxActionError = ref("");
 const failedManualRefresh = ref<{ accountId: string; request: AccountRefreshRequest } | null>(null);
 const attachmentDownloadError = ref<AttachmentDownloadRequest | null>(null);
@@ -89,6 +91,8 @@ const liveMessageListPageSize = 50;
 let resizeStartX = 0;
 let resizeStartWidth = 0;
 let attachmentDownloadAbortController: AbortController | undefined;
+let inlineResourceAbortController: AbortController | undefined;
+let inlineResourceMessageKey = "";
 
 type MailboxTreeNode = {
   id: string;
@@ -255,9 +259,13 @@ const renderedMessage = computed(() => {
   return renderReadableMessage({
     accountId: selectedMessage.value.accountId,
     messageId: selectedMessage.value.id,
+    applicationOrigin: window.location.origin,
     readableBody: selectedMessage.value.readableBody,
     plainTextBody: selectedMessage.value.plainTextBody,
-    inlineResources: selectedMessage.value.inlineResources,
+    inlineResources: selectedMessage.value.inlineResources.map((resource) => ({
+      ...resource,
+      url: inlineResourceDataUrls.value.get(resource.id) ?? "data:,",
+    })),
     showRemoteImages: selectedMessageRemoteImagesAllowed.value,
   });
 });
@@ -282,6 +290,9 @@ const logoutMutation = useMutation({
   onMutate: async () => {
     readDwellController.cancel();
     attachmentDownloadAbortController?.abort();
+    inlineResourceAbortController?.abort();
+    inlineResourceMessageKey = "";
+    inlineResourceDataUrls.value = new Map();
     loggedOut.value = true;
     openedMailAccounts.value = new Map();
     remoteImagesAllowedMessageKeys.value = new Set();
@@ -471,13 +482,17 @@ watch([navColumnWidth, listColumnWidth], ([nextNavWidth, nextListWidth]) => {
   saveReaderLayout(nextNavWidth, nextListWidth);
 });
 
-watch([collapsedAccounts, collapsedMailboxGroups], () => {
-  saveReaderLayout(navColumnWidth.value, listColumnWidth.value);
-});
-
 watch([selectedAccountId, selectedMessageId], () => {
   renderedBodyMessageKey.value = "";
 });
+
+watch(
+  selectedMessage,
+  (message) => {
+    void loadInlineResourceDataUrls(message);
+  },
+  { immediate: true },
+);
 
 watch(
   [
@@ -508,14 +523,68 @@ watch(
 
 onBeforeUnmount(() => {
   stopColumnResize();
+  inlineResourceAbortController?.abort();
   document.removeEventListener("visibilitychange", updateDocumentVisible);
   window.removeEventListener("focus", updateWindowFocus);
   window.removeEventListener("blur", updateWindowFocus);
   readDwellController.cancel();
 });
 
+async function loadInlineResourceDataUrls(message: LiveMessageDetail | null): Promise<void> {
+  const messageKey = message ? messageRemoteImagesKey(message) : "";
+  if (messageKey === inlineResourceMessageKey) {
+    return;
+  }
+  inlineResourceMessageKey = messageKey;
+  inlineResourceAbortController?.abort();
+  inlineResourceDataUrls.value = new Map();
+  if (!message || message.inlineResources.length === 0) {
+    return;
+  }
+
+  const controller = new AbortController();
+  inlineResourceAbortController = controller;
+  const entries = await Promise.all(
+    message.inlineResources.map(async (resource) => {
+      try {
+        const blob = await fetchInlineResource(
+          message.accountId,
+          message.id,
+          resource.id,
+          fetch,
+          controller.signal,
+        );
+        return [resource.id, await blobDataUrl(blob)] as const;
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+
+  if (inlineResourceAbortController !== controller || selectedMessageKey.value !== messageKey) {
+    return;
+  }
+  inlineResourceDataUrls.value = new Map(entries.filter((entry) => entry !== undefined));
+}
+
+function blobDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () =>
+      typeof reader.result === "string"
+        ? resolve(reader.result)
+        : reject(new Error("Inline message resource could not be read")),
+    );
+    reader.addEventListener("error", () =>
+      reject(reader.error ?? new Error("Inline message resource could not be read")),
+    );
+    reader.readAsDataURL(blob);
+  });
+}
+
 onMounted(() => {
   void router.replace("/");
+  saveReaderLayout(navColumnWidth.value, listColumnWidth.value);
   document.addEventListener("visibilitychange", updateDocumentVisible);
   window.addEventListener("focus", updateWindowFocus);
   window.addEventListener("blur", updateWindowFocus);
@@ -779,56 +848,6 @@ function stopColumnResize() {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
-}
-
-function readSavedReaderLayout(): {
-  navColumnWidth: number;
-  listColumnWidth: number;
-  collapsedAccounts: string[];
-  collapsedMailboxGroups: string[];
-} {
-  const fallback = {
-    navColumnWidth: 256,
-    listColumnWidth: 384,
-    collapsedAccounts: [] as string[],
-    collapsedMailboxGroups: [] as string[],
-  };
-
-  try {
-    const parsed = JSON.parse(localStorage.getItem(readerLayoutStorageKey) ?? "null") as Partial<{
-      navColumnWidth: number;
-      listColumnWidth: number;
-      collapsedAccounts: string[];
-      collapsedMailboxGroups: string[];
-    }> | null;
-
-    if (!parsed) {
-      return fallback;
-    }
-
-    return {
-      navColumnWidth: clamp(Number(parsed.navColumnWidth), 192, 384),
-      listColumnWidth: clamp(Number(parsed.listColumnWidth), 280, 640),
-      collapsedAccounts: Array.isArray(parsed.collapsedAccounts) ? parsed.collapsedAccounts : [],
-      collapsedMailboxGroups: Array.isArray(parsed.collapsedMailboxGroups)
-        ? parsed.collapsedMailboxGroups
-        : [],
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-function saveReaderLayout(navWidth: number, listWidth: number) {
-  localStorage.setItem(
-    readerLayoutStorageKey,
-    JSON.stringify({
-      navColumnWidth: navWidth,
-      listColumnWidth: listWidth,
-      collapsedAccounts: [...collapsedAccounts.value],
-      collapsedMailboxGroups: [...collapsedMailboxGroups.value],
-    }),
-  );
 }
 
 function senderLabel(message: LiveMessageSummary): string {

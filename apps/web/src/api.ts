@@ -202,6 +202,27 @@ export async function fetchMessage(
   return response.json();
 }
 
+export async function fetchInlineResource(
+  mailAccountId: string,
+  messageId: string,
+  resourceId: string,
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const response = await fetcher(
+    `/api/mail-accounts/${encodeURIComponent(mailAccountId)}/messages/${encodeURIComponent(
+      messageId,
+    )}/inline-resources/${encodeURIComponent(resourceId)}`,
+    { signal },
+  );
+
+  if (!response.ok) {
+    throw new Error("Inline message resource unavailable");
+  }
+
+  return response.blob();
+}
+
 export function attachmentDownloadUrl(
   mailAccountId: string,
   messageId: string,

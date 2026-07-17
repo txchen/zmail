@@ -92,10 +92,10 @@ type LiveImapClient = {
   fetch(
     range: string,
     query: {
-      flags: true;
-      envelope: true;
-      internalDate: true;
-      threadId: true;
+      flags?: true;
+      envelope?: true;
+      internalDate?: true;
+      threadId?: true;
     },
     options?: { uid: true },
   ): AsyncIterable<{
@@ -973,11 +973,12 @@ type SearchCursorMailbox = {
 };
 
 type SearchCursor = {
-  version: 1;
+  version: 2;
   accountId: string;
   queryHash: string;
   mailboxes: Partial<Record<SearchSystemMailboxRole, SearchCursorMailbox>>;
-  seenMessageIds: string[];
+  lastReceivedAt: string;
+  lastMessageId: string;
 };
 
 async function readSearchPage(
@@ -994,7 +995,10 @@ async function readSearchPage(
   }
 
   const includedRoles = searchIncludedRoles(query);
-  const candidates: LiveMessageSummary[] = [];
+  if (cursor && [...includedRoles].some((role) => cursor.mailboxes[role] === undefined)) {
+    throw new Error("Invalid cursor");
+  }
+  const candidates: MessageSortKey[] = [];
   const nextMailboxes: SearchCursor["mailboxes"] = {};
 
   for (const role of ["allMail", "spam", "trash"] as const) {
@@ -1025,45 +1029,32 @@ async function readSearchPage(
       uidValidity,
       upperUid,
     };
-    candidates.push(
-      ...(await fetchMessageSummariesByUid(client, accountId, snapshotUids)).map(
-        ({ uid: _uid, ...message }) => message,
-      ),
-    );
+    candidates.push(...(await fetchMessageSortKeysByUid(client, mailbox.path, snapshotUids)));
   }
 
-  const priorSeen = new Set(cursor?.seenMessageIds ?? []);
-  const pageSeen = new Set<string>();
-  const messages = candidates
-    .sort(
-      (first, second) =>
-        Date.parse(second.receivedAt) - Date.parse(first.receivedAt) ||
-        second.id.localeCompare(first.id),
-    )
-    .filter((message) => {
-      if (priorSeen.has(message.id) || pageSeen.has(message.id)) {
-        return false;
-      }
-      pageSeen.add(message.id);
-      return true;
-    })
-    .slice(0, 50);
-  const emittedIds = new Set(messages.map((message) => message.id));
-
-  const hasNextPage = candidates.some(
-    (candidate) => !priorSeen.has(candidate.id) && !emittedIds.has(candidate.id),
+  const eligible = deduplicateSortedKeys(candidates).filter(
+    (candidate) =>
+      !cursor ||
+      compareSortTuple(candidate, {
+        receivedAt: cursor.lastReceivedAt,
+        id: cursor.lastMessageId,
+      }) > 0,
   );
+  const pageKeys = eligible.slice(0, 50);
+  const messages = await fetchCurrentPageSummaries(client, accountId, pageKeys);
+  const last = pageKeys.at(-1);
 
   return {
     messages,
-    ...(hasNextPage
+    ...(eligible.length > pageKeys.length && last
       ? {
           nextCursor: encodeSearchCursor({
-            version: 1,
+            version: 2,
             accountId,
             queryHash,
             mailboxes: nextMailboxes,
-            seenMessageIds: [...priorSeen, ...emittedIds],
+            lastReceivedAt: last.receivedAt,
+            lastMessageId: last.id,
           }),
         }
       : {}),
@@ -1122,12 +1113,13 @@ function decodeSearchCursor(encodedCursor: string): SearchCursor {
       Buffer.from(encodedCursor, "base64url").toString("utf8"),
     ) as SearchCursor;
     if (
-      cursor.version !== 1 ||
+      cursor.version !== 2 ||
       typeof cursor.accountId !== "string" ||
       typeof cursor.queryHash !== "string" ||
       !cursor.mailboxes ||
-      !Array.isArray(cursor.seenMessageIds) ||
-      !cursor.seenMessageIds.every((id) => typeof id === "string")
+      typeof cursor.lastReceivedAt !== "string" ||
+      typeof cursor.lastMessageId !== "string" ||
+      Number.isNaN(Date.parse(cursor.lastReceivedAt))
     ) {
       throw new Error("Invalid cursor");
     }
@@ -1151,12 +1143,14 @@ function decodeSearchCursor(encodedCursor: string): SearchCursor {
 type CursorScope = "mailbox" | "unread";
 
 type LiveMessageCursor = {
-  version: 1;
+  version: 2;
   accountId: string;
   scope: CursorScope;
   mailboxId: string;
   uidValidity: string;
-  beforeUid: number;
+  upperUid: number;
+  lastReceivedAt: string;
+  lastMessageId: string;
 };
 
 async function readMessagePage(
@@ -1189,24 +1183,35 @@ async function readMessagePage(
     { uid: true },
   );
   const matchingUids = searchResult || [];
-  const eligibleUids = matchingUids
-    .filter((uid) => !cursor || uid < cursor.beforeUid)
-    .sort((first, second) => first - second);
-  const pageUids = eligibleUids.slice(-50);
-  const messages = await readMessagesByUid(client, accountId, pageUids);
-  const oldestUid = pageUids[0];
+  const upperUid =
+    cursor?.upperUid ?? matchingUids.reduce((highestUid, uid) => Math.max(highestUid, uid), 0);
+  const snapshotUids = matchingUids.filter((uid) => uid <= upperUid);
+  const keys = await fetchMessageSortKeysByUid(client, mailboxId, snapshotUids);
+  const eligible = deduplicateSortedKeys(keys).filter(
+    (candidate) =>
+      !cursor ||
+      compareSortTuple(candidate, {
+        receivedAt: cursor.lastReceivedAt,
+        id: cursor.lastMessageId,
+      }) > 0,
+  );
+  const pageKeys = eligible.slice(0, 50);
+  const messages = await fetchCurrentPageSummaries(client, accountId, pageKeys, mailboxId);
+  const last = pageKeys.at(-1);
 
   return {
     messages,
-    ...(eligibleUids.length > pageUids.length && oldestUid !== undefined
+    ...(eligible.length > pageKeys.length && last
       ? {
           nextCursor: encodeCursor({
-            version: 1,
+            version: 2,
             accountId,
             scope,
             mailboxId,
             uidValidity,
-            beforeUid: oldestUid,
+            upperUid,
+            lastReceivedAt: last.receivedAt,
+            lastMessageId: last.id,
           }),
         }
       : {}),
@@ -1221,7 +1226,7 @@ async function readMessagesByUid(
   const messages = await fetchMessageSummariesByUid(client, accountId, uids);
   const seenMessageIds = new Set<string>();
   return messages
-    .sort((first, second) => second.uid - first.uid)
+    .sort(compareMessageSummaries)
     .filter((message) => {
       if (seenMessageIds.has(message.id)) {
         return false;
@@ -1230,6 +1235,93 @@ async function readMessagesByUid(
       return true;
     })
     .map(({ uid: _uid, ...message }) => message);
+}
+
+type MessageSortKey = {
+  mailboxId: string;
+  uid: number;
+  id: string;
+  receivedAt: string;
+};
+
+async function fetchMessageSortKeysByUid(
+  client: LiveImapClient,
+  mailboxId: string,
+  uids: number[],
+): Promise<MessageSortKey[]> {
+  const keys: MessageSortKey[] = [];
+  if (uids.length === 0) {
+    return keys;
+  }
+
+  for await (const message of client.fetch(uids.join(","), { internalDate: true }, { uid: true })) {
+    if (!message.emailId || message.uid === undefined) {
+      throw new Error("Gmail Message is missing X-GM-MSGID or UID");
+    }
+    keys.push({
+      mailboxId,
+      uid: message.uid,
+      id: message.emailId,
+      receivedAt: normalizeDate(message.internalDate).toISOString(),
+    });
+  }
+  return keys;
+}
+
+function deduplicateSortedKeys(keys: MessageSortKey[]): MessageSortKey[] {
+  const seen = new Set<string>();
+  return keys.sort(compareSortTuple).filter((key) => {
+    if (seen.has(key.id)) {
+      return false;
+    }
+    seen.add(key.id);
+    return true;
+  });
+}
+
+function compareSortTuple(
+  first: Pick<MessageSortKey, "receivedAt" | "id">,
+  second: Pick<MessageSortKey, "receivedAt" | "id">,
+): number {
+  return (
+    Date.parse(second.receivedAt) - Date.parse(first.receivedAt) ||
+    second.id.localeCompare(first.id)
+  );
+}
+
+async function fetchCurrentPageSummaries(
+  client: LiveImapClient,
+  accountId: string,
+  pageKeys: MessageSortKey[],
+  currentMailboxId?: string,
+): Promise<LiveMessageSummary[]> {
+  const byId = new Map<string, LiveMessageSummary>();
+  const keysByMailbox = new Map<string, MessageSortKey[]>();
+  for (const key of pageKeys) {
+    keysByMailbox.set(key.mailboxId, [...(keysByMailbox.get(key.mailboxId) ?? []), key]);
+  }
+
+  for (const [mailboxId, keys] of keysByMailbox) {
+    if (mailboxId !== currentMailboxId) {
+      await client.mailboxOpen(mailboxId, { readOnly: true });
+      currentMailboxId = mailboxId;
+    }
+    for (const message of await fetchMessageSummariesByUid(
+      client,
+      accountId,
+      keys.map((key) => key.uid),
+    )) {
+      byId.set(message.id, message);
+    }
+  }
+
+  return pageKeys.map((key) => {
+    const message = byId.get(key.id);
+    if (!message) {
+      throw new Error("Gmail Message summary disappeared while reading the current page");
+    }
+    return message;
+  });
 }
 
 async function fetchMessageSummariesByUid(
@@ -1261,7 +1353,7 @@ async function fetchMessageSummariesByUid(
         subject: message.envelope?.subject ?? "(no subject)",
         sender: participant(message.envelope?.from?.[0]),
         recipients: (message.envelope?.to ?? []).map(participant),
-        receivedAt: normalizeDate(message.envelope?.date ?? message.internalDate).toISOString(),
+        receivedAt: normalizeDate(message.internalDate).toISOString(),
         unread: !message.flags?.has("\\Seen"),
         starred: message.flags?.has("\\Flagged") === true,
         uid: message.uid,
@@ -1302,13 +1394,16 @@ function decodeCursor(encodedCursor: string): LiveMessageCursor {
     ) as Partial<LiveMessageCursor>;
 
     if (
-      cursor.version !== 1 ||
+      cursor.version !== 2 ||
       typeof cursor.accountId !== "string" ||
       (cursor.scope !== "mailbox" && cursor.scope !== "unread") ||
       typeof cursor.mailboxId !== "string" ||
       typeof cursor.uidValidity !== "string" ||
-      !Number.isSafeInteger(cursor.beforeUid) ||
-      (cursor.beforeUid ?? 0) <= 0
+      !Number.isSafeInteger(cursor.upperUid) ||
+      (cursor.upperUid ?? 0) <= 0 ||
+      typeof cursor.lastReceivedAt !== "string" ||
+      Number.isNaN(Date.parse(cursor.lastReceivedAt)) ||
+      typeof cursor.lastMessageId !== "string"
     ) {
       throw new Error("Invalid cursor");
     }
@@ -1317,6 +1412,13 @@ function decodeCursor(encodedCursor: string): LiveMessageCursor {
   } catch {
     throw new Error("Invalid cursor");
   }
+}
+
+function compareMessageSummaries(
+  first: LiveMessageSummary & { uid: number },
+  second: LiveMessageSummary & { uid: number },
+): number {
+  return compareSortTuple(first, second);
 }
 
 function participant(address: ImapAddress | undefined): MessageParticipant {

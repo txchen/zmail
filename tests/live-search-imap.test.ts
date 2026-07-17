@@ -50,6 +50,12 @@ describe("Gmail Live IMAP Search mapping", () => {
       "open:[Gmail]/Trash",
       "search:[Gmail]/Trash: from:sender in:anywhere ",
       "fetch:[Gmail]/Trash",
+      "open:[Gmail]/Spam",
+      "fetch:[Gmail]/Spam",
+      "open:[Gmail]/All Mail",
+      "fetch:[Gmail]/All Mail",
+      "open:[Gmail]/Trash",
+      "fetch:[Gmail]/Trash",
     ]);
     expect(page.messages.map((item) => item.id)).toEqual([
       "spam-only",
@@ -57,6 +63,7 @@ describe("Gmail Live IMAP Search mapping", () => {
       "all-only",
       "trash-only",
     ]);
+    expect(fetch).toHaveBeenCalledWith(expect.any(String), { internalDate: true }, { uid: true });
     expect(fetch).toHaveBeenCalledWith(
       expect.any(String),
       {
@@ -66,6 +73,10 @@ describe("Gmail Live IMAP Search mapping", () => {
         threadId: true,
       },
       { uid: true },
+    );
+    const fullSummaryFetches = fetch.mock.calls.filter((call) => call[1]?.envelope);
+    expect(fullSummaryFetches.reduce((count, call) => count + call[0].split(",").length, 0)).toBe(
+      4,
     );
   });
 
@@ -132,6 +143,9 @@ describe("Gmail Live IMAP Search mapping", () => {
     expect(first.messages[1]?.id).toBe("message-55");
     expect(first.nextCursor).toBeTypeOf("string");
     expect(first.nextCursor).not.toContain("has:attachment");
+    expect(
+      JSON.parse(Buffer.from(first.nextCursor!, "base64url").toString("utf8")),
+    ).not.toHaveProperty("seenMessageIds");
     expect(second.messages.map((item) => item.id)).toEqual([
       "message-6",
       "message-5",
@@ -143,6 +157,48 @@ describe("Gmail Live IMAP Search mapping", () => {
     await expect(reader.search(account, "different", first.nextCursor)).rejects.toThrow(
       "Invalid cursor",
     );
+    const sortKeyFetches = fetch.mock.calls.filter((call) => !call[1]?.envelope);
+    const fullSummaryFetches = fetch.mock.calls.filter((call) => call[1]?.envelope);
+    expect(sortKeyFetches).toHaveLength(2);
+    expect(sortKeyFetches.every((call) => Object.keys(call[1]).join(",") === "internalDate")).toBe(
+      true,
+    );
+    expect(fullSummaryFetches.map((call) => call[0].split(",").length)).toEqual([50, 5]);
+    expect(fullSummaryFetches.every((call) => !("bodyParts" in call[1]))).toBe(true);
+  });
+
+  it("keeps same-timestamp identity ordering stable across Mailboxes and snapshot pages", async () => {
+    let mailbox = "";
+    const receivedAt = "2026-07-17T12:00:00.000Z";
+    const fixtures: Record<string, ReturnType<typeof message>[]> = {
+      "[Gmail]/All Mail": Array.from({ length: 51 }, (_value, index) =>
+        message(index + 1, `message-${String(index + 1).padStart(3, "0")}`, receivedAt),
+      ),
+      "[Gmail]/Spam": [
+        message(1, "message-051", receivedAt),
+        message(2, "message-052", receivedAt),
+      ],
+      "[Gmail]/Trash": [],
+    };
+    const mailboxOpen = vi.fn(async (path: string) => {
+      mailbox = path;
+      return { exists: fixtures[path]!.length, uidValidity: 9n };
+    });
+    const search = vi.fn(async () => fixtures[mailbox]!.map((item) => item.uid));
+    const fetch = vi.fn(async function* (range: string) {
+      const requested = new Set(range.split(",").map(Number));
+      yield* fixtures[mailbox]!.filter((item) => requested.has(item.uid));
+    });
+    const reader = createGmailImapReader(fakeImapFlowClient({ mailboxOpen, search, fetch }));
+
+    const first = await reader.search(account, "in:anywhere invoice");
+    fixtures["[Gmail]/Spam"]!.push(message(3, "message-999", receivedAt));
+    const second = await reader.search(account, "in:anywhere invoice", first.nextCursor);
+
+    expect(first.messages[0]?.id).toBe("message-052");
+    expect(first.messages.at(-1)?.id).toBe("message-003");
+    expect(second.messages.map((item) => item.id)).toEqual(["message-002", "message-001"]);
+    expect(second.messages.map((item) => item.id)).not.toContain("message-999");
   });
 });
 

@@ -58,18 +58,42 @@ try {
   for (const action of ["Mark", "Archive", "Delete", "Star"]) {
     assert(await bodyIncludes(action), `Message detail missing ${action} action`);
   }
-  await assertCalls(["open", "open", "detail", "action"], "Message open and delayed mark-read");
+  await assertCalls(
+    ["open", "open", "detail", "inline", "action"],
+    "Message open, inline resource, and delayed mark-read",
+  );
+  await assertPage(
+    `document.querySelector('iframe[title="Message body"]').srcdoc.includes("data:image/png;base64")`,
+    "Authenticated inline resource was not rendered from browser memory",
+  );
+  assert(
+    (await smokeState()).trackingCalls === 0,
+    "Default Message rendering loaded remote images",
+  );
+  await clickButton("Show images");
+  await browser("wait", "500");
+  assert((await smokeState()).trackingCalls > 0, "Remote image opt-in did not load remote images");
+  await assertCalls(
+    ["open", "open", "detail", "inline", "action"],
+    "Remote image opt-in iframe reload",
+  );
 
   await fetch(`${apiUrl}/api/__smoke/fail/search`, { method: "POST" });
   await browser("find", "placeholder", "Search this account", "fill", "invoice");
   await clickButton("Search");
   await browser("wait", "300");
   assert(await bodyIncludes("Messages unavailable"), "Search failure was not visible");
-  await assertCalls(["open", "open", "detail", "action", "search"], "failed explicit Search");
+  await assertCalls(
+    ["open", "open", "detail", "inline", "action", "search"],
+    "failed explicit Search",
+  );
   await clickButton("Manual retry");
   await browser("wait", "300");
   assert(await bodyIncludes('Search results for "invoice"'), "Search retry did not recover");
-  await assertCalls(["open", "open", "detail", "action", "search", "search"], "Search retry");
+  await assertCalls(
+    ["open", "open", "detail", "inline", "action", "search", "search"],
+    "Search retry",
+  );
 
   await browser("set", "viewport", "390", "844");
   await assertPage(
@@ -142,8 +166,12 @@ async function assertPage(expression, message) {
 }
 
 async function gmailCalls() {
+  return (await smokeState()).calls;
+}
+
+async function smokeState() {
   const response = await fetch(`${apiUrl}/api/__smoke/state`);
-  return (await response.json()).calls;
+  return response.json();
 }
 
 async function assertCalls(expected, phase) {

@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import { createGmailImapReader } from "../apps/api/src/live-imap";
 
 describe("Gmail Live IMAP Account open mapping", () => {
-  it("returns the last 50 Gmail arrival sequences newest-first without fetching bodies", async () => {
+  it("returns the newest 50 Gmail arrivals by INTERNALDATE without fetching bodies", async () => {
     const connect = vi.fn(async () => undefined);
     const list = vi.fn(async () => [
       {
@@ -36,6 +36,7 @@ describe("Gmail Live IMAP Account open mapping", () => {
           from: [{ address: "first@example.com" }],
           to: [{ address: "me@example.com" }],
         },
+        internalDate: new Date("2026-07-17T10:00:00.000Z"),
       };
       yield {
         seq: 100,
@@ -48,6 +49,7 @@ describe("Gmail Live IMAP Account open mapping", () => {
           from: [{ address: "last@example.com" }],
           to: [{ address: "me@example.com" }],
         },
+        internalDate: new Date("2026-07-17T11:00:00.000Z"),
       };
     });
     const logout = vi.fn(async () => undefined);
@@ -74,8 +76,9 @@ describe("Gmail Live IMAP Account open mapping", () => {
       disableAutoIdle: true,
       logger: false,
     });
+    expect(fetch).toHaveBeenCalledWith("51,100", { internalDate: true }, { uid: true });
     expect(fetch).toHaveBeenCalledWith(
-      "51,100",
+      "100,51",
       {
         flags: true,
         envelope: true,
@@ -158,6 +161,70 @@ describe("Gmail Live IMAP Account open mapping", () => {
     await expect(reader.listMailbox(account, "[Gmail]/Sent", firstPage.nextCursor)).rejects.toThrow(
       "Invalid cursor",
     );
+  });
+
+  it("pages Mailbox metadata by INTERNALDATE rather than UID and fetches full summaries only for the page", async () => {
+    const messages = Array.from({ length: 52 }, (_value, index) => {
+      const uid = index + 1;
+      const internalDate =
+        uid === 1 ? new Date("2026-03-01T00:00:00.000Z") : new Date(Date.UTC(2026, 0, uid));
+      return { ...messageFixture(uid, `message-${uid}`), internalDate };
+    });
+    const mailboxOpen = vi.fn(async () => ({ exists: messages.length, uidValidity: 42n }));
+    const search = vi.fn(async () => messages.map((message) => message.uid));
+    const fetch = vi.fn(async function* (
+      range: string,
+      query: { internalDate?: true; envelope?: true },
+    ) {
+      const requested = new Set(range.split(",").map(Number));
+      for (const message of messages) {
+        if (requested.has(message.uid)) {
+          yield query.envelope
+            ? message
+            : {
+                uid: message.uid,
+                emailId: message.emailId,
+                internalDate: message.internalDate,
+              };
+        }
+      }
+    });
+    const reader = createGmailImapReader(
+      vi.fn(function () {
+        return {
+          connect: vi.fn(async () => undefined),
+          list: vi.fn(async () => []),
+          mailboxOpen,
+          search,
+          fetch,
+          logout: vi.fn(async () => undefined),
+        };
+      }),
+    );
+    const account = accountFixture();
+
+    const first = await reader.listMailbox(account, "INBOX");
+    messages.push({
+      ...messageFixture(53, "new-after-first-page"),
+      internalDate: new Date("2026-04-01T00:00:00.000Z"),
+    });
+    const second = await reader.listMailbox(account, "INBOX", first.nextCursor);
+
+    expect(first.messages).toHaveLength(50);
+    expect(first.messages.slice(0, 3).map((message) => message.id)).toEqual([
+      "message-1",
+      "message-52",
+      "message-51",
+    ]);
+    expect(second.messages.map((message) => message.id)).toEqual(["message-3", "message-2"]);
+    expect(second.messages.map((message) => message.id)).not.toContain("new-after-first-page");
+
+    const sortKeyFetches = fetch.mock.calls.filter((call) => !call[1]?.envelope);
+    const fullSummaryFetches = fetch.mock.calls.filter((call) => call[1]?.envelope);
+    expect(sortKeyFetches).toHaveLength(2);
+    expect(sortKeyFetches[0]?.[1]).toEqual({ internalDate: true });
+    expect(fullSummaryFetches.map((call) => call[0].split(",").length)).toEqual([50, 2]);
+    expect(fullSummaryFetches.every((call) => !("bodyParts" in call[1]))).toBe(true);
   });
 
   it("reads Account unread from Gmail All Mail, excludes Spam and Trash, and deduplicates Messages", async () => {
@@ -808,6 +875,7 @@ function messageFixture(uid: number, emailId: string) {
       from: [{ address: "sender@example.com" }],
       to: [{ address: "me@example.com" }],
     },
+    internalDate: new Date(uid * 1_000),
   };
 }
 

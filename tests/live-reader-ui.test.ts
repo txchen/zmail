@@ -33,4 +33,14 @@ describe("Live reader UI", () => {
     expect(appVue).toContain("selectedMessage.starred ? 'i-lucide-star-off' : 'i-lucide-star'");
     expect(appVue).toContain('{{ selectedMessage.starred ? "Unstar" : "Star" }}');
   });
+
+  it("persists only layout dimensions and starts Mailbox collapse state empty on reload", () => {
+    expect(appVue).toContain("const collapsedAccounts = ref(new Set<string>())");
+    expect(appVue).toContain("const collapsedMailboxGroups = ref(new Set<string>())");
+    expect(appVue).not.toContain("savedReaderLayout.collapsedAccounts");
+    expect(appVue).not.toContain("savedReaderLayout.collapsedMailboxGroups");
+    expect(appVue).not.toContain("collapsedAccounts: [...collapsedAccounts.value]");
+    expect(appVue).not.toContain("collapsedMailboxGroups: [...collapsedMailboxGroups.value]");
+    expect(appVue).toContain("saveReaderLayout(navColumnWidth.value, listColumnWidth.value)");
+  });
 });

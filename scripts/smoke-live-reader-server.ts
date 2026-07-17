@@ -10,6 +10,7 @@ import type { GmailImapReader } from "../apps/api/src/live-imap.js";
 import { createServerApp } from "../apps/api/src/server-app.js";
 
 const calls: string[] = [];
+let trackingCalls = 0;
 const failures = new Map<string, number>([["open", 1]]);
 const message = {
   accountId: "personal",
@@ -25,9 +26,19 @@ const detail: LiveMessageDetail = {
   ...message,
   ccRecipients: [],
   bccRecipients: [],
-  readableBody: "<p>Focused browser smoke body.</p>",
+  readableBody: `<p>Focused browser smoke body.</p>
+    <img src="cid:smoke@example.com">
+    <img srcset="http://127.0.0.1:3001/api/__smoke/tracking.png 1x">
+    <div style="background-image: url(http://127.0.0.1:3001/api/__smoke/tracking.png)">remote</div>`,
   plainTextBody: "Focused browser smoke body.",
-  inlineResources: [],
+  inlineResources: [
+    {
+      id: "inline-1",
+      contentId: "smoke@example.com",
+      mimeType: "image/png",
+      sizeBytes: 68,
+    },
+  ],
   attachments: [
     {
       id: "attachment-1",
@@ -82,7 +93,16 @@ const reader: GmailImapReader = {
         : {}),
     }),
   readMessage: async () => record("detail", detail),
-  readInlineResource: async () => record("inline", undefined),
+  readInlineResource: async () =>
+    record("inline", {
+      mimeType: "image/png",
+      bytes: Uint8Array.from(
+        Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+          "base64",
+        ),
+      ),
+    }),
   downloadAttachment: async () =>
     record("attachment", {
       filename: "smoke.txt",
@@ -137,7 +157,11 @@ const app = createServerApp(
   },
 );
 
-app.get("/api/__smoke/state", (c) => c.json({ calls }));
+app.get("/api/__smoke/state", (c) => c.json({ calls, trackingCalls }));
+app.get("/api/__smoke/tracking.png", (c) => {
+  trackingCalls += 1;
+  return c.body(null, 204);
+});
 app.post("/api/__smoke/fail/:operation", (c) => {
   failures.set(c.req.param("operation"), 1);
   return c.body(null, 204);
