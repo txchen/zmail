@@ -99,9 +99,9 @@ describe("Sync jobs UI", () => {
     expect(appVue).toContain("Load more");
   });
 
-  it("does not show Archive in the message action toolbar", () => {
-    expect(appVue).not.toContain('icon="i-lucide-archive"');
-    expect(appVue).not.toContain(">Archive");
+  it("shows Archive in the message action toolbar", () => {
+    expect(appVue).toContain('icon="i-lucide-archive"');
+    expect(appVue).toContain("Archive");
   });
 
   it("visually distinguishes starred messages and toggles the Star action", () => {

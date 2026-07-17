@@ -6,11 +6,11 @@ import type {
   HealthStatus,
   LiveMessagePage,
   LiveMessageResponse,
+  MailboxActionConfirmation,
   MailAccountDiagnosticsResponse,
   MailboxAction,
   MailboxTreeResponse,
   MailAccountsResponse,
-  MessageResponse,
   ScheduleSyncJobRequest,
   SessionResponse,
   SyncJobResponse,
@@ -305,9 +305,11 @@ export async function performMailboxAction(
   messageId: string,
   action: MailboxAction,
   fetcher: typeof fetch = fetch,
-): Promise<MessageResponse> {
+): Promise<MailboxActionConfirmation> {
   const response = await fetcher(
-    `/api/mail-accounts/${mailAccountId}/messages/${messageId}/actions`,
+    `/api/mail-accounts/${encodeURIComponent(mailAccountId)}/messages/${encodeURIComponent(
+      messageId,
+    )}/actions`,
     {
       method: "POST",
       body: JSON.stringify({ action }),
@@ -316,7 +318,11 @@ export async function performMailboxAction(
   );
 
   if (!response.ok) {
-    throw new Error("Mailbox action failed");
+    const body = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
+    throw new Error(
+      body?.error ??
+        "Gmail did not confirm the Mailbox action. Refresh to verify or safely repeat the same target-state action.",
+    );
   }
 
   return response.json();

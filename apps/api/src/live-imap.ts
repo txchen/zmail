@@ -2,6 +2,9 @@ import type {
   AccountOpenResponse,
   AccountRefreshRequest,
   AccountRefreshResponse,
+  MailboxAction,
+  MailboxActionConfirmation,
+  MailboxActionMessageState,
   LiveMessageDetail,
   LiveMessageSummary,
   LiveMessagePage,
@@ -47,6 +50,11 @@ export type GmailImapReader = {
     messageId: string,
     attachmentId: string,
   ): Promise<LiveAttachmentDownload | undefined>;
+  performMailboxAction(
+    account: ConfiguredMailAccount,
+    messageId: string,
+    action: MailboxAction,
+  ): Promise<MailboxActionConfirmation>;
   closeAllSessions(): Promise<void>;
 };
 
@@ -75,7 +83,7 @@ type LiveImapClient = {
   >;
   mailboxOpen(
     path: string,
-    options: { readOnly: true },
+    options: { readOnly: boolean },
   ): Promise<{ exists?: number; uidValidity?: bigint | number | string }>;
   search(
     query: { all?: true; seen?: false; gmailRaw?: string; emailId?: string },
@@ -113,6 +121,7 @@ type LiveImapClient = {
       threadId?: true;
       bodyStructure?: true;
       bodyParts?: string[];
+      labels?: true;
     },
     options: { uid: true },
   ): Promise<
@@ -122,6 +131,7 @@ type LiveImapClient = {
         emailId?: string;
         threadId?: string;
         flags?: Set<string>;
+        labels?: Set<string>;
         envelope?: {
           subject?: string;
           date?: Date;
@@ -143,6 +153,16 @@ type LiveImapClient = {
     meta: { contentType: string; filename?: string };
     content: Readable;
   }>;
+  messageFlagsAdd(
+    range: string,
+    flags: string[],
+    options: { uid: true; useLabels?: true },
+  ): Promise<boolean>;
+  messageFlagsRemove(
+    range: string,
+    flags: string[],
+    options: { uid: true; useLabels?: true },
+  ): Promise<boolean>;
   logout(): Promise<void>;
 };
 
@@ -400,8 +420,192 @@ export function createGmailImapReader(
         throw error;
       }
     },
+    performMailboxAction: (account, messageId, action) =>
+      coordinator.run(
+        account.id,
+        () => connect(account),
+        async (session) => {
+          const client = session.client as LiveImapClient;
+          const listedMailboxes = await listMailboxes(client);
+          const located = await findWritableMessageUid(
+            client,
+            messageId,
+            messageMailboxIds(listedMailboxes),
+          );
+
+          if (!located) {
+            throw new Error("Message not found");
+          }
+
+          const uid = String(located.uid);
+          const fetchedState = await client.fetchOne(
+            uid,
+            { flags: true, labels: true },
+            { uid: true },
+          );
+          if (!fetchedState) {
+            throw new Error("Message not found");
+          }
+          const before = mailboxActionState(
+            fetchedState.flags,
+            fetchedState.labels,
+            listedMailboxes,
+          );
+          if (action === "markRead") {
+            requireStored(await client.messageFlagsAdd(uid, ["\\Seen"], { uid: true }));
+          } else if (action === "markUnread") {
+            requireStored(await client.messageFlagsRemove(uid, ["\\Seen"], { uid: true }));
+          } else if (action === "star") {
+            requireStored(await client.messageFlagsAdd(uid, ["\\Flagged"], { uid: true }));
+          } else if (action === "unstar") {
+            requireStored(await client.messageFlagsRemove(uid, ["\\Flagged"], { uid: true }));
+          } else if (action === "archive") {
+            const inbox = listedMailboxes.find(
+              (mailbox) => systemMailboxRole(mailbox.specialUse) === "inbox",
+            );
+            if (!inbox) {
+              throw new Error("Gmail Inbox is not visible through IMAP");
+            }
+            requireStored(
+              await client.messageFlagsRemove(uid, ["\\Inbox"], { uid: true, useLabels: true }),
+            );
+          } else {
+            const trash = listedMailboxes.find(
+              (mailbox) => systemMailboxRole(mailbox.specialUse) === "trash",
+            );
+            if (!trash) {
+              throw new Error("Gmail Trash is not visible through IMAP");
+            }
+            requireStored(
+              await client.messageFlagsAdd(uid, ["\\Trash"], { uid: true, useLabels: true }),
+            );
+          }
+          return {
+            accountId: account.id,
+            messageId,
+            action,
+            before,
+            after: targetMailboxActionState(before, action, listedMailboxes),
+          };
+        },
+      ),
     closeAllSessions: () => coordinator.closeAll(),
   };
+}
+
+function requireStored(stored: boolean): void {
+  if (!stored) {
+    throw new Error("Gmail did not confirm the target state");
+  }
+}
+
+function mailboxActionState(
+  flags: Set<string> | undefined,
+  labels: Set<string> | undefined,
+  listedMailboxes: Awaited<ReturnType<LiveImapClient["list"]>>,
+): MailboxActionMessageState {
+  const normalizedLabels = new Set([...(labels ?? [])].map((label) => label.toLowerCase()));
+  const systemMailboxRoles: MailboxActionMessageState["systemMailboxRoles"] = [];
+  if (normalizedLabels.has("\\inbox")) {
+    systemMailboxRoles.push("inbox");
+  }
+  if (normalizedLabels.has("\\spam")) {
+    systemMailboxRoles.push("spam");
+  }
+  if (normalizedLabels.has("\\trash")) {
+    systemMailboxRoles.push("trash");
+  }
+  if (flags?.has("\\Flagged")) {
+    systemMailboxRoles.push("flagged");
+  }
+  if (!systemMailboxRoles.includes("spam") && !systemMailboxRoles.includes("trash")) {
+    systemMailboxRoles.push("allMail");
+  }
+  const mailboxIds = listedMailboxes.flatMap((mailbox) => {
+    const role = systemMailboxRole(mailbox.specialUse);
+    const member =
+      (role === "inbox" && systemMailboxRoles.includes("inbox")) ||
+      (role === "spam" && systemMailboxRoles.includes("spam")) ||
+      (role === "trash" && systemMailboxRoles.includes("trash")) ||
+      (role === "flagged" && systemMailboxRoles.includes("flagged")) ||
+      (role === "allMail" && systemMailboxRoles.includes("allMail")) ||
+      (role === "sent" && normalizedLabels.has("\\sent")) ||
+      (role === "drafts" &&
+        (normalizedLabels.has("\\draft") || normalizedLabels.has("\\drafts"))) ||
+      normalizedLabels.has(mailbox.path.toLowerCase()) ||
+      normalizedLabels.has((mailbox.name ?? mailbox.path).toLowerCase());
+    return member ? [mailbox.path] : [];
+  });
+  return {
+    unread: !flags?.has("\\Seen"),
+    starred: flags?.has("\\Flagged") === true,
+    mailboxIds,
+    systemMailboxRoles,
+  };
+}
+
+function targetMailboxActionState(
+  before: MailboxActionMessageState,
+  action: MailboxAction,
+  listedMailboxes: Awaited<ReturnType<LiveImapClient["list"]>>,
+): MailboxActionMessageState {
+  const roles = new Set(before.systemMailboxRoles);
+  const mailboxIds = new Set(before.mailboxIds);
+  let unread = before.unread;
+  let starred = before.starred;
+  if (action === "markRead") {
+    unread = false;
+  } else if (action === "markUnread") {
+    unread = true;
+  } else if (action === "star") {
+    starred = true;
+    roles.add("flagged");
+    addRoleMailboxIds(mailboxIds, listedMailboxes, "flagged");
+  } else if (action === "unstar") {
+    starred = false;
+    roles.delete("flagged");
+    removeRoleMailboxIds(mailboxIds, listedMailboxes, "flagged");
+  } else if (action === "archive") {
+    roles.delete("inbox");
+    removeRoleMailboxIds(mailboxIds, listedMailboxes, "inbox");
+  } else {
+    roles.delete("inbox");
+    roles.delete("spam");
+    roles.delete("allMail");
+    roles.add("trash");
+    mailboxIds.clear();
+    addRoleMailboxIds(mailboxIds, listedMailboxes, "trash");
+  }
+  return {
+    unread,
+    starred,
+    mailboxIds: [...mailboxIds],
+    systemMailboxRoles: [...roles],
+  };
+}
+
+function addRoleMailboxIds(
+  mailboxIds: Set<string>,
+  listedMailboxes: Awaited<ReturnType<LiveImapClient["list"]>>,
+  role: SystemMailboxRole,
+): void {
+  for (const mailbox of listedMailboxes) {
+    if (systemMailboxRole(mailbox.specialUse) === role) {
+      mailboxIds.add(mailbox.path);
+    }
+  }
+}
+
+function removeRoleMailboxIds(
+  mailboxIds: Set<string>,
+  listedMailboxes: Awaited<ReturnType<LiveImapClient["list"]>>,
+  role: SystemMailboxRole,
+): void {
+  for (const mailbox of listedMailboxes) {
+    if (systemMailboxRole(mailbox.specialUse) === role) {
+      mailboxIds.delete(mailbox.path);
+    }
+  }
 }
 
 async function listMailboxes(client: LiveImapClient) {
@@ -688,6 +892,22 @@ async function findMessageUid(
     const matchingUids = (await client.search({ emailId: messageId }, { uid: true })) || [];
     if (matchingUids[0] !== undefined) {
       return matchingUids[0];
+    }
+  }
+
+  return undefined;
+}
+
+async function findWritableMessageUid(
+  client: LiveImapClient,
+  messageId: string,
+  mailboxIds: string[],
+): Promise<{ uid: number; mailboxId: string } | undefined> {
+  for (const mailboxId of new Set(mailboxIds)) {
+    await client.mailboxOpen(mailboxId, { readOnly: false });
+    const matchingUids = (await client.search({ emailId: messageId }, { uid: true })) || [];
+    if (matchingUids[0] !== undefined) {
+      return { uid: matchingUids[0], mailboxId };
     }
   }
 

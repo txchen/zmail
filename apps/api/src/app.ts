@@ -225,6 +225,9 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
         id,
         emailAddress,
       })),
+      reader: {
+        readDwellSeconds: config.reader?.readDwellSeconds ?? 3,
+      },
     });
   });
 
@@ -821,14 +824,40 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
 
     logInfo("mailbox.action.start", { accountId, messageId, action: body.action });
 
-    const mailDatabase = persistence.mailDatabaseFor(accountId);
     const account = config.mailAccounts.find((candidate) => candidate.id === accountId);
-    const existingMessage = mailDatabase.getMessage(accountId, messageId);
 
     if (!account) {
       return c.json({ error: "Mail account not found" }, 404);
     }
 
+    if (config.gmailImapReader) {
+      try {
+        const confirmation = await config.gmailImapReader.performMailboxAction(
+          account,
+          messageId,
+          body.action,
+        );
+        logInfo("mailbox.action.finish", { accountId, messageId, action: body.action });
+        return c.json(confirmation);
+      } catch (error) {
+        logError("mailbox.action.gmail.error", {
+          accountId,
+          messageId,
+          action: body.action,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return c.json(
+          {
+            error:
+              "Gmail did not confirm the Mailbox action. Refresh to verify or safely repeat the same target-state action.",
+          },
+          502,
+        );
+      }
+    }
+
+    const mailDatabase = persistence.mailDatabaseFor(accountId);
+    const existingMessage = mailDatabase.getMessage(accountId, messageId);
     if (!existingMessage) {
       return c.json({ error: "Message not found" }, 404);
     }

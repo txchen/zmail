@@ -684,6 +684,108 @@ describe("Gmail Live IMAP Message content mapping", () => {
   });
 });
 
+describe("Gmail Live IMAP Mailbox action mapping", () => {
+  it("maps every action to an idempotent flag or Gmail label target state", async () => {
+    let selectedMailbox = "";
+    const list = vi.fn(async () => [
+      {
+        path: "INBOX",
+        specialUse: "\\Inbox",
+        flags: new Set<string>(),
+        status: { unseen: 1, messages: 1 },
+      },
+      {
+        path: "[Gmail]/Sent",
+        specialUse: "\\Sent",
+        flags: new Set<string>(),
+        status: { unseen: 0, messages: 1 },
+      },
+      {
+        path: "Projects",
+        flags: new Set<string>(),
+        status: { unseen: 1, messages: 1 },
+      },
+      ...messageMailboxes(),
+    ]);
+    const mailboxOpen = vi.fn(async (path: string) => {
+      selectedMailbox = path;
+      return { exists: 1, uidValidity: 1n };
+    });
+    const search = vi.fn(async () => (selectedMailbox === "[Gmail]/All Mail" ? [42] : []));
+    const messageFlagsAdd = vi.fn(async () => true);
+    const messageFlagsRemove = vi.fn(async () => true);
+    const fetchOne = vi.fn(async () => ({
+      uid: 42,
+      flags: new Set<string>(),
+      labels: new Set(["\\Inbox", "\\Sent", "Projects"]),
+    }));
+    const ImapFlowClient = vi.fn(function () {
+      return {
+        connect: vi.fn(async () => undefined),
+        list,
+        mailboxOpen,
+        search,
+        fetchOne,
+        messageFlagsAdd,
+        messageFlagsRemove,
+        logout: vi.fn(async () => undefined),
+      };
+    });
+    const reader = createGmailImapReader(ImapFlowClient);
+    const account = {
+      id: "personal",
+      emailAddress: "me@example.com",
+      appPassword: "gmail-app-password",
+    };
+
+    const confirmations = [];
+    for (const action of [
+      "markRead",
+      "markRead",
+      "markUnread",
+      "star",
+      "unstar",
+      "archive",
+      "delete",
+    ] as const) {
+      confirmations.push(await reader.performMailboxAction(account, "gmail-message-1", action));
+    }
+
+    expect(messageFlagsAdd.mock.calls).toEqual([
+      ["42", ["\\Seen"], { uid: true }],
+      ["42", ["\\Seen"], { uid: true }],
+      ["42", ["\\Flagged"], { uid: true }],
+      ["42", ["\\Trash"], { uid: true, useLabels: true }],
+    ]);
+    expect(messageFlagsRemove.mock.calls).toEqual([
+      ["42", ["\\Seen"], { uid: true }],
+      ["42", ["\\Flagged"], { uid: true }],
+      ["42", ["\\Inbox"], { uid: true, useLabels: true }],
+    ]);
+    expect(mailboxOpen).toHaveBeenCalledWith("[Gmail]/All Mail", { readOnly: false });
+    expect(fetchOne).toHaveBeenCalledWith("42", { flags: true, labels: true }, { uid: true });
+    expect(confirmations[0]).toMatchObject({
+      before: {
+        unread: true,
+        starred: false,
+        mailboxIds: ["INBOX", "[Gmail]/Sent", "Projects", "[Gmail]/All Mail"],
+        systemMailboxRoles: ["inbox", "allMail"],
+      },
+      after: {
+        unread: false,
+        starred: false,
+        mailboxIds: ["INBOX", "[Gmail]/Sent", "Projects", "[Gmail]/All Mail"],
+        systemMailboxRoles: ["inbox", "allMail"],
+      },
+    });
+    expect(confirmations.at(-2)?.after).toMatchObject({
+      mailboxIds: ["[Gmail]/Sent", "Projects", "[Gmail]/All Mail"],
+      systemMailboxRoles: ["allMail"],
+    });
+    expect(confirmations.at(-1)?.after.systemMailboxRoles).toEqual(["trash"]);
+  });
+});
+
 function messageFixture(uid: number, emailId: string) {
   return {
     uid,

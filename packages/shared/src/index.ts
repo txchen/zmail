@@ -15,6 +15,9 @@ export type MailAccountSummary = {
 
 export type MailAccountsResponse = {
   mailAccounts: MailAccountSummary[];
+  reader: {
+    readDwellSeconds: number;
+  };
 };
 
 export type MailboxSummary = {
@@ -169,6 +172,23 @@ export type MessageResponse = {
 };
 
 export type MailboxAction = "markRead" | "markUnread" | "archive" | "delete" | "star" | "unstar";
+
+export type MailboxActionMessageState = {
+  unread: boolean;
+  starred: boolean;
+  mailboxIds: string[];
+  systemMailboxRoles: Array<
+    Extract<SystemMailboxRole, "inbox" | "spam" | "trash" | "allMail" | "flagged">
+  >;
+};
+
+export type MailboxActionConfirmation = {
+  accountId: string;
+  messageId: string;
+  action: MailboxAction;
+  before: MailboxActionMessageState;
+  after: MailboxActionMessageState;
+};
 
 export type SessionResponse =
   | {

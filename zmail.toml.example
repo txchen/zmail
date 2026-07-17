@@ -18,6 +18,11 @@ recent_reconciliation_interval_minutes = 30
 # Optional Recent reconciliation window in days. Defaults to 2. Valid range: 1..3650.
 recent_reconciliation_window_days = 2
 
+[reader]
+# Delay before an unread Message is marked read while continuously selected, visible, and focused.
+# Defaults to 3. Valid range: 0..60. Use 0 to disable automatic mark-read.
+read_dwell_seconds = 3
+
 [app_login]
 username = "reader"
 password = "change-me"

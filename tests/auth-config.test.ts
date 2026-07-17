@@ -48,6 +48,9 @@ describe("App login and configured Mail accounts", () => {
           emailAddress: "me@example.com",
         },
       ],
+      reader: {
+        readDwellSeconds: 3,
+      },
     });
 
     const restartedApp = createApp({
@@ -118,6 +121,9 @@ describe("App login and configured Mail accounts", () => {
         recentReconciliationIntervalMinutes: 30,
         recentReconciliationWindowDays: 2,
       },
+      reader: {
+        readDwellSeconds: 3,
+      },
       mailAccounts: [
         {
           id: "personal",
@@ -162,6 +168,9 @@ describe("App login and configured Mail accounts", () => {
         recentReconciliationIntervalMinutes: 30,
         recentReconciliationWindowDays: 2,
       },
+      reader: {
+        readDwellSeconds: 3,
+      },
       mailAccounts: [],
     });
   });
@@ -192,6 +201,61 @@ describe("App login and configured Mail accounts", () => {
       recentReconciliationIntervalMinutes: 30,
       recentReconciliationWindowDays: 2,
     });
+    expect(config.reader).toEqual({ readDwellSeconds: 3 });
+  });
+
+  it("loads Read dwell time from 0 through 60 seconds and defaults to 3", () => {
+    const disabledPath = writeConfig(`
+      mail_accounts = []
+
+      [storage]
+      database_dir = ".data"
+
+      [reader]
+      read_dwell_seconds = 0
+
+      [app_login]
+      username = "reader"
+      password = "secret"
+      session_secret = "test-session-secret"
+    `);
+    expect(loadConfigFromFile(disabledPath).reader).toEqual({ readDwellSeconds: 0 });
+    const maximumPath = writeConfig(`
+      mail_accounts = []
+
+      [storage]
+      database_dir = ".data"
+
+      [reader]
+      read_dwell_seconds = 60
+
+      [app_login]
+      username = "reader"
+      password = "secret"
+      session_secret = "test-session-secret"
+    `);
+    expect(loadConfigFromFile(maximumPath).reader).toEqual({ readDwellSeconds: 60 });
+
+    for (const invalid of [-1, 61, 1.5, "3"]) {
+      const value = typeof invalid === "string" ? `"${invalid}"` : invalid;
+      const path = writeConfig(`
+        mail_accounts = []
+
+        [storage]
+        database_dir = ".data"
+
+        [reader]
+        read_dwell_seconds = ${value}
+
+        [app_login]
+        username = "reader"
+        password = "secret"
+        session_secret = "test-session-secret"
+      `);
+      expect(() => loadConfigFromFile(path)).toThrow(
+        "Invalid reader.read_dwell_seconds: expected integer in range 0..60",
+      );
+    }
   });
 
   it("loads and validates queued Sync cadence configuration", () => {

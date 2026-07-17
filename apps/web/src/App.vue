@@ -7,7 +7,6 @@ import type {
   MailAccountMailboxTree,
   LiveMessagePage,
   MailboxAction,
-  MailboxMessageSummary,
   MailboxSummary,
   SyncJobRecord,
   SyncJobsResponse,
@@ -41,6 +40,12 @@ import {
 } from "./live-mail-memory";
 import { renderReadableMessage } from "./message-rendering";
 import {
+  applyConfirmedAccountCounts,
+  confirmationRemovesSourceView,
+  createMailboxActionController,
+} from "./mailbox-action-controller";
+import { confirmedRenderedMessageKey, createReadDwellController } from "./read-dwell";
+import {
   defaultReaderPath,
   listPath,
   mailboxPath,
@@ -50,6 +55,7 @@ import {
   parseReaderRoute,
   searchPath,
   unreadPath,
+  type ReaderRoute,
 } from "./reader-routes";
 
 const route = useRoute();
@@ -81,6 +87,9 @@ const customSyncDays = ref(90);
 const documentVisible = ref(
   typeof document === "undefined" ? true : document.visibilityState !== "hidden",
 );
+const windowFocused = ref(typeof document === "undefined" ? true : document.hasFocus());
+const renderedBodyMessageKey = ref("");
+const mailboxActionError = ref("");
 const observedActiveSyncJobIds = ref(new Set<string>());
 const liveMessageListPageSize = 50;
 let resizeStartX = 0;
@@ -126,6 +135,9 @@ const syncJobsQuery = useQuery({
 });
 
 const configuredMailAccounts = computed(() => mailAccountsQuery.data.value?.mailAccounts ?? []);
+const readDwellSeconds = computed(
+  () => mailAccountsQuery.data.value?.reader?.readDwellSeconds ?? 3,
+);
 const mailAccounts = computed(() => [...openedMailAccounts.value.values()]);
 const readerRoute = computed(() => parseReaderRoute(route.path, route.query));
 const selectedAccountId = computed(() =>
@@ -328,7 +340,10 @@ const loginMutation = useMutation({
 });
 
 const logoutMutation = useMutation({
-  mutationFn: () => logout(),
+  mutationFn: () => {
+    readDwellController.cancel();
+    return logout();
+  },
   onSuccess: async () => {
     loggedOut.value = true;
     openedMailAccounts.value = new Map();
@@ -415,37 +430,54 @@ const syncJobMutation = useMutation({
   },
 });
 
-const mailboxActionMutation = useMutation({
-  mutationFn: ({ messageId, action }: { messageId: string; action: MailboxAction }) =>
-    performMailboxAction(selectedAccountId.value, messageId, action),
-  onSuccess: async (response, variables) => {
-    queryClient.setQueryData(
-      liveMessageDetailKey(response.message.accountId, response.message.id),
-      response,
-    );
-    queryClient.setQueriesData<MailboxMessagesResponse>({ queryKey: ["message-list"] }, (page) =>
-      page
-        ? {
-            ...page,
-            messages: page.messages.map((message) =>
-              message.accountId === response.message.accountId && message.id === response.message.id
-                ? { ...message, ...response.message }
-                : message,
-            ),
-          }
-        : page,
-    );
+const mailboxActionController = createMailboxActionController({
+  queryClient,
+  perform: performMailboxAction,
+  mailboxesForAccount: (accountId) => openedMailAccounts.value.get(accountId)?.mailboxes ?? [],
+});
 
-    if (variables.action === "archive" || variables.action === "delete") {
-      openAdjacentMessage(variables.messageId);
+type MailboxActionVariables = {
+  accountId: string;
+  messageId: string;
+  action: MailboxAction;
+  sourceView: ReaderRoute;
+};
+
+const mailboxActionMutation = useMutation({
+  mutationFn: ({ accountId, messageId, action }: MailboxActionVariables) =>
+    mailboxActionController.perform({ accountId, messageId, action }),
+  onSuccess: (confirmation, variables) => {
+    mailboxActionError.value = "";
+    const account = openedMailAccounts.value.get(confirmation.accountId);
+    if (account) {
+      openedMailAccounts.value = new Map(openedMailAccounts.value).set(
+        account.id,
+        applyConfirmedAccountCounts(account, confirmation),
+      );
     }
 
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["mailbox-tree"] }),
-      queryClient.invalidateQueries({ queryKey: ["message-list"] }),
-      queryClient.invalidateQueries({ queryKey: ["message-detail"] }),
-    ]);
+    if (
+      confirmationRemovesSourceView(confirmation, variables.sourceView) &&
+      selectedAccountId.value === variables.accountId &&
+      selectedMessageId.value === variables.messageId
+    ) {
+      openAdjacentMessage(variables.messageId);
+    }
   },
+  onError: (error) => {
+    mailboxActionError.value =
+      error instanceof Error
+        ? error.message
+        : "Gmail did not confirm the Mailbox action. Refresh to verify or safely repeat the same target-state action.";
+  },
+});
+
+const readDwellController = createReadDwellController({
+  dwellSeconds: () => readDwellSeconds.value,
+  markRead: ({ accountId, messageId }) =>
+    mailboxActionMutation
+      .mutateAsync(mailboxActionVariables(accountId, messageId, "markRead"))
+      .then(() => {}),
 });
 
 watch(
@@ -472,6 +504,37 @@ watch([navColumnWidth, listColumnWidth], ([nextNavWidth, nextListWidth]) => {
 watch([collapsedAccounts, collapsedMailboxGroups], () => {
   saveReaderLayout(navColumnWidth.value, listColumnWidth.value);
 });
+
+watch([selectedAccountId, selectedMessageId], () => {
+  renderedBodyMessageKey.value = "";
+});
+
+watch(
+  [
+    selectedAccountId,
+    selectedMessageId,
+    selectedMessage,
+    authenticated,
+    documentVisible,
+    windowFocused,
+    renderedBodyMessageKey,
+  ],
+  () => {
+    const message = selectedMessage.value;
+    const key = message ? messageRemoteImagesKey(message) : "";
+    readDwellController.update({
+      accountId: selectedAccountId.value,
+      messageId: selectedMessageId.value,
+      unread: message?.unread ?? false,
+      selected: !!message && message.id === selectedMessageId.value,
+      visible: documentVisible.value,
+      focused: windowFocused.value,
+      authenticated: authenticated.value,
+      bodyRendered: !!key && !!renderedMessage.value && renderedBodyMessageKey.value === key,
+    });
+  },
+  { immediate: true },
+);
 
 watch(
   syncJobs,
@@ -504,12 +567,17 @@ onBeforeUnmount(() => {
   stopColumnResize();
   document.removeEventListener("visibilitychange", updateDocumentVisible);
   document.removeEventListener("pointerdown", dismissSyncJobsOnOutsidePointer);
+  window.removeEventListener("focus", updateWindowFocus);
+  window.removeEventListener("blur", updateWindowFocus);
+  readDwellController.cancel();
 });
 
 onMounted(() => {
   void router.replace("/");
   document.addEventListener("visibilitychange", updateDocumentVisible);
   document.addEventListener("pointerdown", dismissSyncJobsOnOutsidePointer);
+  window.addEventListener("focus", updateWindowFocus);
+  window.addEventListener("blur", updateWindowFocus);
 });
 
 async function submitLogin() {
@@ -547,7 +615,34 @@ function runMailboxAction(action: MailboxAction) {
     return;
   }
 
-  mailboxActionMutation.mutate({ messageId: selectedMessage.value.id, action });
+  mailboxActionMutation.mutate({
+    ...mailboxActionVariables(selectedMessage.value.accountId, selectedMessage.value.id, action),
+  });
+}
+
+function mailboxActionVariables(
+  accountId: string,
+  messageId: string,
+  action: MailboxAction,
+): MailboxActionVariables {
+  const sourceView = readerRoute.value;
+  return {
+    accountId,
+    messageId,
+    action,
+    sourceView,
+  };
+}
+
+function markMessageBodyRendered(event: Event) {
+  const renderedKey =
+    event.currentTarget instanceof HTMLIFrameElement
+      ? event.currentTarget.dataset.messageKey
+      : undefined;
+  const confirmedKey = confirmedRenderedMessageKey(renderedKey, selectedMessageKey.value);
+  if (confirmedKey && renderedMessage.value) {
+    renderedBodyMessageKey.value = confirmedKey;
+  }
 }
 
 function allowRemoteImagesForSelectedMessage() {
@@ -585,6 +680,10 @@ function mailboxGroupKey(accountId: string, mailboxId: string): string {
 
 function updateDocumentVisible(): void {
   documentVisible.value = document.visibilityState !== "hidden";
+}
+
+function updateWindowFocus(): void {
+  windowFocused.value = document.hasFocus();
 }
 
 function dismissSyncJobsOnOutsidePointer(event: PointerEvent): void {
@@ -1458,6 +1557,14 @@ function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailbo
                 </UButton>
                 <UButton
                   color="neutral"
+                  icon="i-lucide-archive"
+                  variant="ghost"
+                  @click="runMailboxAction('archive')"
+                >
+                  Archive
+                </UButton>
+                <UButton
+                  color="neutral"
                   icon="i-lucide-trash-2"
                   variant="ghost"
                   @click="runMailboxAction('delete')"
@@ -1474,6 +1581,14 @@ function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailbo
                 </UButton>
               </template>
             </div>
+            <UAlert
+              v-if="mailboxActionError"
+              class="m-3"
+              color="error"
+              variant="soft"
+              title="Mailbox action not confirmed"
+              :description="mailboxActionError"
+            />
 
             <div class="min-h-0 flex-1 overflow-y-auto">
               <div v-if="messageDetailQuery.isLoading.value" class="p-6 text-sm text-slate-500">
@@ -1549,10 +1664,13 @@ function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailbo
                   </button>
                 </div>
                 <iframe
+                  :key="selectedMessageKey"
                   class="message-body mt-6 block w-full"
                   sandbox="allow-popups"
+                  :data-message-key="selectedMessageKey"
                   :srcdoc="renderedMessage.srcdoc"
                   title="Message body"
+                  @load="markMessageBodyRendered"
                 ></iframe>
                 <div
                   v-if="selectedMessage.attachments.length"

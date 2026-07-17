@@ -30,10 +30,15 @@ export type SyncConfig = {
   recentReconciliationWindowDays: number;
 };
 
+export type ReaderConfig = {
+  readDwellSeconds: number;
+};
+
 export type AppConfig = {
   appLogin: AppLogin;
   storage: StorageConfig;
   sync: SyncConfig;
+  reader?: ReaderConfig;
   mailAccounts: ConfiguredMailAccount[];
   persistence?: HybridPersistence;
   mailboxSyncClient?: MailboxSyncClient;
@@ -90,7 +95,13 @@ function parseConfigFile(value: unknown, workspaceRoot: string): AppConfig {
     throw new Error("Invalid App configuration: expected TOML table");
   }
 
-  assertKnownKeys(value, "App configuration", ["app_login", "storage", "sync", "mail_accounts"]);
+  assertKnownKeys(value, "App configuration", [
+    "app_login",
+    "storage",
+    "sync",
+    "reader",
+    "mail_accounts",
+  ]);
 
   if (!isRecord(value.app_login)) {
     throw new Error("Invalid App configuration: missing app_login table");
@@ -137,6 +148,7 @@ function parseConfigFile(value: unknown, workspaceRoot: string): AppConfig {
     requireString(value.storage.database_dir, "storage.database_dir"),
   );
   const sync = parseSyncConfig(value.sync);
+  const reader = parseReaderConfig(value.reader);
 
   return {
     appLogin: {
@@ -149,7 +161,22 @@ function parseConfigFile(value: unknown, workspaceRoot: string): AppConfig {
       databaseDir,
     },
     sync,
+    reader,
     mailAccounts,
+  };
+}
+
+function parseReaderConfig(value: unknown): ReaderConfig {
+  if (value === undefined) {
+    return { readDwellSeconds: 3 };
+  }
+  if (!isRecord(value)) {
+    throw new Error("Invalid reader: expected table");
+  }
+  assertKnownKeys(value, "reader", ["read_dwell_seconds"]);
+  return {
+    readDwellSeconds:
+      optionalIntegerInRange(value.read_dwell_seconds, "reader.read_dwell_seconds", 0, 60) ?? 3,
   };
 }
 
