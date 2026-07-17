@@ -5,11 +5,11 @@ Zmail is a private, home-hosted web interface for reading mail from Gmail accoun
 ## Language
 
 **Mail reader**:
-A read-focused application for browsing, searching, inspecting, and managing existing mail. Replying and sending are outside the first product boundary.
+A Gmail-only, read-focused application for browsing, searching, inspecting, and managing existing mail. Replying and sending are outside the product boundary.
 _Avoid_: Mail client, Gmail replacement
 
 **Mail account**:
-A Gmail account whose mail is synced into Zmail. A **Mail account** has an operator-chosen stable ID and a Gmail email address; a single Zmail installation can contain multiple **Mail accounts**.
+A Gmail account accessed by Zmail through **Live IMAP access**. A **Mail account** has an operator-chosen stable ID and a Gmail email address; a single Zmail installation can contain multiple **Mail accounts**.
 _Avoid_: User account, inbox
 
 **Mailbox**:
@@ -28,17 +28,25 @@ _Avoid_: Email, mail item
 A sender or recipient address associated with a **Message**, optionally with a display name from the mail headers.
 _Avoid_: Contact, user
 
-**Message snippet**:
-A short preview of a **Message** body used in **Message lists** and **Search** results. A **Message snippet** is derived from normalized body text and is not a separate source of truth.
-_Avoid_: Summary, excerpt
+**Live IMAP access**:
+Reading and searching Gmail by querying IMAP at request time instead of reading from a durable local mail projection.
+_Avoid_: Sync, Local read model
+
+**Ephemeral mail state**:
+Browser-memory state used to render mail already read during the current page session. Previously visited Mailboxes, Search results, pagination, and Message bodies are cache-first until **Manual refresh**; the state is never written to disk or cached as a mail response by the Zmail server, and disappears on page reload, logout, or page close.
+_Avoid_: Mail persistence, offline cache
+
+**Live IMAP session**:
+A short-lived Gmail connection opened for user-triggered work and managed under an **Interaction lease**. Zmail allows at most one ordinary session per Mail account, serializes its commands, disables automatic IMAP IDLE, and keeps attachment streaming on independent sessions.
+_Avoid_: Background connection, persistent IMAP session
+
+**Interaction lease**:
+The ten-second idle grace period during which one Mail account's **Live IMAP session** may be reused after a user-triggered operation. Each new authorized operation resets the lease; expiry closes the session, and no application-level IMAP command is sent merely to keep it alive.
+_Avoid_: Connection pool, background session
 
 **Mailbox entry**:
 The appearance of a **Message** inside one specific **Mailbox**. A single **Message** can have many **Mailbox entries**.
 _Avoid_: Message copy, duplicate message
-
-**Full-message sync**:
-A sync mode where Zmail stores each synced **Message**'s **Readable body**, **Inline message resources**, and **Attachment** metadata locally so the UI and AI API can read recent mail without waiting on Gmail. **Attachment** file bytes are not part of the **Local read model** and can be fetched from Gmail on demand.
-_Avoid_: Header-only sync, lazy sync
 
 **Readable body**:
 The sanitized HTML body of a **Message**, with a plain-text fallback when HTML is unavailable. A **Readable body** can include **Inline message resources**; remote images are blocked by default but can be shown manually for a **Message**.
@@ -49,16 +57,24 @@ An embedded MIME part of a **Message**, commonly an image referenced from the **
 _Avoid_: Attachment, remote image
 
 **Attachment**:
-A downloadable file part of a **Message** that is not part of the **Readable body**.
+A downloadable file part of a **Message** that is not part of the **Readable body**. Attachment metadata is read with the Message, while file bytes are fetched from Gmail and streamed to the browser only after an explicit download action; Zmail does not persist them.
 _Avoid_: Inline image, body resource
 
-**Local read model**:
-Zmail's local database projection of Gmail state, optimized for reading and AI access. Gmail remains the source of truth for mail data; the **Local read model** can be rebuilt from Gmail.
-_Avoid_: Mail store, source of truth
-
 **Mailbox action**:
-A Gmail-mutating action on an existing **Message** or **Mailbox entry**. Zmail **Mailbox actions** are mark read/unread, archive, delete, and star/unstar; Gmail remains the place for label management.
+A Gmail-mutating, idempotent target-state action performed directly through IMAP on an existing **Message** or **Mailbox entry**. Zmail **Mailbox actions** explicitly set read/unread, starred/unstarred, archived, or trashed state; the UI waits for Gmail success before updating browser memory, does not optimistically update or automatically re-read Gmail, and leaves label management to Gmail.
 _Avoid_: Composition action
+
+**User-authorized write**:
+A Gmail mutation attributable to an explicit action in the active Zmail UI, including a delayed mark-read authorized by opening and continuing to view a **Message**. Background refresh, prefetch, list loading, **Search**, and passive IMAP reads never authorize Gmail writes.
+_Avoid_: Background action, sync side effect
+
+**Quiescent UI**:
+The state in which Zmail initiates no Gmail read, Gmail write, polling, prefetch, retry, or IMAP IDLE work while the **App user** is not interacting with the UI. A pending delayed mark-read remains part of the Message-opening action that authorized it; an existing **Interaction lease** may remain open without application-level IMAP keepalive commands until it expires.
+_Avoid_: Background refresh, passive sync
+
+**Read dwell time**:
+The operator-configured period for which an unread **Message** must remain selected in a visible, focused Zmail page after its body loads before Zmail performs a mark-read **User-authorized write**. The default is three seconds; values from 1 through 60 select the delay, zero disables automatic mark-read, and changing Message, hiding the page, or losing focus cancels rather than pauses the timer.
+_Avoid_: Read delay, auto-read timeout
 
 **Delete**:
 A **Mailbox action** that moves a **Message** to Gmail Trash. **Delete** does not mean permanent deletion in the MVP.
@@ -69,116 +85,84 @@ A **Mailbox action** that removes a **Message** from Inbox while keeping it in t
 _Avoid_: Delete, permanent delete
 
 **Composition action**:
-An action that creates outbound mail, such as compose, reply, forward, draft, or send. **Composition actions** are outside the first product boundary.
+An action that creates outbound mail, such as compose, reply, forward, draft, or send. **Composition actions** are outside the product boundary.
 _Avoid_: Mailbox action
 
-**AI reader**:
-An external agent that reads mail through Zmail's API. An **AI reader** can list unread **Messages** and inspect message content and metadata, but cannot perform **Mailbox actions** in the MVP.
-_Avoid_: AI user, assistant
-
-**AI API**:
-A read-only API surface optimized for **AI readers**, separate from UI-specific endpoints. The **AI API** exposes stable **Message identities**, unread **Messages**, and message content and metadata.
-_Avoid_: UI API, automation user
-
 **Message identity**:
-The stable identifier Zmail exposes for a **Message** so an **AI reader** can deduplicate work across API calls.
-_Avoid_: Mailbox entry identity, IMAP sequence number
+The `(Mail account ID, Gmail message ID)` pair Zmail exposes for a **Message**. The Gmail message ID comes from IMAP `X-GM-MSGID` and remains stable across Mailboxes; Mailbox-scoped IMAP UIDs are temporary locators, not public identity.
+_Avoid_: Mailbox entry identity, IMAP UID, IMAP sequence number
 
 **Unread**:
-Gmail's unread state for a **Message**. **Unread** does not mean whether an **AI reader** has processed the Message.
-_Avoid_: AI processed, unseen by agent
-
-**Hybrid persistence**:
-A storage layout with one Zmail app database for app-level state and one mail database per **Mail account** for synced mail data.
-_Avoid_: Single mail store, account-only database
+Gmail's unread state for a **Message**.
+_Avoid_: Unseen by Zmail
 
 **App login**:
 The simple username/password gate for the single **App user**. The **App login** credential can be provided by environment variable or config file and is separate from **Mail account** credentials.
 _Avoid_: Gmail login, signup
 
 **App session**:
-A signed browser session for the **App user** created after **App login**. **App sessions** survive API restarts and can be revoked by rotating the server-side signing secret.
+A signed, HttpOnly browser-session cookie for the **App user** created after **App login**. **App sessions** survive API restarts, production cookies are Secure, rotating the server-side signing secret revokes them, and logout clears **Ephemeral mail state** and closes active **Live IMAP sessions**.
 _Avoid_: Mail account session, Gmail session
 
 **App configuration**:
-Server-side settings that declare the **App login**, **Configured Mail accounts**, and operator-controlled sync settings for one Zmail installation. **App configuration** is controlled by the operator, not edited by the **App user** in the UI.
+Server-side settings that declare the **App login**, **Configured Mail accounts**, and operator-controlled reader behavior such as **Read dwell time** for one Zmail installation. **App configuration** is controlled by the operator, not edited by the **App user** in the UI.
 _Avoid_: User settings, account settings, preferences
 
 **Zmail container image**:
-An immutable deployable package for running one Zmail installation on a server. A **Zmail container image** does not contain **App configuration**, **Mail account credentials**, or **Local read model** database files.
+A deployable package for running one Zmail installation on a server. A **Zmail container image** does not contain **App configuration** or **Mail account credentials**.
 _Avoid_: Backup, configured instance
 
 **Container config mount**:
 The operator-provided file mount that supplies **App configuration** to a **Zmail container image** at runtime.
 _Avoid_: Baked config, image settings
 
-**Container data volume**:
-The operator-provided persistent storage mounted into a **Zmail container image** for the **Local read model**.
-_Avoid_: Image storage, bundled database
-
 **Mail account credential**:
-The Gmail app password Zmail uses server-side to sync a **Mail account**. **Mail account credentials** are never exposed to the browser.
+The Gmail app password Zmail uses server-side for **Live IMAP access** to a **Mail account**. **Mail account credentials** are never exposed to the browser.
 _Avoid_: App login, OAuth token
 
 **Configured Mail account**:
 A **Mail account** declared in server-side configuration rather than added through the UI. UI account management is outside the MVP boundary.
 _Avoid_: User-added account
 
-**Sync freshness**:
-The expectation that Zmail refreshes each **Mail account** through background polling and App user-triggered manual refresh. Near-real-time IMAP IDLE is outside the MVP boundary.
-_Avoid_: Push sync, live sync
+**Manual refresh**:
+A user-triggered, bounded re-read of one **Mail account** through **Live IMAP access**. It refreshes that account's Mailbox tree, counts, current **Message list**, and selected Message state without starting background work or reading other accounts.
+_Avoid_: Sync, background refresh, refresh all
 
-**Sync job**:
-A server-side queued request to sync one **Mail account** into the **Local read model**. A **Sync job** can be created by the **App user** or by **Sync freshness** polling.
-_Avoid_: Synchronous refresh, UI loading state
-
-**Sync queue**:
-The server-side queue of **Sync jobs** for one Zmail installation. The **Sync queue** runs **Sync jobs** one at a time across all **Mail accounts**.
-_Avoid_: Per-account queue, parallel sync
-
-**Mail account diagnostics**:
-An authenticated operator check of a **Mail account credential** and Gmail connectivity that does not change the **Local read model**. **Mail account diagnostics** can expose raw provider errors to the **App user** for troubleshooting.
-_Avoid_: Sync, health check
-
-**Sync window**:
-The configurable recent time range of Gmail mail that Zmail syncs for each **Mail account**. The MVP default **Sync window** is 90 days.
-_Avoid_: Full history, unlimited sync
-
-**Sync scope**:
-The requested Gmail time range for a **Sync job**. A regular **Sync job** uses the configured **Sync window**, while an App user-triggered **Sync job** can request a wider **Sync scope** for one **Mail account**.
-_Avoid_: Job type, refresh mode
-
-**Recent reconciliation**:
-A less frequent sync pass that compares recently visible Gmail **Messages** against recent local **Mailbox entries** so external cleanup in another mail app is reflected in Zmail. **Recent reconciliation** is narrower than a custom historical sync and slower than regular incremental sync.
-_Avoid_: Full resync, deletion polling
+**Manual retry**:
+An explicit App user request to repeat a failed IMAP operation. Zmail never automatically retries Gmail reads or writes, and a failed **Mailbox action** is not repeated unless the App user deliberately requests it again.
+_Avoid_: Automatic retry, reconnect loop
 
 **Visible mailbox set**:
-All Gmail mailboxes and labels visible through IMAP for a **Mail account**, including Spam and Trash. The MVP syncs the **Visible mailbox set** within the **Sync window**.
+All Gmail mailboxes and labels visible through IMAP for a **Mail account**, including Spam and Trash. Zmail reads this set on demand for the **Account mailbox tree**.
 _Avoid_: Inbox-only sync, system-mailbox-only sync
-
-**Account sync status**:
-The per-**Mail account** state that indicates whether that account is synced, syncing, stale, or failing. One **Mail account** can have a failing **Account sync status** while other accounts remain usable.
-_Avoid_: Global sync status
 
 **Account mailbox tree**:
 The sidebar navigation model where each **Mail account** appears with its own **Mailboxes** and unread counts. Zmail does not need unified cross-account views in the MVP.
 _Avoid_: Unified inbox, smart view
 
 **Account unread view**:
-A per-**Mail account** view of unread **Messages** across that account's **Mailboxes**, deduplicated by **Message**. **Account unread view** is not a cross-account unified inbox.
+A per-**Mail account** view of unread **Messages** across Gmail All Mail, deduplicated by **Message** and excluding Spam and Trash. **Account unread view** is not a cross-account unified inbox.
 _Avoid_: Unified inbox, global unread
 
-**Default reader view**:
-The first view shown to the **App user** after **App login**. The MVP **Default reader view** is the first configured **Mail account**'s **Account unread view**.
-_Avoid_: Home page, dashboard, unified inbox
+**Account selection view**:
+The post-login and full-page-load state that lists configured **Mail accounts** without connecting to Gmail. Zmail never restores a prior account or Message from the URL after reload; selecting an account authorizes a **Live IMAP session** for that account and opens its Inbox.
+_Avoid_: Default inbox, automatic account load
+
+**Account open**:
+The explicit operation started by selecting a **Mail account**. In one **Live IMAP session** and one response, it reads the **Visible mailbox set**, Mailbox counts, and the first Inbox **Message list** page.
+_Avoid_: Automatic account load, separate tree and Inbox requests
 
 **Message list**:
-The middle-column view of individual **Messages** in the selected **Mailbox**. Thread identity can be preserved as **Message** metadata, but threads are not first-class UI or API aggregates.
+The middle-column metadata view of individual **Messages** in the selected **Mailbox**, **Account unread view**, or **Search result view**. It shows envelope and state fields without fetching body snippets, loads newest-first pages of 50 only when the App user opens the view or activates Load more, and never groups Messages into Conversation or thread aggregates.
 _Avoid_: Conversation list, thread list
 
 **Search**:
-Finding **Messages** by query across one **Mail account**'s synced mail in the **Local read model**. **Search** is part of the real **Mail reader** UI boundary and is not cross-account.
+Finding **Messages** across one **Mail account**'s complete Gmail mail set through **Live IMAP access** using a **Gmail search query**. One explicit Search serially checks Gmail All Mail, Spam, and Trash in one **Live IMAP session**, deduplicates by **Message identity**, and loads only the current metadata page; Search is never cross-account and editing text never triggers a request.
 _Avoid_: Browse, filter
+
+**Gmail search query**:
+The native Gmail search expression entered by the **App user** and executed through IMAP `X-GM-RAW`, including ordinary keywords and Gmail operators such as `from:`, `is:`, and `has:`.
+_Avoid_: Search filter, Zmail query language
 
 **Search result view**:
 A per-**Mail account** reader view that shows **Messages** returned by **Search** instead of the selected **Mailbox**. Clearing **Search** returns the **App user** to the previously selected **Mailbox** or **Account unread view**.
@@ -206,21 +190,17 @@ Developer: "If the same Gmail message appears in Inbox and All Mail, does Zmail 
 
 Domain expert: "No. Zmail has one Message with separate Mailbox entries for each Mailbox where it appears."
 
-Developer: "Can the AI API wait for Gmail when it needs unread mail content?"
+Developer: "Does Zmail download attachment files while opening a Message?"
 
-Domain expert: "No. Zmail should sync Message bodies locally so AI can read the latest information without waiting."
-
-Developer: "Does Full-message sync include attachment files?"
-
-Domain expert: "No. It includes Readable bodies, Inline message resources, and Attachment metadata, but normal Attachment file bytes can wait because they would make the sync data too large."
+Domain expert: "No. It reads Attachment metadata with the Message, then streams file bytes from Gmail only when I explicitly download an Attachment."
 
 Developer: "Does Zmail load every image inside an email by default?"
 
 Domain expert: "No. Zmail stores a Readable body and blocks remote images by default, with a manual option to show them for a Message."
 
-Developer: "If Zmail's database disagrees with Gmail, which one wins?"
+Developer: "Can I keep reading previously opened mail when Gmail is unavailable?"
 
-Domain expert: "Gmail wins. Zmail keeps a Local read model that can be rebuilt from Gmail."
+Domain expert: "No. Zmail does not persist mail; reading and Search require live Gmail IMAP access."
 
 Developer: "Are mark unread, archive, delete, label, and star considered replying features?"
 
@@ -238,25 +218,9 @@ Developer: "When Zmail archives a Message, should it disappear from the Mail acc
 
 Domain expert: "No. Archive should match Gmail behavior: remove it from Inbox while keeping it in the Mail account."
 
-Developer: "Can an AI reader archive or delete mail?"
-
-Domain expert: "Not in the MVP. The AI reader can list unread Messages and read their content, but it needs stable Message identities so it can remember what it already processed."
-
-Developer: "If an AI reader reads a Message, does that make it read?"
-
-Domain expert: "No. Unread means Gmail unread only. AI readers manage their own processed state outside Zmail."
-
-Developer: "Should an AI reader scrape the same endpoints as the frontend?"
-
-Domain expert: "No. Zmail should expose a separate AI API with stable Message identities and read-only access to unread mail and message content."
-
-Developer: "Does every Mail account store its own app login and scheduler settings?"
-
-Domain expert: "No. Zmail uses Hybrid persistence: app-level state belongs in the app database, while synced mail data belongs in each Mail account's mail database."
-
 Developer: "Is the Gmail app password the same as the Zmail login password?"
 
-Domain expert: "No. The App login protects Zmail itself, while Mail account credentials are server-side Gmail app passwords used for sync."
+Domain expert: "No. The App login protects Zmail itself, while Mail account credentials are server-side Gmail app passwords used for live IMAP access."
 
 Developer: "Can the App user add Gmail accounts from the UI?"
 
@@ -264,19 +228,15 @@ Domain expert: "Not in the MVP. Mail accounts are Configured Mail accounts decla
 
 Developer: "Does Zmail need live push updates from Gmail?"
 
-Domain expert: "Not for the MVP. Sync freshness can come from background polling, such as every few minutes, plus manual refresh."
+Domain expert: "No. An idle UI is quiescent; I explicitly refresh a Mail account when I want Zmail to re-read it."
 
-Developer: "Does Zmail sync years of historical Gmail immediately?"
+Developer: "Does Zmail only show Inbox?"
 
-Domain expert: "No. Each Mail account has a configurable Sync window, defaulting to recent mail such as 90 days."
+Domain expert: "No. Zmail reads the Visible mailbox set for each Mail account, including Spam and Trash."
 
-Developer: "Does Zmail only sync Inbox?"
+Developer: "If one Gmail account cannot connect, should Zmail stop showing every account?"
 
-Domain expert: "No. Zmail syncs the Visible mailbox set for each Mail account, including Spam and Trash."
-
-Developer: "If one Gmail account fails to sync, should Zmail stop showing every account?"
-
-Domain expert: "No. Account sync status is per Mail account, so one failing account should not prevent the others from being read."
+Domain expert: "No. Each Mail account is read independently, so one connection failure should not prevent the others from being used."
 
 Developer: "Should Zmail combine all accounts into one unread view?"
 
@@ -284,16 +244,16 @@ Domain expert: "No. The Account mailbox tree should show each Mail account separ
 
 Developer: "What should Zmail show immediately after login?"
 
-Domain expert: "Show the Default reader view: the first configured Mail account's Account unread view, not a global inbox."
+Domain expert: "Show the Account selection view without connecting to Gmail. I explicitly select the account whose Inbox I want to open."
 
 Developer: "If I search, am I filtering the current Mailbox?"
 
-Domain expert: "No. Search opens a Search result view for the selected Mail account, across that account's synced Messages."
+Domain expert: "No. Search opens a Search result view across that Mail account's complete Gmail mail set."
 
 Developer: "Does the middle column show conversations?"
 
-Domain expert: "No. The MVP Message list shows individual Messages. Thread identity can be stored for later, but threads are not the first UI model."
+Domain expert: "No. The Message list shows individual Messages. Gmail thread identity may be exposed as metadata, but Zmail does not group Messages into Conversations."
 
 Developer: "Can the App user search mail in the MVP?"
 
-Domain expert: "No. Search can come later; the MVP focuses on syncing, browsing, reading, and core Mailbox actions."
+Domain expert: "Yes. Search runs a Gmail search query across the selected Mail account's complete Gmail mail set."
