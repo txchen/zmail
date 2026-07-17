@@ -655,6 +655,8 @@ describe("Gmail Live IMAP Message content mapping", () => {
     await streamReader?.cancel();
 
     await vi.waitFor(() => expect(attachmentClient.logout).toHaveBeenCalledOnce());
+    await reader.closeAllSessions();
+    expect(attachmentClient.logout).toHaveBeenCalledOnce();
   });
 
   it("closes an independent Attachment session when streaming fails", async () => {
@@ -681,6 +683,70 @@ describe("Gmail Live IMAP Message content mapping", () => {
 
     await expect(attachment?.body.getReader().read()).rejects.toThrow("Gmail stream failed");
     await vi.waitFor(() => expect(attachmentClient.logout).toHaveBeenCalledOnce());
+    await reader.closeAllSessions();
+    expect(attachmentClient.logout).toHaveBeenCalledOnce();
+  });
+
+  it("closes active ordinary and Attachment sessions together on logout", async () => {
+    const ordinaryClient = contentClient();
+    const attachmentClient = contentClient({
+      download: vi.fn(async () => ({
+        meta: {
+          expectedSize: 4,
+          contentType: "application/pdf",
+          filename: "agenda.pdf",
+        },
+        content: new Readable({
+          read() {
+            // Keep the Attachment stream active until logout closes its session.
+          },
+        }),
+      })),
+    });
+    let clientCount = 0;
+    const reader = createGmailImapReader(
+      class {
+        constructor() {
+          clientCount += 1;
+          return clientCount === 1 ? ordinaryClient : attachmentClient;
+        }
+      } as never,
+    );
+
+    await reader.readMessage(accountFixture(), "1876543210");
+    const attachment = await reader.downloadAttachment(accountFixture(), "1876543210", "NA");
+    expect(attachment).toBeDefined();
+
+    await reader.closeAllSessions();
+
+    expect(ordinaryClient.logout).toHaveBeenCalledOnce();
+    expect(attachmentClient.logout).toHaveBeenCalledOnce();
+  });
+
+  it("closes an Attachment session that finishes connecting during logout", async () => {
+    let releaseConnect!: () => void;
+    const connectCanFinish = new Promise<void>((resolve) => {
+      releaseConnect = resolve;
+    });
+    const attachmentClient = contentClient({
+      connect: vi.fn(async () => connectCanFinish),
+    });
+    const reader = createGmailImapReader(
+      class {
+        constructor() {
+          return attachmentClient;
+        }
+      } as never,
+    );
+
+    const download = reader.downloadAttachment(accountFixture(), "1876543210", "NA");
+    await vi.waitFor(() => expect(attachmentClient.connect).toHaveBeenCalledOnce());
+    const closeAll = reader.closeAllSessions();
+    releaseConnect();
+
+    await expect(download).rejects.toThrow("IMAP sessions are closing");
+    await closeAll;
+    expect(attachmentClient.logout).toHaveBeenCalledOnce();
   });
 });
 

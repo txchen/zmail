@@ -300,6 +300,24 @@ export function attachmentDownloadUrl(
   )}/attachments/${encodeURIComponent(attachmentId)}`;
 }
 
+export async function downloadAttachment(
+  mailAccountId: string,
+  messageId: string,
+  attachmentId: string,
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const response = await fetcher(attachmentDownloadUrl(mailAccountId, messageId, attachmentId), {
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error("Attachment download failed");
+  }
+
+  return response.blob();
+}
+
 export async function performMailboxAction(
   mailAccountId: string,
   messageId: string,

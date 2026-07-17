@@ -52,11 +52,10 @@ describe("Sync jobs UI", () => {
     expect(appVue).toContain("overflow-y-auto");
   });
 
-  it("polls Sync jobs faster while work is active", () => {
-    expect(appVue).toContain("refetchInterval: syncJobsPollingInterval");
-    expect(appVue).toMatch(
-      /job\.state === "pending" \|\| job\.state === "running"[\s\S]*return hasActiveJob \? 1_000 : 15_000/,
-    );
+  it("loads Sync jobs only after the App user opens the activity view", () => {
+    expect(appVue).toContain("enabled: computed(() => authenticated.value && syncJobsOpen.value)");
+    expect(appVue).not.toContain("refetchInterval");
+    expect(appVue).not.toContain("syncJobsPollingInterval");
   });
 
   it("does not show Account sync status labels in the account tree", () => {

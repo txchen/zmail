@@ -15,6 +15,25 @@ const inboxView = {
 };
 
 describe("Ephemeral mail state", () => {
+  it("disables every automatic query trigger for the page session", () => {
+    const queryClient = createEphemeralMailState();
+
+    expect(queryClient.getDefaultOptions()).toMatchObject({
+      queries: {
+        staleTime: Number.POSITIVE_INFINITY,
+        gcTime: Number.POSITIVE_INFINITY,
+        refetchInterval: false,
+        refetchOnMount: false,
+        refetchOnReconnect: false,
+        refetchOnWindowFocus: false,
+        retry: false,
+      },
+      mutations: {
+        retry: false,
+      },
+    });
+  });
+
   it("returns to a visited Message list from browser memory without another request", async () => {
     const queryClient = createEphemeralMailState();
     const readInbox = vi.fn(async () => ({

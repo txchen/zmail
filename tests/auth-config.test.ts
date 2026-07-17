@@ -342,6 +342,31 @@ describe("App login and configured Mail accounts", () => {
     expect(logoutResponse.headers.get("set-cookie")).toContain("Max-Age=0");
   });
 
+  it("uses a session-only secure cookie in production", async () => {
+    const app = createApp({
+      appLogin: {
+        username: "reader",
+        password: "secret",
+        sessionSecret: "test-session-secret",
+      },
+      mailAccounts: [],
+      secureCookies: true,
+    });
+
+    const response = await app.request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "reader", password: "secret" }),
+      headers: { "content-type": "application/json" },
+    });
+    const cookie = response.headers.get("set-cookie") ?? "";
+
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("SameSite=Lax");
+    expect(cookie).toContain("Secure");
+    expect(cookie).not.toContain("Expires=");
+    expect(cookie).not.toContain("Max-Age=");
+  });
+
   it("rejects sessions signed with an old secret or an invalid signature", async () => {
     const app = createApp({
       appLogin: {

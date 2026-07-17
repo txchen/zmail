@@ -47,6 +47,7 @@ export type AppConfig = {
   mailboxActionClient?: MailboxActionClient;
   attachmentDownloadClient?: AttachmentDownloadClient;
   gmailImapReader?: GmailImapReader;
+  secureCookies?: boolean;
 };
 
 export type AttachmentDownloadClient = {

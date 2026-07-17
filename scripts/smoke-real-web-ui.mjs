@@ -1,311 +1,162 @@
 import { spawn } from "node:child_process";
 
-const webUrl = process.env.ZMAIL_SMOKE_WEB_URL ?? "http://localhost:5173";
+const webUrl = process.env.ZMAIL_SMOKE_WEB_URL ?? "http://localhost:3001";
 const apiUrl = process.env.ZMAIL_SMOKE_API_URL ?? "http://localhost:3001";
-const username = process.env.ZMAIL_SMOKE_USERNAME ?? "zmail";
-const password = process.env.ZMAIL_SMOKE_PASSWORD ?? "zmail";
-const smokeRun = `zmail-smoke-${Date.now()}`;
-
-let devServer;
+const browserBin = process.env.ZMAIL_SMOKE_BROWSER_BIN ?? "npx";
+const browserPrefix = process.env.ZMAIL_SMOKE_BROWSER_BIN ? [] : ["--yes", "agent-browser"];
+const session = `zmail-live-reader-${Date.now()}`;
+const children = [];
 
 try {
-  const startedServer =
-    !(await isReachable(webUrl)) || !(await isReachable(`${apiUrl}/api/health`));
-
-  if (startedServer) {
-    devServer = spawn("vp", ["run", "dev"], {
-      cwd: process.cwd(),
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    devServer.stdout.on("data", (chunk) => process.stdout.write(`[dev] ${chunk}`));
-    devServer.stderr.on("data", (chunk) => process.stderr.write(`[dev] ${chunk}`));
-
-    await waitFor(
-      async () => (await isReachable(webUrl)) && (await isReachable(`${apiUrl}/api/health`)),
-      {
-        timeoutMs: 30_000,
-        message: "Zmail dev server did not become reachable",
-      },
+  await execFile("./node_modules/.bin/vite", ["build", "apps/web"]);
+  if (!(await isReachable(`${apiUrl}/api/health`))) {
+    children.push(
+      start("./node_modules/.bin/tsx", ["scripts/smoke-live-reader-server.ts"], "fake-api"),
     );
   }
-
-  await smokeDesktop();
-  await smokeMobile();
-
-  console.log("Real web UI smoke passed.");
-} finally {
-  if (devServer) {
-    devServer.kill("SIGTERM");
-  }
-}
-
-async function smokeDesktop() {
-  const tab = "desktop";
-  await camou([
-    "open",
-    "--session",
-    sessionFor(tab),
-    "--tabname",
-    tab,
-    "--headless",
-    "--width",
-    "1280",
-    "--height",
-    "900",
-    webUrl,
-  ]);
-  await login(tab);
-
-  const defaultView = await evalPage(tab, async () => ({
-    path: `${location.pathname}${location.search}`,
-    text: document.body.innerText,
-    panes: Array.from(
-      document.querySelectorAll(
-        'aside, section[aria-label="Message list"], article[aria-label="Message content"]',
-      ),
-    ).map((element) => ({
-      label: element.getAttribute("aria-label"),
-      display: getComputedStyle(element).display,
-      width: element.getBoundingClientRect().width,
-    })),
-  }));
-
-  assert(
-    defaultView.path.startsWith("/accounts/"),
-    "App login did not route into an account reader view",
+  await waitFor(
+    async () => (await isReachable(webUrl)) && (await isReachable(`${apiUrl}/api/health`)),
+    "Smoke servers did not become reachable",
   );
-  assert(defaultView.path.endsWith("/unread"), "Default reader view is not an Account unread view");
-  assert(defaultView.text.includes("Unread Messages"), "Account unread view did not render");
-  assert(
-    defaultView.panes.length === 3 &&
-      defaultView.panes.every((pane) => pane.display === "block" && pane.width > 0),
+
+  await browser("open", `${webUrl}/accounts/personal/mailboxes/INBOX`);
+  await browser("set", "viewport", "1280", "900");
+  await browser("find", "label", "Username", "fill", "reader");
+  await browser("find", "label", "Password", "fill", "secret");
+  await browser("find", "role", "button", "click", "--name", "Log in");
+  await browser("wait", "500");
+  assert(await bodyIncludes("Choose a Mail account"), "Login did not show Account selection");
+  assert((await gmailCalls()).length === 0, "Login or restored route accessed Gmail");
+
+  await browser(
+    "eval",
+    "Array.from(document.querySelectorAll('button')).find((button) => button.innerText.includes('Open Inbox'))?.click()",
+  );
+  await browser("wait", "300");
+  assert(await bodyIncludes("Mail account unavailable"), "Account open failure was not visible");
+  await assertCalls(["open"], "failed Account open");
+
+  await clickButton("Manual retry");
+  await browser("wait", "500");
+  assert(await bodyIncludes("Quiescent UI smoke"), "Account open retry did not reach Inbox");
+  await assertCalls(["open", "open"], "Account open retry");
+  await assertPage(
+    `(() => {
+      const panes = Array.from(document.querySelectorAll(
+        'aside, section[aria-label="Message list"], article[aria-label="Message content"]'
+      ));
+      return panes.length === 3 && panes.every(
+        (pane) => getComputedStyle(pane).display === 'block' && pane.getBoundingClientRect().width > 0
+      );
+    })()`,
     "Desktop did not render three visible reader panes",
   );
 
-  const accountId = defaultView.path.split("/")[2];
-  await runSearch(tab);
-  await runDiagnostics(tab);
-  await maybeSmokeMessageDetail(tab, accountId);
-}
-
-async function smokeMobile() {
-  const tab = "mobile";
-  await camou([
-    "open",
-    "--session",
-    sessionFor(tab),
-    "--tabname",
-    tab,
-    "--headless",
-    "--width",
-    "390",
-    "--height",
-    "844",
-    webUrl,
-  ]);
-  await login(tab);
-
-  const mobileList = await evalPage(tab, async () => ({
-    width: innerWidth,
-    text: document.body.innerText,
-    listDisplay: getComputedStyle(document.querySelector('section[aria-label="Message list"]'))
-      .display,
-    navDisplay: getComputedStyle(document.querySelector("aside")).display,
-  }));
-
-  assert(mobileList.width === 390, "Mobile smoke did not use the expected viewport width");
-  assert(
-    mobileList.listDisplay === "block",
-    "Mobile unread route did not start in the Message list pane",
-  );
-  assert(
-    mobileList.navDisplay === "none",
-    "Mobile unread route should not show the Account mailbox tree pane",
-  );
-  assert(mobileList.text.includes("Search"), "Search is not accessible on mobile Message list");
-
-  await clickByText(tab, "button", "Account mailbox tree");
-  const navText = await evalPage(tab, () => document.body.innerText);
-  assert(navText.includes("ACCOUNTS"), "Mobile did not navigate back to the Account mailbox tree");
-}
-
-async function login(tab) {
-  await waitFor(async () => {
-    const text = await evalPage(tab, () => document.body.innerText);
-    return text.includes("Log in") || text.includes("ACCOUNTS");
-  });
-
-  const alreadyLoggedIn = await evalPage(tab, () => document.body.innerText.includes("ACCOUNTS"));
-  if (alreadyLoggedIn) {
-    return;
+  await clickButton("Quiescent UI smoke");
+  await browser("wait", "1500");
+  assert(await bodyIncludes("Archive"), "Message detail did not render");
+  for (const action of ["Mark", "Archive", "Delete", "Star"]) {
+    assert(await bodyIncludes(action), `Message detail missing ${action} action`);
   }
+  await assertCalls(["open", "open", "detail", "action"], "Message open and delayed mark-read");
 
-  await evalPage(
-    tab,
-    ({ username, password }) => {
-      const [usernameInput, passwordInput] = document.querySelectorAll("input");
-      usernameInput.value = username;
-      usernameInput.dispatchEvent(new Event("input", { bubbles: true }));
-      passwordInput.value = password;
-      passwordInput.dispatchEvent(new Event("input", { bubbles: true }));
-      document.querySelector("form")?.requestSubmit();
-    },
-    { username, password },
+  await fetch(`${apiUrl}/api/__smoke/fail/search`, { method: "POST" });
+  await browser("find", "placeholder", "Search this account", "fill", "invoice");
+  await clickButton("Search");
+  await browser("wait", "300");
+  assert(await bodyIncludes("Messages unavailable"), "Search failure was not visible");
+  await assertCalls(["open", "open", "detail", "action", "search"], "failed explicit Search");
+  await clickButton("Manual retry");
+  await browser("wait", "300");
+  assert(await bodyIncludes('Search results for "invoice"'), "Search retry did not recover");
+  await assertCalls(["open", "open", "detail", "action", "search", "search"], "Search retry");
+
+  await browser("set", "viewport", "390", "844");
+  await assertPage(
+    `innerWidth === 390 &&
+      getComputedStyle(document.querySelector('section[aria-label="Message list"]')).display === 'block' &&
+      getComputedStyle(document.querySelector('aside')).display === 'none'`,
+    "Mobile reader did not start in the Message list pane",
   );
-
-  await waitFor(
-    async () => {
-      const text = await evalPage(tab, () => document.body.innerText);
-      return text.includes("ACCOUNTS") || text.includes("Unread Messages");
-    },
-    {
-      message: async () =>
-        `Login did not reach the reader UI. Current text:\n${await evalPage(tab, () => document.body.innerText)}`,
-    },
+  await clickButton("Account mailbox tree");
+  await assertPage(
+    `getComputedStyle(document.querySelector('aside')).display === 'block'`,
+    "Mobile reader did not expose Account mailbox navigation",
   );
-}
+  await browser("set", "viewport", "1280", "900");
 
-async function runSearch(tab) {
-  await evalPage(tab, () => {
-    const input = document.querySelector('input[placeholder="Search this account"]');
-    input.value = "invoice";
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    Array.from(document.querySelectorAll("button"))
-      .find((button) => button.innerText.trim() === "Search")
-      ?.click();
-  });
-
-  await waitFor(
-    async () => {
-      const state = await evalPage(tab, () => ({
-        path: `${location.pathname}${location.search}`,
-        text: document.body.innerText,
-      }));
-      return (
-        state.path.includes("/search?q=invoice") &&
-        state.text.includes('Search results for "invoice"')
-      );
-    },
-    { message: "Search result view did not render" },
-  );
-
-  await clickByText(tab, "button", "Clear search");
-  await waitFor(
-    async () => {
-      const state = await evalPage(tab, () => ({
-        path: `${location.pathname}${location.search}`,
-        text: document.body.innerText,
-      }));
-      return state.path.endsWith("/unread") && state.text.includes("Unread Messages");
-    },
-    { message: "Clearing Search did not return to the previous reader view" },
-  );
-}
-
-async function runDiagnostics(tab) {
-  const beforePath = await evalPage(tab, () => `${location.pathname}${location.search}`);
-  await clickByText(tab, "button", "Open diagnostics");
-  await waitFor(async () =>
-    (await evalPage(tab, () => document.body.innerText)).includes("Mail account diagnostics"),
-  );
-  await clickByText(tab, "button", "Run diagnostics");
-  await waitFor(
-    async () => {
-      const text = await evalPage(tab, () => document.body.innerText);
-      return text.includes("Diagnostics passed") || text.includes("Diagnostics failed");
-    },
-    { timeoutMs: 15_000, message: "Diagnostics did not complete" },
-  );
-  const afterPath = await evalPage(tab, () => `${location.pathname}${location.search}`);
-  assert(afterPath === beforePath, "Diagnostics changed the reader route");
-}
-
-async function maybeSmokeMessageDetail(tab, accountId) {
-  const messageButtonText = await evalPage(tab, () => {
-    const buttons = Array.from(
-      document.querySelectorAll('section[aria-label="Message list"] button'),
-    );
-    return buttons.find(
-      (button) => !["Search", "Clear search", "Messages"].includes(button.innerText.trim()),
-    )?.innerText;
-  });
-
-  if (!messageButtonText) {
-    console.log("No seeded Messages found; skipping Message detail/action smoke.");
-    return;
-  }
-
-  await evalPage(tab, () => {
-    const buttons = Array.from(
-      document.querySelectorAll('section[aria-label="Message list"] button'),
-    );
-    buttons
-      .find((button) => !["Search", "Clear search", "Messages"].includes(button.innerText.trim()))
-      ?.click();
-  });
-  await waitFor(async () =>
-    (await evalPage(tab, () => document.body.innerText)).includes("Archive"),
-  );
-
-  const detailText = await evalPage(tab, () => document.body.innerText);
-  for (const label of ["Mark", "Archive", "Delete", "Star"]) {
-    assert(detailText.includes(label), `Message detail missing ${label} action`);
-  }
-
-  const messagePath = await evalPage(tab, () => location.pathname);
-  assert(
-    messagePath.startsWith(`/accounts/${accountId}/`),
-    "Message detail route is not account scoped",
-  );
-}
-
-async function clickByText(tab, selector, text) {
-  await evalPage(
-    tab,
-    ({ selector, text }) => {
-      const element = Array.from(document.querySelectorAll(selector)).find((candidate) =>
-        [candidate.innerText, candidate.getAttribute("aria-label") ?? ""].some((label) =>
-          label.includes(text),
-        ),
-      );
-      if (!element) {
-        throw new Error(`Missing clickable element: ${text}`);
-      }
-      element.click();
-    },
-    { selector, text },
-  );
-}
-
-async function evalPage(tab, expression, arg) {
-  const source =
-    typeof expression === "function"
-      ? `(${expression.toString()})(${arg === undefined ? "" : JSON.stringify(arg)})`
-      : expression;
-  const output = await camou([
+  const beforePassiveEvents = await gmailCalls();
+  await browser(
     "eval",
-    "--session",
-    sessionFor(tab),
-    "--tabname",
-    tab,
-    "--json",
-    source,
-  ]);
-  return JSON.parse(output).result;
+    "window.dispatchEvent(new Event('blur')); window.dispatchEvent(new Event('focus')); window.dispatchEvent(new Event('offline')); window.dispatchEvent(new Event('online'));",
+  );
+  await browser("wait", "1500");
+  await assertCalls(beforePassiveEvents, "idle, focus, and reconnect events");
+
+  await browser("open", `${webUrl}/accounts/personal/search?q=invoice`);
+  await browser("wait", "500");
+  assert(await bodyIncludes("Choose a Mail account"), "Authenticated reload restored reader route");
+  await assertCalls(beforePassiveEvents, "authenticated full reload");
+
+  await clickButton("Log out");
+  await browser("wait", "300");
+  assert(await bodyIncludes("Log in"), "Logout did not clear browser reader state");
+  await assertCalls([...beforePassiveEvents, "closeAll"], "logout");
+
+  console.log("Focused Live IMAP browser smoke passed.");
+} finally {
+  await browser("close").catch(() => undefined);
+  for (const child of children) {
+    child.kill("SIGTERM");
+  }
 }
 
-function sessionFor(tab) {
-  return `${smokeRun}-${tab}`;
+function start(command, args, label) {
+  const child = spawn(command, args, { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] });
+  child.stdout.on("data", (chunk) => process.stdout.write(`[${label}] ${chunk}`));
+  child.stderr.on("data", (chunk) => process.stderr.write(`[${label}] ${chunk}`));
+  return child;
 }
 
-async function camou(args) {
-  const result = await execFile("camou", args);
-  return result.stdout;
+async function browser(...args) {
+  return execFile(browserBin, [...browserPrefix, "--session", session, ...args]);
+}
+
+async function bodyIncludes(text) {
+  const result = await browser("get", "text", "body");
+  return result.stdout.includes(text);
+}
+
+async function clickButton(text) {
+  const expression = `Array.from(document.querySelectorAll('button')).find((button) => [button.innerText, button.getAttribute('aria-label') ?? ''].some((label) => label.includes(${JSON.stringify(
+    text,
+  )})))?.click()`;
+  await browser("eval", expression);
+}
+
+async function assertPage(expression, message) {
+  await browser(
+    "eval",
+    `if (!(${expression})) { throw new Error(${JSON.stringify(message)}); } true`,
+  );
+}
+
+async function gmailCalls() {
+  const response = await fetch(`${apiUrl}/api/__smoke/state`);
+  return (await response.json()).calls;
+}
+
+async function assertCalls(expected, phase) {
+  const actual = await gmailCalls();
+  assert(
+    JSON.stringify(actual) === JSON.stringify(expected),
+    `${phase} performed unexpected Gmail work: ${JSON.stringify(actual)}`,
+  );
 }
 
 async function execFile(command, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {
@@ -318,41 +169,30 @@ async function execFile(command, args) {
     child.on("close", (code) => {
       if (code === 0) {
         resolve({ stdout, stderr });
-        return;
+      } else {
+        reject(new Error(`${command} ${args.join(" ")} failed (${code})\n${stdout}\n${stderr}`));
       }
-
-      reject(
-        new Error(`${command} ${args.join(" ")} failed with code ${code}\n${stdout}\n${stderr}`),
-      );
     });
   });
 }
 
 async function isReachable(url) {
   try {
-    const response = await fetch(url);
-    return response.ok;
+    return (await fetch(url)).ok;
   } catch {
     return false;
   }
 }
 
-async function waitFor(predicate, options = {}) {
-  const timeoutMs = options.timeoutMs ?? 10_000;
+async function waitFor(predicate, message) {
   const startedAt = Date.now();
-
-  while (Date.now() - startedAt < timeoutMs) {
+  while (Date.now() - startedAt < 30_000) {
     if (await predicate()) {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-
-  throw new Error(
-    typeof options.message === "function"
-      ? await options.message()
-      : (options.message ?? "Timed out waiting for condition"),
-  );
+  throw new Error(message);
 }
 
 function assert(condition, message) {

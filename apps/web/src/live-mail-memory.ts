@@ -11,7 +11,12 @@ export type LiveBrowserMessageListView =
   | { kind: "search"; accountId: string; query: string };
 
 export function createEphemeralMailState(): QueryClient {
-  return new QueryClient();
+  return new QueryClient({
+    defaultOptions: {
+      queries: ephemeralMailQueryPolicy,
+      mutations: { retry: false },
+    },
+  });
 }
 
 export function liveMessageListKey(view: LiveBrowserMessageListView) {

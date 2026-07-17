@@ -9,14 +9,13 @@ import type {
   MailboxAction,
   MailboxSummary,
   SyncJobRecord,
-  SyncJobsResponse,
 } from "@zmail/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   fetchHealth,
-  attachmentDownloadUrl,
+  downloadAttachment,
   fetchMailAccounts,
   fetchMessage,
   fetchMessagesForMailbox,
@@ -37,6 +36,7 @@ import {
   ephemeralMailQueryPolicy,
   liveMessageDetailKey,
   liveMessageListKey,
+  type LiveBrowserMessageListView,
 } from "./live-mail-memory";
 import { renderReadableMessage } from "./message-rendering";
 import {
@@ -90,10 +90,13 @@ const documentVisible = ref(
 const windowFocused = ref(typeof document === "undefined" ? true : document.hasFocus());
 const renderedBodyMessageKey = ref("");
 const mailboxActionError = ref("");
-const observedActiveSyncJobIds = ref(new Set<string>());
+const failedManualRefresh = ref<{ accountId: string; request: AccountRefreshRequest } | null>(null);
+const attachmentDownloadError = ref<AttachmentDownloadRequest | null>(null);
+const failedLoadMore = ref<LoadMoreRequest | null>(null);
 const liveMessageListPageSize = 50;
 let resizeStartX = 0;
 let resizeStartWidth = 0;
+let attachmentDownloadAbortController: AbortController | undefined;
 
 type MailboxTreeNode = {
   id: string;
@@ -130,8 +133,8 @@ const mailAccountsQuery = useQuery({
 const syncJobsQuery = useQuery({
   queryKey: ["sync-jobs"],
   queryFn: () => fetchSyncJobs(),
-  enabled: authenticated,
-  refetchInterval: syncJobsPollingInterval,
+  enabled: computed(() => authenticated.value && syncJobsOpen.value),
+  ...ephemeralMailQueryPolicy,
 });
 
 const configuredMailAccounts = computed(() => mailAccountsQuery.data.value?.mailAccounts ?? []);
@@ -235,56 +238,47 @@ const messageListQuery = useQuery({
 const messages = computed(() => messageListQuery.data.value?.messages ?? []);
 const messageListNextCursor = computed(() => messageListQuery.data.value?.nextCursor);
 
+type LoadMoreRequest = {
+  view: LiveBrowserMessageListView;
+  cursor: string;
+};
+
 const loadMoreMessagesMutation = useMutation({
-  mutationFn: async () => {
-    const current = readerRoute.value;
-    const cursor = messageListNextCursor.value;
-
-    if (!cursor) {
-      return { view: messageListView.value, page: { messages: [] } };
-    }
-
-    if (current.kind === "unread") {
+  mutationFn: async ({ view, cursor }: LoadMoreRequest) => {
+    if (view.kind === "unread") {
       return {
-        view: {
-          kind: current.kind,
-          accountId: current.accountId,
-        },
-        page: await fetchUnreadMessagesForAccount(current.accountId, {
+        view,
+        page: await fetchUnreadMessagesForAccount(view.accountId, {
           limit: liveMessageListPageSize,
           cursor,
         }),
       };
     }
 
-    if (current.kind === "mailbox") {
+    if (view.kind === "mailbox") {
       return {
-        view: {
-          kind: current.kind,
-          accountId: current.accountId,
-          mailboxId: current.mailboxId,
-        },
-        page: await fetchMessagesForMailbox(current.accountId, current.mailboxId, {
+        view,
+        page: await fetchMessagesForMailbox(view.accountId, view.mailboxId, {
           limit: liveMessageListPageSize,
           cursor,
         }),
       };
     }
 
-    if (current.kind === "search") {
-      return {
-        view: current,
-        page: await searchMessagesForAccount(current.accountId, current.query, {
-          limit: liveMessageListPageSize,
-          cursor,
-        }),
-      };
-    }
-
-    return { view: current, page: { messages: [] } };
+    return {
+      view,
+      page: await searchMessagesForAccount(view.accountId, view.query, {
+        limit: liveMessageListPageSize,
+        cursor,
+      }),
+    };
   },
   onSuccess: ({ view, page }) => {
+    failedLoadMore.value = null;
     appendLiveMessagePage(queryClient, view, page as LiveMessagePage);
+  },
+  onError: (_error, request) => {
+    failedLoadMore.value = request;
   },
 });
 
@@ -340,14 +334,21 @@ const loginMutation = useMutation({
 });
 
 const logoutMutation = useMutation({
-  mutationFn: () => {
+  mutationFn: () => logout(),
+  onMutate: async () => {
     readDwellController.cancel();
-    return logout();
-  },
-  onSuccess: async () => {
+    attachmentDownloadAbortController?.abort();
     loggedOut.value = true;
     openedMailAccounts.value = new Map();
     remoteImagesAllowedMessageKeys.value = new Set();
+    lastListRouteByAccount.value = new Map();
+    searchDraft.value = "";
+    accountOpenErrorId.value = "";
+    failedManualRefresh.value = null;
+    attachmentDownloadError.value = null;
+    failedLoadMore.value = null;
+    mailboxActionError.value = "";
+    renderedBodyMessageKey.value = "";
     queryClient.clear();
     queryClient.setQueryData(["session"], { authenticated: false });
     await router.push("/");
@@ -378,34 +379,18 @@ const accountOpenMutation = useMutation({
 });
 
 const manualRefreshMutation = useMutation({
-  mutationFn: async (accountId: string) => {
-    const current = readerRoute.value;
-    let view: AccountRefreshRequest["view"];
-
-    if (current.kind === "mailbox" && current.accountId === accountId) {
-      view = { kind: "mailbox", mailboxId: current.mailboxId };
-    } else if (current.kind === "unread" && current.accountId === accountId) {
-      view = { kind: "unread" };
-    } else {
-      const account = openedMailAccounts.value.get(accountId);
-      const inbox = account?.mailboxes.find((mailbox) => mailbox.systemRole === "inbox");
-
-      if (!inbox) {
-        throw new Error("Inbox unavailable");
-      }
-      view = { kind: "mailbox", mailboxId: inbox.id };
-    }
-
-    const response = await refreshMailAccount(accountId, {
-      view,
-      ...(current.kind !== "none" && current.accountId === accountId && current.messageId
-        ? { selectedMessageId: current.messageId }
-        : {}),
-    });
-
+  mutationFn: async ({
+    accountId,
+    request,
+  }: {
+    accountId: string;
+    request: AccountRefreshRequest;
+  }) => {
+    const response = await refreshMailAccount(accountId, request);
     return { accountId, response };
   },
   onSuccess: async ({ accountId, response }) => {
+    failedManualRefresh.value = null;
     if (
       response.selectedMessageId &&
       !response.selectedMessage &&
@@ -420,6 +405,54 @@ const manualRefreshMutation = useMutation({
       accountTreeFromLiveAccount(response.mailAccount),
     );
     cacheManualRefresh(queryClient, accountId, response);
+  },
+  onError: (_error, variables) => {
+    failedManualRefresh.value = variables;
+  },
+});
+
+type AttachmentDownloadRequest = {
+  accountId: string;
+  messageId: string;
+  attachmentId: string;
+  filename: string;
+};
+
+const attachmentDownloadMutation = useMutation({
+  mutationFn: async (request: AttachmentDownloadRequest) => {
+    const controller = new AbortController();
+    attachmentDownloadAbortController = controller;
+    try {
+      return {
+        request,
+        blob: await downloadAttachment(
+          request.accountId,
+          request.messageId,
+          request.attachmentId,
+          fetch,
+          controller.signal,
+        ),
+      };
+    } finally {
+      if (attachmentDownloadAbortController === controller) {
+        attachmentDownloadAbortController = undefined;
+      }
+    }
+  },
+  onSuccess: ({ request, blob }) => {
+    attachmentDownloadError.value = null;
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = request.filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  },
+  onError: (error, request) => {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return;
+    }
+    attachmentDownloadError.value = request;
   },
 });
 
@@ -534,33 +567,6 @@ watch(
     });
   },
   { immediate: true },
-);
-
-watch(
-  syncJobs,
-  async (jobs) => {
-    const activeIds = new Set(
-      jobs.filter((job) => job.state === "pending" || job.state === "running").map((job) => job.id),
-    );
-    const completedObservedJob = jobs.find(
-      (job) =>
-        observedActiveSyncJobIds.value.has(job.id) &&
-        (job.state === "succeeded" || job.state === "failed"),
-    );
-
-    observedActiveSyncJobIds.value = activeIds;
-
-    if (completedObservedJob?.state !== "succeeded") {
-      return;
-    }
-
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["mailbox-tree"] }),
-      queryClient.invalidateQueries({ queryKey: ["message-list"] }),
-      queryClient.invalidateQueries({ queryKey: ["message-detail"] }),
-    ]);
-  },
-  { deep: true },
 );
 
 onBeforeUnmount(() => {
@@ -698,25 +704,13 @@ function dismissSyncJobsOnOutsidePointer(event: PointerEvent): void {
   syncJobsOpen.value = false;
 }
 
-function syncJobsPollingInterval(query: { state: { data: SyncJobsResponse | undefined } }) {
-  if (!authenticated.value || !documentVisible.value) {
-    return false;
-  }
-
-  const hasActiveJob =
-    query.state.data?.jobs.some((job) => job.state === "pending" || job.state === "running") ??
-    false;
-
-  return hasActiveJob ? 1_000 : 15_000;
-}
-
 function accountContextMenuItems(account: MailAccountMailboxTree) {
   return [
     {
       label: "Refresh",
       icon: "i-lucide-refresh-cw",
       disabled: manualRefreshMutation.isPending.value,
-      onSelect: () => manualRefreshMutation.mutate(account.id),
+      onSelect: () => manualRefreshMutation.mutate(manualRefreshRequest(account.id)),
     },
     {
       label: "Sync now",
@@ -1066,6 +1060,57 @@ function openConfiguredAccount(account: MailAccountSummary): void {
   accountOpenMutation.mutate(account.id);
 }
 
+function retryAccountOpen(): void {
+  if (accountOpenErrorId.value) {
+    accountOpenMutation.mutate(accountOpenErrorId.value);
+  }
+}
+
+function manualRefreshRequest(accountId: string): {
+  accountId: string;
+  request: AccountRefreshRequest;
+} {
+  const current = readerRoute.value;
+  let view: AccountRefreshRequest["view"];
+
+  if (current.kind === "mailbox" && current.accountId === accountId) {
+    view = { kind: "mailbox", mailboxId: current.mailboxId };
+  } else if (current.kind === "unread" && current.accountId === accountId) {
+    view = { kind: "unread" };
+  } else {
+    const inbox = openedMailAccounts.value
+      .get(accountId)
+      ?.mailboxes.find((mailbox) => mailbox.systemRole === "inbox");
+    if (!inbox) {
+      throw new Error("Inbox unavailable");
+    }
+    view = { kind: "mailbox", mailboxId: inbox.id };
+  }
+
+  return {
+    accountId,
+    request: {
+      view,
+      ...(current.kind !== "none" && current.accountId === accountId && current.messageId
+        ? { selectedMessageId: current.messageId }
+        : {}),
+    },
+  };
+}
+
+function requestAttachmentDownload(request: AttachmentDownloadRequest): void {
+  attachmentDownloadError.value = null;
+  attachmentDownloadMutation.mutate(request);
+}
+
+function loadMoreMessages(): void {
+  const cursor = messageListNextCursor.value;
+  const view = messageListView.value;
+  if (cursor && view.kind !== "none") {
+    loadMoreMessagesMutation.mutate({ view, cursor });
+  }
+}
+
 function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailboxTree {
   return {
     ...account,
@@ -1196,6 +1241,24 @@ function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailbo
         </div>
       </header>
 
+      <UAlert
+        v-if="failedManualRefresh"
+        color="error"
+        variant="soft"
+        title="Manual refresh failed"
+        :description="`Could not refresh ${failedManualRefresh.accountId}.`"
+      >
+        <template #actions>
+          <button
+            class="h-8 rounded-md border border-red-300 bg-white px-3 text-sm font-medium text-red-900"
+            type="button"
+            @click="manualRefreshMutation.mutate(failedManualRefresh)"
+          >
+            Manual retry
+          </button>
+        </template>
+      </UAlert>
+
       <UModal
         v-model:open="customSyncDialogOpen"
         title="Custom sync"
@@ -1269,7 +1332,17 @@ function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailbo
               variant="soft"
               title="Mail account unavailable"
               :description="`Could not open ${accountOpenErrorId}. Choose another account or retry.`"
-            />
+            >
+              <template #actions>
+                <button
+                  class="h-8 rounded-md border border-red-300 bg-white px-3 text-sm font-medium text-red-900"
+                  type="button"
+                  @click="retryAccountOpen"
+                >
+                  Manual retry
+                </button>
+              </template>
+            </UAlert>
           </div>
         </div>
       </div>
@@ -1465,7 +1538,17 @@ function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailbo
                 color="error"
                 variant="soft"
                 title="Messages unavailable"
-              />
+              >
+                <template #actions>
+                  <button
+                    class="h-8 rounded-md border border-red-300 bg-white px-3 text-sm font-medium text-red-900"
+                    type="button"
+                    @click="messageListQuery.refetch()"
+                  >
+                    Manual retry
+                  </button>
+                </template>
+              </UAlert>
               <div v-else-if="messages.length === 0" class="p-6 text-sm text-slate-500">
                 No messages in this view.
               </div>
@@ -1510,9 +1593,17 @@ function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailbo
                   class="h-8 w-full rounded-md border border-stone-300 bg-stone-50 px-3 text-sm font-medium text-slate-700 hover:bg-stone-200 disabled:cursor-not-allowed disabled:opacity-60"
                   type="button"
                   :disabled="loadMoreMessagesMutation.isPending.value"
-                  @click="loadMoreMessagesMutation.mutate()"
+                  @click="loadMoreMessages"
                 >
                   {{ loadMoreMessagesMutation.isPending.value ? "Loading..." : "Load more" }}
+                </button>
+                <button
+                  v-if="failedLoadMore"
+                  class="mt-2 h-8 w-full rounded-md border border-red-300 bg-white px-3 text-sm font-medium text-red-900"
+                  type="button"
+                  @click="loadMoreMessagesMutation.mutate(failedLoadMore)"
+                >
+                  Manual retry failed page
                 </button>
               </div>
             </div>
@@ -1677,6 +1768,23 @@ function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailbo
                   class="mt-6 border-t border-stone-200 pt-4"
                 >
                   <h2 class="text-sm font-semibold">Attachments</h2>
+                  <UAlert
+                    v-if="attachmentDownloadError"
+                    class="mt-2"
+                    color="error"
+                    variant="soft"
+                    title="Attachment download failed"
+                  >
+                    <template #actions>
+                      <button
+                        class="h-8 rounded-md border border-red-300 bg-white px-3 text-sm font-medium text-red-900"
+                        type="button"
+                        @click="requestAttachmentDownload(attachmentDownloadError)"
+                      >
+                        Manual retry
+                      </button>
+                    </template>
+                  </UAlert>
                   <ul class="mt-2 space-y-2">
                     <li
                       v-for="attachment in selectedMessage.attachments"
@@ -1687,19 +1795,23 @@ function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailbo
                         {{ attachment.filename }} · {{ attachment.mimeType }} ·
                         {{ attachment.sizeBytes }} bytes
                       </span>
-                      <a
+                      <button
                         class="ml-3 font-medium text-blue-700 hover:underline"
-                        :href="
-                          attachmentDownloadUrl(
-                            selectedMessage.accountId,
-                            selectedMessage.id,
-                            attachment.id,
-                          )
+                        type="button"
+                        :disabled="attachmentDownloadMutation.isPending.value"
+                        @click="
+                          requestAttachmentDownload({
+                            accountId: selectedMessage.accountId,
+                            messageId: selectedMessage.id,
+                            attachmentId: attachment.id,
+                            filename: attachment.filename,
+                          })
                         "
-                        download
                       >
-                        Download
-                      </a>
+                        {{
+                          attachmentDownloadMutation.isPending.value ? "Downloading..." : "Download"
+                        }}
+                      </button>
                     </li>
                   </ul>
                 </div>

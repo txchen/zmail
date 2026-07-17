@@ -186,7 +186,7 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
       config.appLogin.sessionSecret,
     );
 
-    c.header("set-cookie", `${sessionCookieName}=${sessionToken}; HttpOnly; SameSite=Lax; Path=/`);
+    c.header("set-cookie", sessionCookie(sessionToken, config.secureCookies));
 
     return c.body(null, 204);
   });
@@ -206,11 +206,15 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
   });
 
   app.post("/api/logout", async (c) => {
-    if (isAuthenticated(c.req.header("cookie"))) {
+    try {
       await config.gmailImapReader?.closeAllSessions();
+    } catch (error) {
+      logError("mail.sessions.close.error", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
-    c.header("set-cookie", `${sessionCookieName}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+    c.header("set-cookie", sessionCookie("", config.secureCookies, true));
 
     return c.body(null, 204);
   });
@@ -1292,4 +1296,15 @@ function copyBytes(bytes: Uint8Array): ArrayBuffer {
 function attachmentDisposition(filename: string): string {
   const safeFilename = filename.replaceAll(/[\r\n"]/g, "_");
   return `attachment; filename="${safeFilename}"`;
+}
+
+function sessionCookie(value: string, secure = false, clear = false): string {
+  return [
+    `${sessionCookieName}=${value}`,
+    "HttpOnly",
+    "SameSite=Lax",
+    "Path=/",
+    ...(secure ? ["Secure"] : []),
+    ...(clear ? ["Max-Age=0"] : []),
+  ].join("; ");
 }

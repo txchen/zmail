@@ -143,7 +143,27 @@ describe("Live IMAP Account open API", () => {
 
     expect(anonymousResponse.status).toBe(204);
     expect(response.status).toBe(204);
-    expect(closeAllSessions).toHaveBeenCalledOnce();
+    expect(closeAllSessions).toHaveBeenCalledTimes(2);
+    expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
+  });
+
+  it("clears the App session even when a broken IMAP session cannot close cleanly", async () => {
+    const app = createApp(
+      testConfig({
+        openAccount: vi.fn(async () => personalAccountOpen),
+        closeAllSessions: vi.fn(async () => {
+          throw new Error("socket already broken");
+        }),
+      }),
+    );
+    const cookie = (await login(app)).headers.get("set-cookie") ?? "";
+
+    const response = await app.request("/api/logout", {
+      method: "POST",
+      headers: { cookie },
+    });
+
+    expect(response.status).toBe(204);
     expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
   });
 });

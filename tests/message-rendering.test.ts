@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vite-plus/test";
-import { attachmentDownloadUrl, fetchMessage, fetchMessagesForMailbox } from "../apps/web/src/api";
+import { describe, expect, it, vi } from "vite-plus/test";
+import {
+  attachmentDownloadUrl,
+  downloadAttachment,
+  fetchMessage,
+  fetchMessagesForMailbox,
+} from "../apps/web/src/api";
 import { renderReadableMessage } from "../apps/web/src/message-rendering";
 
 describe("readable Message rendering", () => {
@@ -63,6 +68,28 @@ describe("readable Message rendering", () => {
   it("builds an encoded Attachment URL used only by the explicit Download control", () => {
     expect(attachmentDownloadUrl("personal account", "gmail/message", "part 4")).toBe(
       "/api/mail-accounts/personal%20account/messages/gmail%2Fmessage/attachments/part%204",
+    );
+  });
+
+  it("repeats a failed Attachment request only after an explicit Manual retry", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("failed", { status: 502 }))
+      .mockResolvedValueOnce(new Response("smoke", { status: 200 }));
+
+    await expect(
+      downloadAttachment("personal", "message-1", "attachment-1", fetcher),
+    ).rejects.toThrow("Attachment download failed");
+    expect(fetcher).toHaveBeenCalledOnce();
+
+    await expect(
+      downloadAttachment("personal", "message-1", "attachment-1", fetcher),
+    ).resolves.toBeInstanceOf(Blob);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "/api/mail-accounts/personal/messages/message-1/attachments/attachment-1",
+      { signal: undefined },
     );
   });
 

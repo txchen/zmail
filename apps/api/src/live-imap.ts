@@ -177,6 +177,9 @@ export function createGmailImapReader(
   ImapFlowClient: ImapFlowConstructor = ImapFlow,
   coordinator: ImapSessionCoordinator<ImapClientSession> = createImapSessionCoordinator(),
 ): GmailImapReader {
+  const attachmentSessions = new Set<ImapClientSession>();
+  const attachmentConnections = new Set<Promise<ImapClientSession>>();
+  let closingAttachmentSessions = false;
   const connect = async (
     account: ConfiguredMailAccount,
     boundedStream = false,
@@ -205,6 +208,43 @@ export function createGmailImapReader(
       client,
       close: () => client.logout(),
     };
+  };
+
+  const connectAttachment = async (account: ConfiguredMailAccount): Promise<ImapClientSession> => {
+    if (closingAttachmentSessions) {
+      throw new Error("IMAP sessions are closing");
+    }
+
+    const connection = (async () => {
+      const connected = await connect(account, true);
+      let closed = false;
+      const session: ImapClientSession = {
+        client: connected.client,
+        async close() {
+          if (closed) {
+            return;
+          }
+          closed = true;
+          attachmentSessions.delete(session);
+          await connected.close();
+        },
+      };
+
+      if (closingAttachmentSessions) {
+        await closeSessionWithoutError(session);
+        throw new Error("IMAP sessions are closing");
+      }
+
+      attachmentSessions.add(session);
+      return session;
+    })();
+    attachmentConnections.add(connection);
+
+    try {
+      return await connection;
+    } finally {
+      attachmentConnections.delete(connection);
+    }
   };
 
   return {
@@ -387,7 +427,7 @@ export function createGmailImapReader(
         },
       ),
     async downloadAttachment(account, messageId, attachmentId) {
-      const session = await connect(account, true);
+      const session = await connectAttachment(account);
       const client = session.client as LiveImapClient;
 
       try {
@@ -416,7 +456,7 @@ export function createGmailImapReader(
           body: closingWebStream(downloaded.content, session.close),
         };
       } catch (error) {
-        await closeClient(client);
+        await closeSessionWithoutError(session);
         throw error;
       }
     },
@@ -489,7 +529,17 @@ export function createGmailImapReader(
           };
         },
       ),
-    closeAllSessions: () => coordinator.closeAll(),
+    async closeAllSessions() {
+      closingAttachmentSessions = true;
+      try {
+        await Promise.allSettled([coordinator.closeAll(), ...attachmentConnections]);
+        await Promise.allSettled(
+          [...attachmentSessions].map((session) => closeSessionWithoutError(session)),
+        );
+      } finally {
+        closingAttachmentSessions = false;
+      }
+    },
   };
 }
 
@@ -1313,5 +1363,13 @@ async function closeClient(client: LiveImapClient): Promise<void> {
     await client.logout();
   } catch {
     // The failed connection is already unusable.
+  }
+}
+
+async function closeSessionWithoutError(session: ImapClientSession): Promise<void> {
+  try {
+    await session.close();
+  } catch {
+    // Logout still clears every other session and the browser App session.
   }
 }
