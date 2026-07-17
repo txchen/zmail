@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 
-export async function serveStaticFile(root: string, pathname: string): Promise<Response> {
+export async function serveStaticFile(
+  root: string,
+  pathname: string,
+  fallbackToIndex = true,
+): Promise<Response> {
   const filePath = safeStaticFilePath(root, pathname);
   const fallbackPath = join(root, "index.html");
   let servedFilePath = filePath;
@@ -10,6 +14,9 @@ export async function serveStaticFile(root: string, pathname: string): Promise<R
   try {
     bytes = await readFile(filePath);
   } catch {
+    if (!fallbackToIndex) {
+      return new Response("Not Found", { status: 404 });
+    }
     servedFilePath = fallbackPath;
     bytes = await readFile(fallbackPath);
   }
@@ -29,7 +36,7 @@ function safeStaticFilePath(root: string, pathname: string): string {
   const filePath = resolve(root, relativePath);
 
   if (!filePath.startsWith(root)) {
-    return join(root, "index.html");
+    return join(root, "__invalid_static_path__");
   }
 
   return filePath;

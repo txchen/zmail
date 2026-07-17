@@ -277,6 +277,22 @@ describe("App login and configured Mail accounts", () => {
     },
   );
 
+  it("does not mislabel an unknown top-level configuration key as obsolete", () => {
+    const configPath = writeConfig(`
+      mail_accounts = []
+      readre = {}
+
+      [app_login]
+      username = "reader"
+      password = "secret"
+      session_secret = "test-session-secret"
+    `);
+
+    expect(() => loadConfigFromFile(configPath)).toThrow(
+      "Invalid App configuration: unknown readre",
+    );
+  });
+
   it("rejects invalid App login credentials without issuing a session", async () => {
     const app = createApp({
       appLogin: {

@@ -11,7 +11,8 @@
     "test": "vp test",
     "typecheck": "tsc -b",
     "check": "vp check",
-    "smoke:web": "node scripts/smoke-real-web-ui.mjs"
+    "smoke:web": "node scripts/smoke-real-web-ui.mjs",
+    "smoke:container": "node scripts/smoke-stateless-container.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",

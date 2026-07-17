@@ -37,14 +37,26 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - name: Check
-        run: pnpm run check
+      - name: Check formatting
+        run: pnpm exec vp fmt --check
+
+      - name: Lint
+        run: pnpm exec vp lint
 
       - name: Test
-        run: pnpm test
+        run: pnpm exec vp test --run
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Run production browser smoke
+        run: pnpm run smoke:web
+
+      - name: Build stateless container
+        run: docker build --tag zmail:ci .
+
+      - name: Smoke the built stateless container
+        run: pnpm run smoke:container
+        env:
+          ZMAIL_SMOKE_IMAGE: zmail:ci
+          ZMAIL_SMOKE_SKIP_BUILD: "1"
 
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
@@ -64,12 +76,12 @@ jobs:
             type=sha,prefix=sha-,format=short
             type=ref,event=tag
 
-      - name: Build and maybe push image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Tag and push verified image
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          while IFS= read -r tag; do
+            docker tag zmail:ci "$tag"
+            docker push "$tag"
+          done <<< "$IMAGE_TAGS"

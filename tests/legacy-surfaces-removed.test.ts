@@ -40,13 +40,30 @@ describe("removed Local read model server surfaces", () => {
     expect(response.status).toBe(404);
   });
 
-  it("returns 404 for removed AI APIs from the production server instead of the SPA fallback", async () => {
+  it("returns 404 for unknown production paths instead of the SPA fallback", async () => {
     const app = productionApp({ mailAccounts: [] });
 
-    const response = await app.request("/ai-api/mail-accounts");
+    const response = await app.request("/unknown-server-surface");
 
     expect(response.status).toBe(404);
     expect(await response.text()).not.toContain('<div id="app"></div>');
+  });
+
+  it.each([
+    "/",
+    "/accounts/personal/unread",
+    "/accounts/personal/unread/messages/message-1",
+    "/accounts/personal/mailboxes/INBOX",
+    "/accounts/personal/mailboxes/INBOX/messages/message-1",
+    "/accounts/personal/search",
+    "/accounts/personal/search/messages/message-1",
+  ])("serves the supported SPA route %s", async (path) => {
+    const app = productionApp({ mailAccounts: [] });
+
+    const response = await app.request(path);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('<div id="app"></div>');
   });
 });
 

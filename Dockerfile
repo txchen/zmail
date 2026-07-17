@@ -30,6 +30,5 @@ COPY --from=build /runtime ./
 COPY --from=build /app/apps/web/dist ./apps/web/dist
 
 EXPOSE 3001
-VOLUME ["/config", "/data"]
 
 CMD ["node", "dist/server.js"]

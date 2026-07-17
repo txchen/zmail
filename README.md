@@ -2,86 +2,79 @@
 
 [![Docker image](https://img.shields.io/badge/ghcr.io-txchen%2Fzmail-blue?logo=github)](https://github.com/txchen/zmail/pkgs/container/zmail)
 
-Zmail is a self-hosted webmail client for Gmail accounts. It exists for the case where you want
-to read mail from a public computer or work machine without adding your Google account to that
-device, installing a desktop mail client, or trusting a random shared browser session with your
-primary Gmail login.
+Zmail is a private, self-hosted Gmail Mail reader. It lets you read and manage existing mail from a
+work laptop or other browser without adding the Gmail account to that device.
 
-Zmail was created after existing open source webmail clients such as Roundcube, SnappyMail, and
-several PHP-based options did not fit a Gmail-focused, lightweight, personal webmail setup. It is a
-small purpose-built reader that can be deployed as a private web app.
+Zmail uses **Live IMAP access**: mail is read from Gmail only after an explicit action. App login
+and page reload stop at the **Account selection** view without contacting Gmail; choosing a
+configured Mail account opens its Inbox. Previously visited Mailboxes, Search results, pagination,
+and Message bodies are cached only in browser memory for the current page session. Reloading,
+logging out, or closing the page clears that state.
 
-Zmail runs a Vue web UI and a Hono API in one service. Mail account credentials are configured on
-the server, messages and mailbox metadata are synced locally into SQLite, and the browser talks only
-to your Zmail instance.
+Zmail does not persist mail. The server does not cache Messages, Mailboxes, bodies, Attachments,
+Search results, or cursors, and Gmail remains authoritative. Use **Manual refresh** to re-read the
+selected account and **Manual retry** to repeat a failed operation. There is no polling, background
+refresh, or automatic retry while the UI is idle.
 
 ## Security model
 
-Zmail intentionally keeps its built-in authentication simple: one app username and password protect
-the web UI and API. For internet-facing deployments, it is designed to sit behind a stronger access
-layer such as Cloudflare Zero Trust, which acts as the first shield before traffic reaches Zmail.
+One App login protects the web UI and API. Gmail app passwords stay in server-side configuration
+and are never returned to the browser. For an internet-facing deployment, put Zmail behind HTTPS
+and a stronger access layer such as Cloudflare Zero Trust.
+
+See [Security](./docs/security.md) for the complete trust boundary and
+[Operator migration](./docs/operator-migration.md) before upgrading a persistent deployment.
 
 ## Development
 
-Install dependencies once:
+Install dependencies and create local App configuration:
 
 ```sh
 vp install
+cp zmail.toml.example zmail.toml
 ```
 
-Start the Vue web app and Hono API together:
+Edit `zmail.toml` with the App login and Configured Mail accounts. Start the Vue web app and Hono
+API together:
 
 ```sh
 vp run dev
 ```
 
-The API listens on `http://localhost:3001`. The web app runs through Vite and proxies `/api/*` to the API during development, preserving Vite HMR for frontend work.
+The API listens on `http://localhost:3001`. Vite serves the web app with HMR and proxies `/api/*` to
+the API. The default config path is `./zmail.toml`; set `ZMAIL_CONFIG_PATH` to select another file.
+After login, select a Mail account to authorize its first Live IMAP request.
 
-Create local API configuration:
-
-```sh
-cp zmail.toml.example zmail.toml
-```
-
-Edit `zmail.toml` with your App login and Mail account credentials. The default path is
-`./zmail.toml`; set `ZMAIL_CONFIG_PATH` to use a different file.
-
-Run checks from the monorepo root:
+Run the release checks from the monorepo root:
 
 ```sh
-vp test
-vp check
 vp run typecheck
+vp fmt --check
+vp lint
+vp test --run
+vp run smoke:web
 ```
 
 ## Docker
 
-GitHub Actions publishes a single-container image to GitHub Container Registry on pushes to
-`master` and version tags.
-
-The container serves both the web UI and API on port `3001`. A config file is required; without it
-the service cannot start. Use [`zmail.toml.example`](./zmail.toml.example) as the template:
+The single container serves the production web UI and API on port `3001`. It requires only
+`/config/zmail.toml` as a readonly bind mount; it needs no writable mail volume.
 
 ```sh
-mkdir -p /srv/zmail/config /srv/zmail/data
+mkdir -p /srv/zmail/config
 cp zmail.toml.example /srv/zmail/config/zmail.toml
 ```
 
-Edit `/srv/zmail/config/zmail.toml` with the App login and Mail account credentials, and set
-`[storage] database_dir = "/data"`. The image defaults to
-`ZMAIL_CONFIG_PATH=/config/zmail.toml`.
-
-Mount the config directory and persistent data directory:
+Edit the copied file with the App login and Mail account credentials, then run:
 
 ```sh
 docker run --name zmail \
   -p 3001:3001 \
-  -v /srv/zmail/config:/config:ro \
-  -v /srv/zmail/data:/data \
+  --mount type=bind,src=/srv/zmail/config/zmail.toml,dst=/config/zmail.toml,readonly \
   ghcr.io/txchen/zmail:latest
 ```
 
-Equivalent `docker-compose.yml`:
+Equivalent `compose.yaml`:
 
 ```yaml
 services:
@@ -92,9 +85,18 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      - /srv/zmail/config:/config:ro
-      - /srv/zmail/data:/data
+      - /srv/zmail/config/zmail.toml:/config/zmail.toml:ro
 ```
 
-The `/config` mount can be read-only. The `/data` mount must be writable because it stores the
-SQLite databases.
+To build and smoke-test the same stateless image locally:
+
+```sh
+vp run smoke:container
+```
+
+The smoke builds the image, mounts a generated config file readonly, starts without Gmail access,
+logs in through the production API, verifies the Account selection contract, and confirms that the
+container has no writable data mount.
+
+GitHub Actions builds the image on pull requests. Pushes to `master` publish `latest` and a short
+SHA tag; version tags publish the corresponding version tag.

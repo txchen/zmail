@@ -22,18 +22,27 @@ export function createServerApp(
     app.get("*", async (c, next) => {
       const pathname = new URL(c.req.url).pathname;
 
-      if (
-        pathname.startsWith("/api/") ||
-        pathname === "/ai-api" ||
-        pathname.startsWith("/ai-api/") ||
-        pathname === "/health"
-      ) {
+      if (pathname.startsWith("/api/") || pathname === "/health") {
         return next();
       }
 
-      return serveStaticFile(options.webDistDir, pathname);
+      return serveStaticFile(options.webDistDir, pathname, isSpaRoute(pathname));
     });
   }
 
   return app;
+}
+
+function isSpaRoute(pathname: string): boolean {
+  if (pathname === "/") {
+    return true;
+  }
+
+  const account = String.raw`/accounts/[^/]+`;
+  const message = String.raw`(?:/messages/[^/]+)?`;
+
+  return (
+    new RegExp(`^${account}/(?:unread|search)${message}/?$`).test(pathname) ||
+    new RegExp(`^${account}/mailboxes/[^/]+${message}/?$`).test(pathname)
+  );
 }
