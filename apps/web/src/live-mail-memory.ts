@@ -6,9 +6,9 @@ import type {
 } from "@zmail/shared";
 import { QueryClient } from "@tanstack/vue-query";
 
-export type LiveBrowserMessageListView = LiveMessageListView & {
-  accountId: string;
-};
+export type LiveBrowserMessageListView =
+  | (LiveMessageListView & { accountId: string })
+  | { kind: "search"; accountId: string; query: string };
 
 export function createEphemeralMailState(): QueryClient {
   return new QueryClient();

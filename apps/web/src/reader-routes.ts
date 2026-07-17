@@ -4,6 +4,12 @@ export type ReaderRoute =
   | { kind: "search"; accountId: string; query: string; messageId?: string }
   | { kind: "none" };
 
+export type MessageListRoute =
+  | { kind: "unread"; accountId: string }
+  | { kind: "mailbox"; accountId: string; mailboxId: string }
+  | { kind: "search"; accountId: string; query: string }
+  | { kind: "none" };
+
 export function parseReaderRoute(path: string, query: Record<string, unknown>): ReaderRoute {
   const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
 
@@ -31,12 +37,36 @@ export function parseReaderRoute(path: string, query: Record<string, unknown>): 
     return {
       kind: "search",
       accountId,
-      query: q.trim(),
+      query: q,
       messageId: parts[4] === "messages" ? parts[5] : undefined,
     };
   }
 
   return { kind: "none" };
+}
+
+export function messageListViewForRoute(current: ReaderRoute): MessageListRoute {
+  if (current.kind === "mailbox") {
+    return {
+      kind: current.kind,
+      accountId: current.accountId,
+      mailboxId: current.mailboxId,
+    };
+  }
+  if (current.kind === "unread") {
+    return {
+      kind: current.kind,
+      accountId: current.accountId,
+    };
+  }
+  if (current.kind === "search") {
+    return {
+      kind: current.kind,
+      accountId: current.accountId,
+      query: current.query,
+    };
+  }
+  return current;
 }
 
 export function unreadPath(accountId: string): string {

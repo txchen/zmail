@@ -7,7 +7,6 @@ import type {
   MailAccountMailboxTree,
   LiveMessagePage,
   MailboxAction,
-  MailboxMessagesResponse,
   MailboxMessageSummary,
   MailboxSummary,
   SyncJobRecord,
@@ -45,6 +44,7 @@ import {
   defaultReaderPath,
   listPath,
   mailboxPath,
+  messageListViewForRoute,
   messagePath,
   nextMessagePathAfterRemoval,
   parseReaderRoute,
@@ -83,7 +83,6 @@ const documentVisible = ref(
 );
 const observedActiveSyncJobIds = ref(new Set<string>());
 const liveMessageListPageSize = 50;
-const searchMessageListPageSize = 100;
 let resizeStartX = 0;
 let resizeStartWidth = 0;
 
@@ -138,33 +137,7 @@ const selectedAccount = computed(() =>
 const selectedMessageId = computed(() =>
   readerRoute.value.kind === "none" ? "" : (readerRoute.value.messageId ?? ""),
 );
-const messageListView = computed(() => {
-  const current = readerRoute.value;
-
-  if (current.kind === "mailbox") {
-    return {
-      kind: current.kind,
-      accountId: current.accountId,
-      mailboxId: current.mailboxId,
-    };
-  }
-
-  if (current.kind === "unread") {
-    return {
-      kind: current.kind,
-      accountId: current.accountId,
-    };
-  }
-
-  if (current.kind === "search") {
-    return current;
-  }
-
-  return current;
-});
-const isLiveMessageListView = computed(
-  () => messageListView.value.kind === "mailbox" || messageListView.value.kind === "unread",
-);
+const messageListView = computed(() => messageListViewForRoute(readerRoute.value));
 const searchQuery = computed(() =>
   readerRoute.value.kind === "search" ? readerRoute.value.query : "",
 );
@@ -232,7 +205,7 @@ const messageListQuery = useQuery({
 
     if (current.kind === "search") {
       return searchMessagesForAccount(current.accountId, current.query, {
-        limit: searchMessageListPageSize,
+        limit: liveMessageListPageSize,
       });
     }
 
@@ -244,20 +217,7 @@ const messageListQuery = useQuery({
       readerRoute.value.kind !== "none" &&
       openedMailAccounts.value.has(selectedAccountId.value),
   ),
-  staleTime: Number.POSITIVE_INFINITY,
-  gcTime: computed(() =>
-    isLiveMessageListView.value ? ephemeralMailQueryPolicy.gcTime : 5 * 60 * 1_000,
-  ),
-  refetchInterval: false,
-  refetchOnMount: computed(() =>
-    isLiveMessageListView.value ? ephemeralMailQueryPolicy.refetchOnMount : true,
-  ),
-  refetchOnReconnect: computed(() =>
-    isLiveMessageListView.value ? ephemeralMailQueryPolicy.refetchOnReconnect : true,
-  ),
-  refetchOnWindowFocus: computed(() =>
-    isLiveMessageListView.value ? ephemeralMailQueryPolicy.refetchOnWindowFocus : true,
-  ),
+  ...ephemeralMailQueryPolicy,
 });
 
 const messages = computed(() => messageListQuery.data.value?.messages ?? []);
@@ -303,7 +263,7 @@ const loadMoreMessagesMutation = useMutation({
       return {
         view: current,
         page: await searchMessagesForAccount(current.accountId, current.query, {
-          limit: searchMessageListPageSize,
+          limit: liveMessageListPageSize,
           cursor,
         }),
       };
@@ -312,15 +272,7 @@ const loadMoreMessagesMutation = useMutation({
     return { view: current, page: { messages: [] } };
   },
   onSuccess: ({ view, page }) => {
-    if (view.kind === "mailbox" || view.kind === "unread") {
-      appendLiveMessagePage(queryClient, view, page as LiveMessagePage);
-      return;
-    }
-
-    queryClient.setQueryData(["message-list", view], (currentPage: MailboxMessagesResponse) => ({
-      messages: [...(currentPage?.messages ?? []), ...page.messages],
-      ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
-    }));
+    appendLiveMessagePage(queryClient, view, page as LiveMessagePage);
   },
 });
 
@@ -575,12 +527,10 @@ async function selectMessage(messageId: string) {
 }
 
 async function submitSearch() {
-  const query = searchDraft.value.trim();
-
-  if (!selectedAccountId.value || !query) {
+  const query = searchDraft.value;
+  if (!selectedAccountId.value || !query.trim()) {
     return;
   }
-
   await router.push(searchPath(selectedAccountId.value, query));
 }
 

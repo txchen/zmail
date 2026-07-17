@@ -4,18 +4,17 @@
 
 **Blocked by:** 02 — Browse live Mailboxes with client-memory pagination.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Typing or editing the Search field never contacts Gmail.
-- [ ] Pressing Enter or activating Search submits the native Gmail query exactly once.
-- [ ] One Search uses one ordinary account session to check All Mail, Spam, and Trash serially through `X-GM-RAW`.
-- [ ] Results from the three Mailboxes are deduplicated by `(accountId, X-GM-MSGID)`.
-- [ ] The merged result is newest-first and returns at most 50 metadata-only Message rows per page.
-- [ ] Explicit Load more retrieves the next Search page without fetching Message bodies.
-- [ ] Ordinary Gmail queries exclude Spam and Trash according to Gmail semantics, while scope operators such as `in:anywhere`, `in:spam`, and `in:trash` can include them.
-- [ ] Search is limited to the selected Mail account and never becomes cross-account.
-- [ ] Returning to a prior Search result view uses browser-memory results and pagination without automatically repeating the query.
-- [ ] Empty queries do not create an IMAP request.
-- [ ] Search query text and Message content are not written to application logs.
-- [ ] Tests cover explicit submission, three-Mailbox execution, identity deduplication, ordering, pagination, Gmail scope operators, account isolation, and cache-first return navigation.
-
+- [x] Typing or editing the Search field never contacts Gmail.
+- [x] Pressing Enter or activating Search submits the native Gmail query exactly once.
+- [x] One Search uses one ordinary account session to check All Mail, Spam, and Trash serially through `X-GM-RAW`.
+- [x] Results from the three Mailboxes are deduplicated by `(accountId, X-GM-MSGID)`.
+- [x] The merged result is newest-first and returns at most 50 metadata-only Message rows per page.
+- [x] Explicit Load more retrieves the next Search page without fetching Message bodies.
+- [x] Ordinary Gmail queries exclude Spam and Trash according to Gmail semantics, while scope operators such as `in:anywhere`, `in:spam`, and `in:trash` can include them.
+- [x] Search is limited to the selected Mail account and never becomes cross-account.
+- [x] Returning to a prior Search result view uses browser-memory results and pagination without automatically repeating the query.
+- [x] Empty queries do not create an IMAP request.
+- [x] Search query text and Message content are not written to application logs.
+- [x] Tests cover explicit submission, three-Mailbox execution, identity deduplication, ordering, pagination, Gmail scope operators, account isolation, and cache-first return navigation.

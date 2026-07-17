@@ -7,7 +7,6 @@ import type {
   LiveMessagePage,
   LiveMessageResponse,
   MailAccountDiagnosticsResponse,
-  MailboxMessagesResponse,
   MailboxAction,
   MailboxTreeResponse,
   MailAccountsResponse,
@@ -194,7 +193,7 @@ export async function searchMessagesForAccount(
   query: string,
   optionsOrFetcher: { limit?: number; cursor?: string } | typeof fetch = {},
   fetcher: typeof fetch = fetch,
-): Promise<MailboxMessagesResponse> {
+): Promise<LiveMessagePage> {
   const options = typeof optionsOrFetcher === "function" ? {} : optionsOrFetcher;
   const resolvedFetcher = typeof optionsOrFetcher === "function" ? optionsOrFetcher : fetcher;
   const search = new URLSearchParams();
@@ -206,7 +205,7 @@ export async function searchMessagesForAccount(
   }
   const paginationQuery = search.toString();
   const response = await resolvedFetcher(
-    `/api/mail-accounts/${mailAccountId}/messages/search?q=${encodeURIComponent(query)}${
+    `/api/mail-accounts/${encodeURIComponent(mailAccountId)}/messages/search?q=${encodeURIComponent(query)}${
       paginationQuery ? `&${paginationQuery}` : ""
     }`,
   );

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   defaultReaderPath,
   mailboxPath,
+  messageListViewForRoute,
   messagePath,
   nextMessagePathAfterRemoval,
   parseReaderRoute,
@@ -25,6 +26,22 @@ describe("reader routes", () => {
       accountId: "personal",
       query: "quarterly invoice",
     });
+  });
+
+  it("keeps one Search list view while opening a result and preserves the native query", () => {
+    const listRoute = parseReaderRoute("/accounts/personal/search", {
+      q: " from:billing@example.com ",
+    });
+    const messageRoute = parseReaderRoute("/accounts/personal/search/messages/gmail-message-1", {
+      q: " from:billing@example.com ",
+    });
+
+    expect(messageListViewForRoute(listRoute)).toEqual({
+      kind: "search",
+      accountId: "personal",
+      query: " from:billing@example.com ",
+    });
+    expect(messageListViewForRoute(messageRoute)).toEqual(messageListViewForRoute(listRoute));
   });
 
   it("builds a Message route inside a Search result view", () => {

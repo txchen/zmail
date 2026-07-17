@@ -10,6 +10,7 @@ import type {
 } from "@zmail/shared";
 import { ImapFlow } from "imapflow";
 import type { ImapFlowOptions, MessageStructureObject } from "imapflow";
+import { createHash } from "node:crypto";
 import type { Readable } from "node:stream";
 import type { ConfiguredMailAccount } from "./config.js";
 import {
@@ -27,6 +28,7 @@ export type GmailImapReader = {
     cursor?: string,
   ): Promise<LiveMessagePage>;
   listUnread(account: ConfiguredMailAccount, cursor?: string): Promise<LiveMessagePage>;
+  search(account: ConfiguredMailAccount, query: string, cursor?: string): Promise<LiveMessagePage>;
   refreshAccount(
     account: ConfiguredMailAccount,
     request: AccountRefreshRequest,
@@ -265,6 +267,16 @@ export function createGmailImapReader(
           }
 
           return readMessagePage(client, account.id, allMail.path, "unread", cursor);
+        },
+      ),
+    search: (account, query, cursor) =>
+      coordinator.run(
+        account.id,
+        () => connect(account),
+        async (session) => {
+          const client = session.client as LiveImapClient;
+          const listedMailboxes = await listMailboxes(client);
+          return readSearchPage(client, account.id, listedMailboxes, query, cursor);
         },
       ),
     refreshAccount: (account, request) =>
@@ -682,6 +694,190 @@ async function findMessageUid(
   return undefined;
 }
 
+type SearchSystemMailboxRole = Extract<SystemMailboxRole, "allMail" | "spam" | "trash">;
+
+type SearchCursorMailbox = {
+  mailboxId: string;
+  uidValidity: string;
+  upperUid: number;
+};
+
+type SearchCursor = {
+  version: 1;
+  accountId: string;
+  queryHash: string;
+  mailboxes: Partial<Record<SearchSystemMailboxRole, SearchCursorMailbox>>;
+  seenMessageIds: string[];
+};
+
+async function readSearchPage(
+  client: LiveImapClient,
+  accountId: string,
+  listedMailboxes: Awaited<ReturnType<LiveImapClient["list"]>>,
+  query: string,
+  encodedCursor?: string,
+): Promise<LiveMessagePage> {
+  const queryHash = createHash("sha256").update(query).digest("base64url");
+  const cursor = encodedCursor ? decodeSearchCursor(encodedCursor) : undefined;
+  if (cursor && (cursor.accountId !== accountId || cursor.queryHash !== queryHash)) {
+    throw new Error("Invalid cursor");
+  }
+
+  const includedRoles = searchIncludedRoles(query);
+  const candidates: LiveMessageSummary[] = [];
+  const nextMailboxes: SearchCursor["mailboxes"] = {};
+
+  for (const role of ["allMail", "spam", "trash"] as const) {
+    const mailbox = listedMailboxes.find(
+      (candidate) => systemMailboxRole(candidate.specialUse) === role,
+    );
+    if (!mailbox) {
+      throw new Error(`Gmail ${role} Mailbox is not visible through IMAP`);
+    }
+
+    const opened = await client.mailboxOpen(mailbox.path, { readOnly: true });
+    const uidValidity = String(opened.uidValidity ?? "");
+    const previous = cursor?.mailboxes[role];
+    if (previous && (previous.mailboxId !== mailbox.path || previous.uidValidity !== uidValidity)) {
+      throw new Error("Invalid cursor");
+    }
+
+    const searchResult = await client.search({ gmailRaw: query }, { uid: true });
+    const matchingUids = (searchResult || []).sort((first, second) => first - second);
+    if (!includedRoles.has(role)) {
+      continue;
+    }
+
+    const upperUid = previous?.upperUid ?? matchingUids.at(-1) ?? 0;
+    const snapshotUids = matchingUids.filter((uid) => uid <= upperUid);
+    nextMailboxes[role] = {
+      mailboxId: mailbox.path,
+      uidValidity,
+      upperUid,
+    };
+    candidates.push(
+      ...(await fetchMessageSummariesByUid(client, accountId, snapshotUids)).map(
+        ({ uid: _uid, ...message }) => message,
+      ),
+    );
+  }
+
+  const priorSeen = new Set(cursor?.seenMessageIds ?? []);
+  const pageSeen = new Set<string>();
+  const messages = candidates
+    .sort(
+      (first, second) =>
+        Date.parse(second.receivedAt) - Date.parse(first.receivedAt) ||
+        second.id.localeCompare(first.id),
+    )
+    .filter((message) => {
+      if (priorSeen.has(message.id) || pageSeen.has(message.id)) {
+        return false;
+      }
+      pageSeen.add(message.id);
+      return true;
+    })
+    .slice(0, 50);
+  const emittedIds = new Set(messages.map((message) => message.id));
+
+  const hasNextPage = candidates.some(
+    (candidate) => !priorSeen.has(candidate.id) && !emittedIds.has(candidate.id),
+  );
+
+  return {
+    messages,
+    ...(hasNextPage
+      ? {
+          nextCursor: encodeSearchCursor({
+            version: 1,
+            accountId,
+            queryHash,
+            mailboxes: nextMailboxes,
+            seenMessageIds: [...priorSeen, ...emittedIds],
+          }),
+        }
+      : {}),
+  };
+}
+
+function searchIncludedRoles(query: string): Set<SearchSystemMailboxRole> {
+  const roles = new Set<SearchSystemMailboxRole>(["allMail"]);
+  const operators = queryOutsideQuotedLiterals(query);
+  if (hasPositiveScopeOperator(operators, "anywhere")) {
+    roles.add("spam");
+    roles.add("trash");
+  }
+  if (hasPositiveScopeOperator(operators, "spam")) {
+    roles.add("spam");
+  }
+  if (hasPositiveScopeOperator(operators, "trash")) {
+    roles.add("trash");
+  }
+  return roles;
+}
+
+function queryOutsideQuotedLiterals(query: string): string {
+  let quoted = false;
+  let escaped = false;
+  return [...query]
+    .map((character) => {
+      if (escaped) {
+        escaped = false;
+        return quoted ? " " : character;
+      }
+      if (character === "\\") {
+        escaped = true;
+        return quoted ? " " : character;
+      }
+      if (character === '"') {
+        quoted = !quoted;
+        return " ";
+      }
+      return quoted ? " " : character;
+    })
+    .join("");
+}
+
+function hasPositiveScopeOperator(query: string, scope: "anywhere" | "spam" | "trash"): boolean {
+  return new RegExp(`(?:^|[\\s({])in:${scope}(?=$|[\\s)}])`, "i").test(query);
+}
+
+function encodeSearchCursor(cursor: SearchCursor): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function decodeSearchCursor(encodedCursor: string): SearchCursor {
+  try {
+    const cursor = JSON.parse(
+      Buffer.from(encodedCursor, "base64url").toString("utf8"),
+    ) as SearchCursor;
+    if (
+      cursor.version !== 1 ||
+      typeof cursor.accountId !== "string" ||
+      typeof cursor.queryHash !== "string" ||
+      !cursor.mailboxes ||
+      !Array.isArray(cursor.seenMessageIds) ||
+      !cursor.seenMessageIds.every((id) => typeof id === "string")
+    ) {
+      throw new Error("Invalid cursor");
+    }
+    for (const state of Object.values(cursor.mailboxes)) {
+      if (
+        !state ||
+        typeof state.mailboxId !== "string" ||
+        typeof state.uidValidity !== "string" ||
+        !Number.isSafeInteger(state.upperUid) ||
+        state.upperUid < 0
+      ) {
+        throw new Error("Invalid cursor");
+      }
+    }
+    return cursor;
+  } catch {
+    throw new Error("Invalid cursor");
+  }
+}
+
 type CursorScope = "mailbox" | "unread";
 
 type LiveMessageCursor = {
@@ -752,6 +948,25 @@ async function readMessagesByUid(
   accountId: string,
   uids: number[],
 ): Promise<LiveMessageSummary[]> {
+  const messages = await fetchMessageSummariesByUid(client, accountId, uids);
+  const seenMessageIds = new Set<string>();
+  return messages
+    .sort((first, second) => second.uid - first.uid)
+    .filter((message) => {
+      if (seenMessageIds.has(message.id)) {
+        return false;
+      }
+      seenMessageIds.add(message.id);
+      return true;
+    })
+    .map(({ uid: _uid, ...message }) => message);
+}
+
+async function fetchMessageSummariesByUid(
+  client: LiveImapClient,
+  accountId: string,
+  uids: number[],
+): Promise<Array<LiveMessageSummary & { uid: number }>> {
   const messages: Array<LiveMessageSummary & { uid: number }> = [];
 
   if (uids.length > 0) {
@@ -765,8 +980,8 @@ async function readMessagesByUid(
       },
       { uid: true },
     )) {
-      if (!message.emailId) {
-        throw new Error("Gmail Message is missing X-GM-MSGID");
+      if (!message.emailId || message.uid === undefined) {
+        throw new Error("Gmail Message is missing X-GM-MSGID or UID");
       }
 
       messages.push({
@@ -779,22 +994,12 @@ async function readMessagesByUid(
         receivedAt: normalizeDate(message.envelope?.date ?? message.internalDate).toISOString(),
         unread: !message.flags?.has("\\Seen"),
         starred: message.flags?.has("\\Flagged") === true,
-        uid: message.uid ?? 0,
+        uid: message.uid,
       });
     }
   }
 
-  const seenMessageIds = new Set<string>();
-  return messages
-    .sort((first, second) => second.uid - first.uid)
-    .filter((message) => {
-      if (seenMessageIds.has(message.id)) {
-        return false;
-      }
-      seenMessageIds.add(message.id);
-      return true;
-    })
-    .map(({ uid: _uid, ...message }) => message);
+  return messages;
 }
 
 async function readMessageState(

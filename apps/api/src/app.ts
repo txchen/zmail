@@ -554,19 +554,33 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
     );
   });
 
-  app.get("/api/mail-accounts/:accountId/messages/search", (c) => {
+  app.get("/api/mail-accounts/:accountId/messages/search", async (c) => {
     if (!isAuthenticated(c.req.header("cookie"))) {
       return c.json({ error: "Authentication required" }, 401);
     }
 
     const accountId = c.req.param("accountId");
-    if (!config.mailAccounts.some((account) => account.id === accountId)) {
+    const account = config.mailAccounts.find((candidate) => candidate.id === accountId);
+    if (!account) {
       return c.json({ error: "Mail account not found" }, 404);
     }
 
-    const query = c.req.query("q")?.trim();
-    if (!query) {
+    const query = c.req.query("q");
+    if (!query?.trim()) {
       return c.json({ error: "Search query is required" }, 400);
+    }
+
+    if (config.gmailImapReader) {
+      try {
+        const page = await config.gmailImapReader.search(account, query, c.req.query("cursor"));
+        c.header("cache-control", "no-store");
+        return c.json(page);
+      } catch {
+        logError("mail.search.error", {
+          accountId,
+        });
+        return c.json({ error: "Search unavailable", accountId }, 502);
+      }
     }
 
     const cursor = parseMessageCursor(c.req.query("cursor"));
