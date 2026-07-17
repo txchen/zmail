@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Open one Gmail account through Live IMAP access.
 
-**Status:** done
+**Status:** completed
 
 - [x] Selecting a Mailbox reads and displays the newest 50 individual Messages for that Mailbox.
 - [x] Account unread reads Gmail All Mail, excludes Spam and Trash, and deduplicates by Message identity.

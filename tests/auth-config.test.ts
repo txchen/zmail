@@ -1,12 +1,56 @@
 import { describe, expect, it } from "vite-plus/test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { createApp } from "../apps/api/src/app";
 import { loadConfig, loadConfigFromFile, resolveConfigPath } from "../apps/api/src/config";
 import { fetchMailAccounts, fetchSession, login, logout } from "../apps/web/src/api";
 
 describe("App login and configured Mail accounts", () => {
+  it("reports missing and invalid startup configuration clearly", () => {
+    expect(() => loadConfigFromFile("/missing/zmail.toml")).toThrow(
+      "Missing App configuration file at /missing/zmail.toml",
+    );
+    expect(() =>
+      loadConfigFromFile(
+        writeConfig(`
+          [app_login]
+          username = "reader"
+          password = "secret"
+          session_secret = "test-session-secret"
+        `),
+      ),
+    ).toThrow("Invalid App configuration: missing mail_accounts");
+    expect(() =>
+      loadConfigFromFile(
+        writeConfig(`
+          [app_login]
+          username = "reader"
+          password = "secret"
+          session_secret = "test-session-secret"
+
+          [[mail_accounts]]
+          id = "Personal"
+          email_address = "me@example.com"
+          app_password = "personal-app-password"
+        `),
+      ),
+    ).toThrow("Invalid mail_accounts[0].id: expected lowercase slug");
+    expect(() =>
+      loadConfigFromFile(
+        writeConfig(`
+          mail_accounts = []
+
+          [app_login]
+          username = "reader"
+          password = "secret"
+          session_secret = "test-session-secret"
+          password_hint = "local"
+        `),
+      ),
+    ).toThrow("Invalid app_login: unknown password_hint");
+  });
+
   it("protects configured Mail account summaries behind App login without exposing credentials", async () => {
     const app = createApp({
       appLogin: {
@@ -82,12 +126,6 @@ describe("App login and configured Mail accounts", () => {
 
   it("loads App login and multiple Configured Mail accounts from a TOML file", () => {
     const configPath = writeConfig(`
-        [storage]
-        database_dir = ".data"
-
-        [sync]
-        recent_message_window_days = 3650
-
         [app_login]
         username = "reader"
         password = "secret"
@@ -112,15 +150,6 @@ describe("App login and configured Mail accounts", () => {
         sessionSecret: "test-session-secret",
         sessionTtlDays: 365,
       },
-      storage: {
-        databaseDir: join(dirname(configPath), ".data"),
-      },
-      sync: {
-        recentMessageWindowDays: 3650,
-        regularSyncIntervalMinutes: 5,
-        recentReconciliationIntervalMinutes: 30,
-        recentReconciliationWindowDays: 2,
-      },
       reader: {
         readDwellSeconds: 3,
       },
@@ -143,9 +172,6 @@ describe("App login and configured Mail accounts", () => {
     const configPath = writeConfig(`
       mail_accounts = []
 
-      [storage]
-      database_dir = ".data"
-
       [app_login]
       username = "reader"
       password = "secret"
@@ -158,15 +184,6 @@ describe("App login and configured Mail accounts", () => {
         password: "secret",
         sessionSecret: "test-session-secret",
         sessionTtlDays: 365,
-      },
-      storage: {
-        databaseDir: join(dirname(configPath), ".data"),
-      },
-      sync: {
-        recentMessageWindowDays: 90,
-        regularSyncIntervalMinutes: 5,
-        recentReconciliationIntervalMinutes: 30,
-        recentReconciliationWindowDays: 2,
       },
       reader: {
         readDwellSeconds: 3,
@@ -183,9 +200,6 @@ describe("App login and configured Mail accounts", () => {
     const configPath = writeConfig(`
         mail_accounts = []
 
-        [storage]
-        database_dir = ".data"
-
         [app_login]
         username = "reader"
         password = "secret"
@@ -194,22 +208,12 @@ describe("App login and configured Mail accounts", () => {
     const config = loadConfigFromFile(configPath);
 
     expect(config.mailAccounts).toEqual([]);
-    expect(config.storage.databaseDir).toBe(join(dirname(configPath), ".data"));
-    expect(config.sync).toEqual({
-      recentMessageWindowDays: 90,
-      regularSyncIntervalMinutes: 5,
-      recentReconciliationIntervalMinutes: 30,
-      recentReconciliationWindowDays: 2,
-    });
     expect(config.reader).toEqual({ readDwellSeconds: 3 });
   });
 
   it("loads Read dwell time from 0 through 60 seconds and defaults to 3", () => {
     const disabledPath = writeConfig(`
       mail_accounts = []
-
-      [storage]
-      database_dir = ".data"
 
       [reader]
       read_dwell_seconds = 0
@@ -222,9 +226,6 @@ describe("App login and configured Mail accounts", () => {
     expect(loadConfigFromFile(disabledPath).reader).toEqual({ readDwellSeconds: 0 });
     const maximumPath = writeConfig(`
       mail_accounts = []
-
-      [storage]
-      database_dir = ".data"
 
       [reader]
       read_dwell_seconds = 60
@@ -241,9 +242,6 @@ describe("App login and configured Mail accounts", () => {
       const path = writeConfig(`
         mail_accounts = []
 
-        [storage]
-        database_dir = ".data"
-
         [reader]
         read_dwell_seconds = ${value}
 
@@ -258,18 +256,14 @@ describe("App login and configured Mail accounts", () => {
     }
   });
 
-  it("loads and validates queued Sync cadence configuration", () => {
-    const configPath = writeConfig(`
+  it.each(["storage", "sync"])(
+    "rejects obsolete [%s] configuration with a migration error",
+    (table) => {
+      const configPath = writeConfig(`
         mail_accounts = []
 
-        [storage]
-        database_dir = ".data"
-
-        [sync]
-        recent_message_window_days = 3650
-        regular_sync_interval_minutes = 10
-        recent_reconciliation_interval_minutes = 60
-        recent_reconciliation_window_days = 7
+        [${table}]
+        obsolete = true
 
         [app_login]
         username = "reader"
@@ -277,13 +271,11 @@ describe("App login and configured Mail accounts", () => {
         session_secret = "test-session-secret"
       `);
 
-    expect(loadConfigFromFile(configPath).sync).toEqual({
-      recentMessageWindowDays: 3650,
-      regularSyncIntervalMinutes: 10,
-      recentReconciliationIntervalMinutes: 60,
-      recentReconciliationWindowDays: 7,
-    });
-  });
+      expect(() => loadConfigFromFile(configPath)).toThrow(
+        `Obsolete [${table}] configuration is no longer supported; remove it for Live IMAP access`,
+      );
+    },
+  );
 
   it("rejects invalid App login credentials without issuing a session", async () => {
     const app = createApp({

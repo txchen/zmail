@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** done
+**Status:** completed
 
 - [x] App login and a full page load expose configured Mail accounts without opening an IMAP connection.
 - [x] The post-login UI renders Account selection rather than automatically opening the first account.

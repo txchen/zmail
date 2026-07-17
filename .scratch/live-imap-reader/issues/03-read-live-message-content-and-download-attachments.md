@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Browse live Mailboxes with client-memory pagination.
 
-**Status:** done
+**Status:** completed
 
 - [x] Message detail uses `(accountId, X-GM-MSGID)` as public identity and does not expose a Mailbox UID as Message identity.
 - [x] The Gmail reader can locate a Message across All Mail, Spam, and Trash after it moves between Mailboxes.

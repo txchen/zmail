@@ -72,7 +72,8 @@ Issues are tracked as local markdown files under `.scratch/<feature>/`. See `doc
 
 ### Triage labels
 
-This repo uses the default five-label triage vocabulary. See `docs/agents/triage-labels.md`.
+This repo uses the default triage vocabulary plus a local `completed` role. See
+`docs/agents/triage-labels.md`.
 
 ### Domain docs
 

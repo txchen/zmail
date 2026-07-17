@@ -3,12 +3,11 @@ import type {
   AccountRefreshRequest,
   LiveMailAccount,
   LiveMessageDetail,
+  LiveMessageSummary,
   MailAccountSummary,
-  MailAccountMailboxTree,
   LiveMessagePage,
   MailboxAction,
   MailboxSummary,
-  SyncJobRecord,
 } from "@zmail/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -20,14 +19,12 @@ import {
   fetchMessage,
   fetchMessagesForMailbox,
   fetchSession,
-  fetchSyncJobs,
   fetchUnreadMessagesForAccount,
   login,
   logout,
   openMailAccount,
   performMailboxAction,
   refreshMailAccount,
-  scheduleSyncJob,
   searchMessagesForAccount,
 } from "./api";
 import {
@@ -70,7 +67,7 @@ const mobilePane = ref<"nav" | "list" | "message">("nav");
 const lastListRouteByAccount = ref(new Map<string, string>());
 const searchDraft = ref("");
 const loggedOut = ref(false);
-const openedMailAccounts = ref(new Map<string, MailAccountMailboxTree>());
+const openedMailAccounts = ref(new Map<string, LiveMailAccount>());
 const accountOpenErrorId = ref("");
 const readerLayoutStorageKey = "zmail.readerLayout.v1";
 const savedReaderLayout = readSavedReaderLayout();
@@ -79,11 +76,6 @@ const listColumnWidth = ref(savedReaderLayout.listColumnWidth);
 const collapsedAccounts = ref(new Set(savedReaderLayout.collapsedAccounts));
 const collapsedMailboxGroups = ref(new Set(savedReaderLayout.collapsedMailboxGroups));
 const activeResize = ref<"nav" | "list" | null>(null);
-const syncJobsOpen = ref(false);
-const syncJobsMenu = ref<HTMLElement | null>(null);
-const customSyncDialogOpen = ref(false);
-const customSyncAccountId = ref("");
-const customSyncDays = ref(90);
 const documentVisible = ref(
   typeof document === "undefined" ? true : document.visibilityState !== "hidden",
 );
@@ -130,13 +122,6 @@ const mailAccountsQuery = useQuery({
   enabled: authenticated,
 });
 
-const syncJobsQuery = useQuery({
-  queryKey: ["sync-jobs"],
-  queryFn: () => fetchSyncJobs(),
-  enabled: computed(() => authenticated.value && syncJobsOpen.value),
-  ...ephemeralMailQueryPolicy,
-});
-
 const configuredMailAccounts = computed(() => mailAccountsQuery.data.value?.mailAccounts ?? []);
 const readDwellSeconds = computed(
   () => mailAccountsQuery.data.value?.reader?.readDwellSeconds ?? 3,
@@ -160,47 +145,6 @@ const readerGridStyle = computed(() => ({
   "--reader-nav-width": `${navColumnWidth.value}px`,
   "--reader-list-width": `${listColumnWidth.value}px`,
 }));
-const syncJobs = computed(() => syncJobsQuery.data.value?.jobs ?? []);
-const displayedSyncJobs = computed(() => {
-  const seenAutomaticSuccesses = new Set<string>();
-
-  return syncJobs.value.filter((job) => {
-    if (job.state === "pending" || job.state === "running" || job.state === "failed") {
-      return true;
-    }
-
-    if (job.origin === "appUser") {
-      return true;
-    }
-
-    if (job.state !== "succeeded") {
-      return false;
-    }
-
-    const key = `${job.accountId}:${syncJobScopeKey(job.scope)}`;
-    if (seenAutomaticSuccesses.has(key)) {
-      return false;
-    }
-
-    seenAutomaticSuccesses.add(key);
-    return true;
-  });
-});
-const activeSyncJobs = computed(() =>
-  syncJobs.value.filter((job) => job.state === "pending" || job.state === "running"),
-);
-const syncingAccountIds = computed(() => new Set(activeSyncJobs.value.map((job) => job.accountId)));
-const customSyncAccount = computed(() =>
-  mailAccounts.value.find((account) => account.id === customSyncAccountId.value),
-);
-const customSyncRangeOptions = [
-  { label: "Last 30 days", value: 30 },
-  { label: "Last 90 days", value: 90 },
-  { label: "Last 365 days", value: 365 },
-  { label: "Last 2 years", value: 730 },
-  { label: "Last 10 years", value: 3650 },
-];
-
 const messageListQuery = useQuery({
   queryKey: computed(() => ["message-list", messageListView.value]),
   queryFn: () => {
@@ -359,7 +303,7 @@ const accountOpenMutation = useMutation({
   mutationFn: (accountId: string) => openMailAccount(accountId),
   onSuccess: async (response) => {
     accountOpenErrorId.value = "";
-    const account = accountTreeFromLiveAccount(response.mailAccount);
+    const account = response.mailAccount;
     openedMailAccounts.value = new Map(openedMailAccounts.value).set(account.id, account);
     const inboxRoute = {
       kind: "mailbox" as const,
@@ -402,7 +346,7 @@ const manualRefreshMutation = useMutation({
 
     openedMailAccounts.value = new Map(openedMailAccounts.value).set(
       accountId,
-      accountTreeFromLiveAccount(response.mailAccount),
+      response.mailAccount,
     );
     cacheManualRefresh(queryClient, accountId, response);
   },
@@ -453,13 +397,6 @@ const attachmentDownloadMutation = useMutation({
       return;
     }
     attachmentDownloadError.value = request;
-  },
-});
-
-const syncJobMutation = useMutation({
-  mutationFn: (request: { accountId: string; days?: number }) => scheduleSyncJob(request),
-  onSuccess: async () => {
-    await queryClient.invalidateQueries({ queryKey: ["sync-jobs"] });
   },
 });
 
@@ -572,7 +509,6 @@ watch(
 onBeforeUnmount(() => {
   stopColumnResize();
   document.removeEventListener("visibilitychange", updateDocumentVisible);
-  document.removeEventListener("pointerdown", dismissSyncJobsOnOutsidePointer);
   window.removeEventListener("focus", updateWindowFocus);
   window.removeEventListener("blur", updateWindowFocus);
   readDwellController.cancel();
@@ -581,7 +517,6 @@ onBeforeUnmount(() => {
 onMounted(() => {
   void router.replace("/");
   document.addEventListener("visibilitychange", updateDocumentVisible);
-  document.addEventListener("pointerdown", dismissSyncJobsOnOutsidePointer);
   window.addEventListener("focus", updateWindowFocus);
   window.addEventListener("blur", updateWindowFocus);
 });
@@ -692,19 +627,7 @@ function updateWindowFocus(): void {
   windowFocused.value = document.hasFocus();
 }
 
-function dismissSyncJobsOnOutsidePointer(event: PointerEvent): void {
-  if (!syncJobsOpen.value || !syncJobsMenu.value) {
-    return;
-  }
-
-  if (event.target instanceof Node && syncJobsMenu.value.contains(event.target)) {
-    return;
-  }
-
-  syncJobsOpen.value = false;
-}
-
-function accountContextMenuItems(account: MailAccountMailboxTree) {
+function accountContextMenuItems(account: LiveMailAccount) {
   return [
     {
       label: "Refresh",
@@ -712,115 +635,7 @@ function accountContextMenuItems(account: MailAccountMailboxTree) {
       disabled: manualRefreshMutation.isPending.value,
       onSelect: () => manualRefreshMutation.mutate(manualRefreshRequest(account.id)),
     },
-    {
-      label: "Sync now",
-      icon: "i-lucide-refresh-cw",
-      disabled: syncingAccountIds.value.has(account.id) || syncJobMutation.isPending.value,
-      onSelect: () => syncJobMutation.mutate({ accountId: account.id }),
-    },
-    {
-      label: "Custom sync...",
-      icon: "i-lucide-calendar-clock",
-      disabled: syncingAccountIds.value.has(account.id) || syncJobMutation.isPending.value,
-      onSelect: () => openCustomSyncDialog(account),
-    },
   ];
-}
-
-function openCustomSyncDialog(account: MailAccountMailboxTree) {
-  customSyncAccountId.value = account.id;
-  customSyncDays.value = 90;
-  customSyncDialogOpen.value = true;
-}
-
-function submitCustomSync() {
-  if (!customSyncAccountId.value) {
-    return;
-  }
-
-  syncJobMutation.mutate({ accountId: customSyncAccountId.value, days: customSyncDays.value });
-  customSyncDialogOpen.value = false;
-}
-
-function syncJobSummary(job: SyncJobRecord): string {
-  if (job.state === "failed") {
-    return job.error ?? "Sync job failed";
-  }
-
-  if (!job.result) {
-    return job.scope.type;
-  }
-
-  return [
-    `${job.result.fetchedMessageCount ?? 0} fetched`,
-    `${job.result.storedMessageCount ?? 0} stored`,
-    `${job.result.removedMailboxEntryCount ?? 0} removed`,
-  ].join(" / ");
-}
-
-function syncJobStateIcon(job: SyncJobRecord): string {
-  if (job.state === "succeeded") {
-    return "✅";
-  }
-
-  if (job.state === "failed") {
-    return "❌";
-  }
-
-  if (job.state === "running") {
-    return "▶";
-  }
-
-  if (job.state === "pending") {
-    return "…";
-  }
-
-  return "·";
-}
-
-function syncJobScopeLabel(job: SyncJobRecord): string {
-  if (job.scope.type === "regular") {
-    return "Regular";
-  }
-
-  if (job.scope.type === "recentReconciliation") {
-    return `Reconcile ${job.scope.days}d`;
-  }
-
-  return `Custom ${job.scope.days}d`;
-}
-
-function syncJobScopeKey(scope: SyncJobRecord["scope"]): string {
-  if (scope.type === "regular") {
-    return "regular";
-  }
-
-  return `${scope.type}:${scope.days}`;
-}
-
-function syncJobOriginLabel(job: SyncJobRecord): string {
-  return job.origin === "automatic" ? "⟳" : "👤";
-}
-
-function syncJobTime(job: SyncJobRecord): string {
-  return formatDate(job.finishedAt ?? job.startedAt ?? job.createdAt);
-}
-
-function syncJobDuration(job: SyncJobRecord): string {
-  const durationMs =
-    job.startedAt && job.finishedAt
-      ? new Date(job.finishedAt).getTime() - new Date(job.startedAt).getTime()
-      : job.result?.durationMs;
-
-  if (durationMs === undefined || !Number.isFinite(durationMs) || durationMs < 0) {
-    return "";
-  }
-
-  if (durationMs < 1_000) {
-    return `${durationMs}ms`;
-  }
-
-  return `${(durationMs / 1_000).toFixed(1)}s`;
 }
 
 function mailboxGroupCollapsed(accountId: string, mailboxId: string): boolean {
@@ -846,7 +661,7 @@ function toggledSet(source: Set<string>, value: string): Set<string> {
   return next;
 }
 
-function visibleMailboxRows(account: MailAccountMailboxTree): VisibleMailboxRow[] {
+function visibleMailboxRows(account: LiveMailAccount): VisibleMailboxRow[] {
   const roots = buildMailboxTree(account.mailboxes);
   const rows: VisibleMailboxRow[] = [];
 
@@ -1016,7 +831,7 @@ function saveReaderLayout(navWidth: number, listWidth: number) {
   );
 }
 
-function senderLabel(message: MailboxMessageSummary): string {
+function senderLabel(message: LiveMessageSummary): string {
   return message.sender.displayName || message.sender.address;
 }
 
@@ -1039,15 +854,15 @@ function formatDate(value: string): string {
   return `${year}-${month}-${day} ${hour}:${minute}`;
 }
 
-function mailboxLabel(account: MailAccountMailboxTree, mailboxId: string): string {
+function mailboxLabel(account: LiveMailAccount, mailboxId: string): string {
   return account.mailboxes.find((mailbox) => mailbox.id === mailboxId)?.name ?? mailboxId;
 }
 
-function accountDefaultPath(account: MailAccountMailboxTree): string | undefined {
+function accountDefaultPath(account: LiveMailAccount): string | undefined {
   return defaultReaderPath([account]);
 }
 
-async function selectAccountDefault(account: MailAccountMailboxTree) {
+async function selectAccountDefault(account: LiveMailAccount) {
   const path = accountDefaultPath(account);
 
   if (path) {
@@ -1110,13 +925,6 @@ function loadMoreMessages(): void {
     loadMoreMessagesMutation.mutate({ view, cursor });
   }
 }
-
-function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailboxTree {
-  return {
-    ...account,
-    syncStatus: "synced",
-  };
-}
 </script>
 
 <template>
@@ -1172,64 +980,7 @@ function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailbo
             ZMail
           </button>
         </div>
-        <div ref="syncJobsMenu" class="relative flex items-center gap-2">
-          <UButton
-            v-if="activeSyncJobs.length > 0"
-            color="neutral"
-            icon="i-lucide-loader-circle"
-            square
-            :ui="{ leadingIcon: 'animate-spin' }"
-            variant="ghost"
-            aria-label="Show Sync jobs"
-            @click="syncJobsOpen = !syncJobsOpen"
-          />
-          <UButton
-            v-else
-            color="neutral"
-            icon="i-lucide-history"
-            square
-            variant="ghost"
-            aria-label="Show Sync jobs"
-            @click="syncJobsOpen = !syncJobsOpen"
-          />
-          <div
-            v-if="syncJobsOpen"
-            class="absolute right-10 top-9 z-20 flex max-h-[32rem] w-96 flex-col rounded-md border border-stone-300 bg-white p-2 shadow-lg"
-          >
-            <div class="flex shrink-0 items-center justify-between gap-2 px-2 pb-2">
-              <p class="text-xs font-semibold uppercase text-slate-500">Sync activity</p>
-              <p class="text-[11px] text-slate-400">{{ displayedSyncJobs.length }} shown</p>
-            </div>
-            <div v-if="displayedSyncJobs.length === 0" class="px-2 py-3 text-sm text-slate-500">
-              No recent jobs.
-            </div>
-            <div v-else class="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
-              <div
-                v-for="job in displayedSyncJobs"
-                :key="job.id"
-                class="rounded border border-stone-200 px-2 py-1.5 text-xs"
-              >
-                <div class="flex items-center justify-between gap-2">
-                  <span class="min-w-0 truncate font-medium">
-                    <span class="mr-1">{{ syncJobStateIcon(job) }}</span
-                    >{{ job.accountId }}
-                  </span>
-                  <span class="shrink-0 text-slate-500">
-                    {{ syncJobTime(job) }}
-                  </span>
-                </div>
-                <div class="mt-1 flex items-center justify-between gap-2 text-slate-500">
-                  <span class="truncate"
-                    >{{ syncJobOriginLabel(job) }} {{ syncJobScopeLabel(job) }} ·
-                    {{ syncJobSummary(job) }}</span
-                  >
-                  <span v-if="syncJobDuration(job)" class="shrink-0">{{
-                    syncJobDuration(job)
-                  }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
+        <div class="flex items-center gap-2">
           <UButton
             color="neutral"
             icon="i-lucide-log-out"
@@ -1258,42 +1009,6 @@ function accountTreeFromLiveAccount(account: LiveMailAccount): MailAccountMailbo
           </button>
         </template>
       </UAlert>
-
-      <UModal
-        v-model:open="customSyncDialogOpen"
-        title="Custom sync"
-        :description="customSyncAccount?.emailAddress ?? customSyncAccountId"
-      >
-        <template #body>
-          <form class="space-y-4" @submit.prevent="submitCustomSync">
-            <div class="space-y-2">
-              <label class="block text-sm font-medium text-slate-700" for="custom-sync-range">
-                Message range
-              </label>
-              <USelect
-                id="custom-sync-range"
-                v-model="customSyncDays"
-                :items="customSyncRangeOptions"
-                value-key="value"
-                label-key="label"
-                class="w-full"
-              />
-            </div>
-            <div class="flex justify-end gap-2">
-              <UButton color="neutral" variant="ghost" @click="customSyncDialogOpen = false">
-                Cancel
-              </UButton>
-              <button
-                class="h-8 rounded-md bg-slate-900 px-3 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                type="submit"
-                :disabled="!customSyncAccountId || syncJobMutation.isPending.value"
-              >
-                {{ syncJobMutation.isPending.value ? "Starting..." : "Start sync" }}
-              </button>
-            </div>
-          </form>
-        </template>
-      </UModal>
 
       <div
         v-if="readerRoute.kind === 'none'"

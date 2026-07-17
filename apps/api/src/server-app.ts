@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import type { Hono } from "hono";
 import type { AppConfig } from "./config.js";
-import { createAppWithServices } from "./app.js";
+import { createApp } from "./app.js";
 import { serveStaticFile } from "./static-files.js";
 
 export function createServerApp(
@@ -9,15 +9,10 @@ export function createServerApp(
   options: {
     webDistDir: string;
     secureCookies: boolean;
-    services?: Partial<
-      Pick<
-        AppConfig,
-        "mailboxSyncClient" | "messageSyncClient" | "mailboxActionClient" | "gmailImapReader"
-      >
-    >;
+    services?: Partial<Pick<AppConfig, "gmailImapReader">>;
   },
 ): Hono {
-  const { app } = createAppWithServices({
+  const app = createApp({
     ...config,
     ...options.services,
     secureCookies: options.secureCookies,
@@ -29,6 +24,7 @@ export function createServerApp(
 
       if (
         pathname.startsWith("/api/") ||
+        pathname === "/ai-api" ||
         pathname.startsWith("/ai-api/") ||
         pathname === "/health"
       ) {

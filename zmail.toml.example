@@ -3,21 +3,6 @@
 #
 # Keep mail_accounts at the top level, before [app_login].
 
-[storage]
-# Use "/data" when running the published Docker image with a mounted data volume.
-database_dir = ".data"
-
-[sync]
-# Optional initial backfill window for a Mailbox with no sync checkpoint.
-# Refreshes after that are incremental. Defaults to 90. Valid range: 1..3650.
-recent_message_window_days = 90
-# Optional regular Sync job cadence in minutes. Defaults to 5. Valid range: 1..1440.
-regular_sync_interval_minutes = 5
-# Optional Recent reconciliation cadence in minutes. Defaults to 30. Valid range: 1..1440.
-recent_reconciliation_interval_minutes = 30
-# Optional Recent reconciliation window in days. Defaults to 2. Valid range: 1..3650.
-recent_reconciliation_window_days = 2
-
 [reader]
 # Delay before an unread Message is marked read while continuously selected, visible, and focused.
 # Defaults to 3. Valid range: 0..60. Use 0 to disable automatic mark-read.

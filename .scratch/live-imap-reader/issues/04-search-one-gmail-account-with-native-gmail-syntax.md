@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Browse live Mailboxes with client-memory pagination.
 
-**Status:** done
+**Status:** completed
 
 - [x] Typing or editing the Search field never contacts Gmail.
 - [x] Pressing Enter or activating Search submits the native Gmail query exactly once.

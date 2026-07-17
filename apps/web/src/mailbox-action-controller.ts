@@ -2,7 +2,7 @@ import type {
   LiveMessagePage,
   LiveMessageResponse,
   LiveMessageSummary,
-  MailAccountMailboxTree,
+  LiveMailAccount,
   MailboxAction,
   MailboxActionConfirmation,
   MailboxActionMessageState,
@@ -42,9 +42,9 @@ export function createMailboxActionController(options: {
 }
 
 export function applyConfirmedAccountCounts(
-  account: MailAccountMailboxTree,
+  account: LiveMailAccount,
   confirmation: MailboxActionConfirmation,
-): MailAccountMailboxTree {
+): LiveMailAccount {
   const beforeAccountUnread = isAccountUnreadMember(confirmation.before);
   const afterAccountUnread = isAccountUnreadMember(confirmation.after);
   return {

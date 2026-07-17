@@ -1,10 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { Readable } from "node:stream";
-import { createGmailImapMailboxSyncClient } from "../apps/api/src/gmail-imap";
-import {
-  createImapSessionCoordinator,
-  type ImapClientSession,
-} from "../apps/api/src/imap-session-coordinator";
 import { createGmailImapReader } from "../apps/api/src/live-imap";
 
 describe("Gmail Live IMAP Account open mapping", () => {
@@ -348,56 +343,6 @@ describe("Gmail Live IMAP Account open mapping", () => {
     expect(mailboxOpen).toHaveBeenCalledWith("[Gmail]/All Mail", { readOnly: true });
     expect(mailboxOpen).toHaveBeenCalledWith("[Gmail]/Spam", { readOnly: true });
     expect(mailboxOpen).toHaveBeenCalledWith("[Gmail]/Trash", { readOnly: true });
-  });
-
-  it("serializes Live IMAP and retained legacy operations through one account session", async () => {
-    const firstListCanFinish = Promise.withResolvers<void>();
-    let listCallCount = 0;
-    const list = vi.fn(async () => {
-      listCallCount += 1;
-
-      if (listCallCount === 1) {
-        await firstListCanFinish.promise;
-        return [
-          {
-            path: "INBOX",
-            specialUse: "\\Inbox",
-            flags: new Set<string>(),
-            status: { unseen: 0, messages: 0 },
-          },
-        ];
-      }
-
-      return [];
-    });
-    const connect = vi.fn(async () => undefined);
-    const mailboxOpen = vi.fn(async () => ({ exists: 0 }));
-    const logout = vi.fn(async () => undefined);
-    const ImapFlowClient = vi.fn(function () {
-      return { connect, list, mailboxOpen, logout };
-    });
-    const coordinator = createImapSessionCoordinator<ImapClientSession>();
-    const liveReader = createGmailImapReader(ImapFlowClient, coordinator);
-    const legacyReader = createGmailImapMailboxSyncClient(ImapFlowClient, coordinator);
-    const account = {
-      id: "personal",
-      emailAddress: "me@example.com",
-      appPassword: "gmail-app-password",
-    };
-
-    const liveOpen = liveReader.openAccount(account);
-    await vi.waitFor(() => expect(list).toHaveBeenCalledOnce());
-    const legacyList = legacyReader.listVisibleMailboxes(account);
-
-    expect(ImapFlowClient).toHaveBeenCalledOnce();
-    expect(list).toHaveBeenCalledOnce();
-    firstListCanFinish.resolve();
-    await Promise.all([liveOpen, legacyList]);
-    await liveReader.closeAllSessions();
-
-    expect(ImapFlowClient).toHaveBeenCalledOnce();
-    expect(list).toHaveBeenCalledTimes(2);
-    expect(logout).toHaveBeenCalledOnce();
   });
 });
 

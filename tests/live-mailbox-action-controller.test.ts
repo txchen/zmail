@@ -133,7 +133,6 @@ describe("Browser Mailbox action controller", () => {
       {
         id: "personal",
         emailAddress: "me@example.com",
-        syncStatus: "synced",
         unreadCount: 1,
         mailboxes,
       },
@@ -179,7 +178,6 @@ describe("Browser Mailbox action controller", () => {
         {
           id: "personal",
           emailAddress: "me@example.com",
-          syncStatus: "synced",
           unreadCount: 0,
           mailboxes: [mailbox("[Gmail]/Spam", "spam", 1, 0)],
         },
@@ -268,7 +266,6 @@ describe("Browser Mailbox action controller", () => {
         {
           id: "personal",
           emailAddress: "me@example.com",
-          syncStatus: "synced",
           unreadCount: 1,
           mailboxes,
         },
@@ -297,7 +294,6 @@ describe("Browser Mailbox action controller", () => {
         {
           id: "personal",
           emailAddress: "me@example.com",
-          syncStatus: "synced",
           unreadCount: 1,
           mailboxes: [mailbox("Projects", undefined, 1, 1)],
         },

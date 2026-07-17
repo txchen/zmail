@@ -1,124 +1,18 @@
-import { healthy, type ScheduleSyncJobRequest, type SyncJobRecord } from "@zmail/shared";
+import type { MailboxAction } from "@zmail/shared";
 import { Hono } from "hono";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { AppConfig, AppLogin } from "./config.js";
 import { logError, logInfo } from "./logger.js";
-import type { MailboxAction } from "./mailbox-actions.js";
-import {
-  createFileBackedHybridPersistence,
-  createHybridPersistence,
-  type MailDatabase,
-} from "./persistence.js";
-import {
-  syncMailboxTrees,
-  syncRecentMessages,
-  syncRecentReconciliation,
-  type MailAccountSyncState,
-} from "./sync.js";
-import { createSyncQueue, type SyncJob, type SyncQueue } from "./sync-queue.js";
 
 const sessionCookieName = "zmail_session";
-
-export type CreatedApp = {
-  app: Hono;
-  syncQueue: SyncQueue;
+const healthy = {
+  service: "zmail-api" as const,
+  status: "ok" as const,
 };
 
-export function createAppWithServices(config: AppConfig): CreatedApp {
+export function createApp(config: AppConfig): Hono {
   const app = new Hono();
-  const persistence =
-    config.persistence ??
-    (config.storage
-      ? createFileBackedHybridPersistence(config.storage.databaseDir)
-      : createHybridPersistence());
-  const mailboxSyncClient = config.mailboxSyncClient;
-  const messageSyncClient = config.messageSyncClient;
-  const syncQueue =
-    config.syncQueue ??
-    createSyncQueue({
-      async execute(job) {
-        const account = config.mailAccounts.find((candidate) => candidate.id === job.accountId);
-        if (!account) {
-          throw new Error("Mail account not found");
-        }
-
-        const lastSyncStartedAt = new Date().toISOString();
-        try {
-          let result = {};
-
-          if (job.scope.type === "regular") {
-            if (mailboxSyncClient) {
-              saveSyncStates(
-                await syncMailboxTrees({
-                  accounts: [account],
-                  persistence,
-                  client: mailboxSyncClient,
-                }),
-              );
-            }
-
-            if (messageSyncClient) {
-              result = await syncRecentMessages({
-                accounts: [account],
-                persistence,
-                client: messageSyncClient,
-                syncWindowDays: config.sync?.recentMessageWindowDays,
-              });
-            }
-          }
-
-          if (job.scope.type === "recentReconciliation" && messageSyncClient) {
-            result = await syncRecentReconciliation({
-              accounts: [account],
-              persistence,
-              client: messageSyncClient,
-              windowDays: job.scope.days,
-            });
-          }
-
-          if (job.scope.type === "customRange" && messageSyncClient) {
-            result = await syncRecentReconciliation({
-              accounts: [account],
-              persistence,
-              client: messageSyncClient,
-              windowDays: job.scope.days,
-            });
-          }
-
-          syncStates.set(account.id, {
-            accountId: account.id,
-            syncStatus: "synced",
-            lastSyncStartedAt,
-            lastSyncFinishedAt: new Date().toISOString(),
-          });
-
-          return result;
-        } catch (error) {
-          syncStates.set(account.id, {
-            accountId: account.id,
-            syncStatus: "failing",
-            lastSyncStartedAt,
-            lastSyncFinishedAt: new Date().toISOString(),
-            lastError: error instanceof Error ? error.message : String(error),
-          });
-          throw error;
-        }
-      },
-    });
-  const mailboxActionClient = config.mailboxActionClient;
-  const attachmentDownloadClient = config.attachmentDownloadClient;
   const sessionTtlDays = config.appLogin.sessionTtlDays ?? 365;
-  const syncStates = new Map<string, MailAccountSyncState>();
-
-  function syncStateFor(accountId: string): MailAccountSyncState {
-    return syncStates.get(accountId) ?? { accountId, syncStatus: "stale" };
-  }
-
-  function saveSyncStates(states: MailAccountSyncState[]): void {
-    for (const state of states) {
-      syncStates.set(state.accountId, state);
-    }
-  }
 
   function sessionFromCookie(cookie: string | undefined): AppSession | undefined {
     const token = cookie
@@ -127,44 +21,11 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
       .find((part) => part.startsWith(`${sessionCookieName}=`))
       ?.slice(sessionCookieName.length + 1);
 
-    if (!token) {
-      return undefined;
-    }
-
-    return verifySessionToken(token, config.appLogin.sessionSecret);
+    return token ? verifySessionToken(token, config.appLogin.sessionSecret) : undefined;
   }
 
   function isAuthenticated(cookie: string | undefined): boolean {
     return sessionFromCookie(cookie) !== undefined;
-  }
-
-  function mailboxTreeResponse() {
-    return {
-      mailAccounts: config.mailAccounts.map((configuredAccount) => {
-        const mailDatabase = persistence.mailDatabaseFor(configuredAccount.id);
-        const mailboxes = mailDatabase.listMailboxes();
-        const allMailMailbox = mailboxes.find(
-          (mailbox) =>
-            mailbox.systemRole === "allMail" ||
-            mailbox.id.toLowerCase().endsWith("/all mail") ||
-            mailbox.name.toLowerCase().endsWith("/all mail") ||
-            mailbox.name.toLowerCase() === "all mail",
-        );
-        const unreadMessages = mailDatabase.listUnreadMessages(configuredAccount.id);
-
-        return {
-          id: configuredAccount.id,
-          emailAddress: configuredAccount.emailAddress,
-          syncStatus: syncStateFor(configuredAccount.id).syncStatus,
-          unreadCount:
-            allMailMailbox?.unreadCount ??
-            (unreadMessages.length > 0
-              ? unreadMessages.length
-              : Math.max(0, ...mailboxes.map((mailbox) => mailbox.unreadCount))),
-          mailboxes,
-        };
-      }),
-    };
   }
 
   app.get("/health", (c) => c.json(healthy));
@@ -178,44 +39,33 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
     }
 
     const expiresAt = new Date(Date.now() + sessionTtlDays * 24 * 60 * 60 * 1000).toISOString();
-    const sessionToken = signSessionToken(
-      {
-        username: config.appLogin.username,
-        expiresAt,
-      },
+    const token = signSessionToken(
+      { username: config.appLogin.username, expiresAt },
       config.appLogin.sessionSecret,
     );
-
-    c.header("set-cookie", sessionCookie(sessionToken, config.secureCookies));
-
+    c.header("set-cookie", sessionCookie(token, config.secureCookies));
     return c.body(null, 204);
   });
 
   app.get("/api/session", (c) => {
     const session = sessionFromCookie(c.req.header("cookie"));
-
-    if (!session) {
-      return c.json({ authenticated: false });
-    }
-
-    return c.json({
-      authenticated: true,
-      username: session.username,
-      expiresAt: session.expiresAt,
-    });
+    return session
+      ? c.json({
+          authenticated: true as const,
+          username: session.username,
+          expiresAt: session.expiresAt,
+        })
+      : c.json({ authenticated: false as const });
   });
 
   app.post("/api/logout", async (c) => {
     try {
       await config.gmailImapReader?.closeAllSessions();
     } catch (error) {
-      logError("mail.sessions.close.error", {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logError("mail.sessions.close.error", { error: errorMessage(error) });
     }
 
     c.header("set-cookie", sessionCookie("", config.secureCookies, true));
-
     return c.body(null, 204);
   });
 
@@ -225,13 +75,8 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
     }
 
     return c.json({
-      mailAccounts: config.mailAccounts.map(({ id, emailAddress }) => ({
-        id,
-        emailAddress,
-      })),
-      reader: {
-        readDwellSeconds: config.reader?.readDwellSeconds ?? 3,
-      },
+      mailAccounts: config.mailAccounts.map(({ id, emailAddress }) => ({ id, emailAddress })),
+      reader: config.reader ?? { readDwellSeconds: 3 },
     });
   });
 
@@ -242,11 +87,9 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
 
     const accountId = c.req.param("accountId");
     const account = config.mailAccounts.find((candidate) => candidate.id === accountId);
-
     if (!account) {
       return c.json({ error: "Mail account not found" }, 404);
     }
-
     if (!config.gmailImapReader) {
       return c.json({ error: "Live IMAP access is not configured" }, 503);
     }
@@ -254,214 +97,30 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
     try {
       return c.json(await config.gmailImapReader.openAccount(account));
     } catch (error) {
-      logError("mail.account.open.error", {
-        accountId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logError("mail.account.open.error", { accountId, error: errorMessage(error) });
       return c.json({ error: "Mail account unavailable", accountId }, 502);
     }
   });
 
-  app.get("/ai-api/mail-accounts", (c) =>
-    c.json({
-      mailAccounts: config.mailAccounts.map(({ id, emailAddress }) => ({
-        id,
-        emailAddress,
-        syncStatus: syncStateFor(id).syncStatus,
-      })),
-    }),
-  );
-
-  app.get("/ai-api/messages/unread", (c) =>
-    c.json({
-      messages: config.mailAccounts.flatMap((account) =>
-        persistence.mailDatabaseFor(account.id).listUnreadMessages(account.id),
-      ),
-    }),
-  );
-
-  app.get("/ai-api/messages/:stableIdentity", (c) => {
-    const stableIdentity = c.req.param("stableIdentity");
-
-    for (const account of config.mailAccounts) {
-      const message = persistence
-        .mailDatabaseFor(account.id)
-        .getMessageByStableIdentity(account.id, stableIdentity);
-
-      if (message) {
-        return c.json({ message });
-      }
-    }
-
-    return c.json({ error: "Message not found" }, 404);
-  });
-
-  app.get("/api/mailbox-tree", (c) => {
-    if (!isAuthenticated(c.req.header("cookie"))) {
-      return c.json({ error: "Authentication required" }, 401);
-    }
-
-    return c.json(mailboxTreeResponse());
-  });
-
-  app.post("/api/mail-accounts/:id/refresh", async (c) => {
-    if (!isAuthenticated(c.req.header("cookie"))) {
-      return c.json({ error: "Authentication required" }, 401);
-    }
-
-    const account = config.mailAccounts.find((candidate) => candidate.id === c.req.param("id"));
-
-    if (!account) {
-      return c.json({ error: "Mail account not found" }, 404);
-    }
-
-    if (config.gmailImapReader) {
-      try {
-        const request = await c.req.json();
-        return c.json(await config.gmailImapReader.refreshAccount(account, request));
-      } catch (error) {
-        logError("mail.refresh.error", {
-          accountId: account.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return c.json({ error: "Mail account unavailable", accountId: account.id }, 502);
-      }
-    }
-
-    if (!mailboxSyncClient) {
-      return c.json({ error: "Mailbox sync is not configured" }, 503);
-    }
-
-    const startedAt = Date.now();
-    logInfo("mail.refresh.start", { accountId: account.id });
-
-    try {
-      const syncResults = await syncMailboxTrees({
-        accounts: [account],
-        persistence,
-        client: mailboxSyncClient,
-      });
-      if (messageSyncClient) {
-        await syncRecentMessages({
-          accounts: [account],
-          persistence,
-          client: messageSyncClient,
-          syncWindowDays: config.sync?.recentMessageWindowDays,
-        });
-      } else {
-        logInfo("mail.refresh.messages.skipped", {
-          accountId: account.id,
-          reason: "message_sync_not_configured",
-        });
-      }
-      saveSyncStates(syncResults);
-      logInfo("mail.refresh.finish", {
-        accountId: account.id,
-        durationMs: Date.now() - startedAt,
-        status: syncStateFor(account.id).syncStatus,
-      });
-
-      return c.json(mailboxTreeResponse());
-    } catch (error) {
-      logError("mail.refresh.error", {
-        accountId: account.id,
-        durationMs: Date.now() - startedAt,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-  });
-
-  app.post("/api/sync-jobs", async (c) => {
-    if (!isAuthenticated(c.req.header("cookie"))) {
-      return c.json({ error: "Authentication required" }, 401);
-    }
-
-    const body = await c.req.json<ScheduleSyncJobRequest>();
-    const account = config.mailAccounts.find((candidate) => candidate.id === body.accountId);
-
-    if (!account) {
-      return c.json({ error: "Mail account not found" }, 404);
-    }
-
-    if (body.days !== undefined && !isValidCustomRangeDays(body.days)) {
-      return c.json({ error: "Invalid Sync scope days" }, 400);
-    }
-
-    const job = syncQueue.schedule({
-      accountId: account.id,
-      origin: "appUser",
-      scope:
-        "scope" in body && body.scope === "recentReconciliation"
-          ? { type: "recentReconciliation", days: config.sync.recentReconciliationWindowDays }
-          : body.days === undefined
-            ? { type: "regular" }
-            : { type: "customRange", days: body.days },
-    });
-
-    return c.json({ job: syncJobRecord(job) }, 202);
-  });
-
-  app.get("/api/sync-jobs", (c) => {
-    if (!isAuthenticated(c.req.header("cookie"))) {
-      return c.json({ error: "Authentication required" }, 401);
-    }
-
-    return c.json({ jobs: syncQueue.listJobs().map(syncJobRecord) });
-  });
-
-  app.get("/api/mail-accounts/:accountId/sync-status", (c) => {
+  app.post("/api/mail-accounts/:accountId/refresh", async (c) => {
     if (!isAuthenticated(c.req.header("cookie"))) {
       return c.json({ error: "Authentication required" }, 401);
     }
 
     const accountId = c.req.param("accountId");
     const account = config.mailAccounts.find((candidate) => candidate.id === accountId);
-
     if (!account) {
       return c.json({ error: "Mail account not found" }, 404);
     }
-
-    const syncState = syncStateFor(accountId);
-
-    return c.json({
-      accountId,
-      syncStatus: syncState.syncStatus,
-      ...(syncState.lastSyncStartedAt ? { lastSyncStartedAt: syncState.lastSyncStartedAt } : {}),
-      ...(syncState.lastSyncFinishedAt ? { lastSyncFinishedAt: syncState.lastSyncFinishedAt } : {}),
-      ...(syncState.lastError ? { lastError: syncState.lastError } : {}),
-    });
-  });
-
-  app.post("/api/mail-accounts/:accountId/diagnose", async (c) => {
-    if (!isAuthenticated(c.req.header("cookie"))) {
-      return c.json({ error: "Authentication required" }, 401);
-    }
-
-    if (!mailboxSyncClient) {
-      return c.json({ error: "Mailbox sync is not configured" }, 503);
-    }
-
-    const account = config.mailAccounts.find(
-      (candidate) => candidate.id === c.req.param("accountId"),
-    );
-
-    if (!account) {
-      return c.json({ error: "Mail account not found" }, 404);
+    if (!config.gmailImapReader) {
+      return c.json({ error: "Live IMAP access is not configured" }, 503);
     }
 
     try {
-      const mailboxes = await mailboxSyncClient.listVisibleMailboxes(account);
-
-      return c.json({
-        success: true,
-        visibleMailboxCount: mailboxes.length,
-      });
+      return c.json(await config.gmailImapReader.refreshAccount(account, await c.req.json()));
     } catch (error) {
-      return c.json({
-        success: false,
-        lastError: error instanceof Error ? error.message : String(error),
-      });
+      logError("mail.refresh.error", { accountId, error: errorMessage(error) });
+      return c.json({ error: "Mail account unavailable", accountId }, 502);
     }
   });
 
@@ -475,45 +134,22 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
     if (!account) {
       return c.json({ error: "Mail account not found" }, 404);
     }
-    if (config.gmailImapReader) {
-      try {
-        return c.json(
-          await config.gmailImapReader.listMailbox(
-            account,
-            c.req.param("mailboxId"),
-            c.req.query("cursor"),
-          ),
-        );
-      } catch (error) {
-        logError("mail.mailbox.list.error", {
-          accountId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return c.json({ error: "Messages unavailable", accountId }, 502);
-      }
+    if (!config.gmailImapReader) {
+      return c.json({ error: "Live IMAP access is not configured" }, 503);
     }
 
-    const cursor = parseMessageCursor(c.req.query("cursor"));
-    if (cursor === null) {
-      return c.json({ error: "Invalid cursor" }, 400);
+    try {
+      return c.json(
+        await config.gmailImapReader.listMailbox(
+          account,
+          c.req.param("mailboxId"),
+          c.req.query("cursor"),
+        ),
+      );
+    } catch (error) {
+      logError("mail.mailbox.list.error", { accountId, error: errorMessage(error) });
+      return c.json({ error: "Messages unavailable", accountId }, 502);
     }
-
-    return c.json({
-      ...persistence
-        .mailDatabaseFor(accountId)
-        .listMessagesForMailbox(accountId, c.req.param("mailboxId"), {
-          limit: parseLimit(c.req.query("limit")),
-          ...(cursor ? { cursor } : {}),
-          filters: {
-            unread: parseBooleanQuery(c.req.query("unread")),
-            starred: parseBooleanQuery(c.req.query("starred")),
-            hasAttachments: parseBooleanQuery(c.req.query("hasAttachments")),
-            from: c.req.query("from"),
-            after: c.req.query("after"),
-            before: c.req.query("before"),
-          },
-        }),
-    });
   });
 
   app.get("/api/mail-accounts/:accountId/messages/unread", async (c) => {
@@ -526,39 +162,16 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
     if (!account) {
       return c.json({ error: "Mail account not found" }, 404);
     }
-    if (config.gmailImapReader) {
-      try {
-        return c.json(await config.gmailImapReader.listUnread(account, c.req.query("cursor")));
-      } catch (error) {
-        logError("mail.unread.list.error", {
-          accountId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return c.json({ error: "Messages unavailable", accountId }, 502);
-      }
+    if (!config.gmailImapReader) {
+      return c.json({ error: "Live IMAP access is not configured" }, 503);
     }
 
-    const cursor = parseMessageCursor(c.req.query("cursor"));
-    if (cursor === null) {
-      return c.json({ error: "Invalid cursor" }, 400);
+    try {
+      return c.json(await config.gmailImapReader.listUnread(account, c.req.query("cursor")));
+    } catch (error) {
+      logError("mail.unread.list.error", { accountId, error: errorMessage(error) });
+      return c.json({ error: "Messages unavailable", accountId }, 502);
     }
-
-    return c.json(
-      paginateMessageSummaries(
-        persistence.mailDatabaseFor(accountId).listUnreadMessages(accountId),
-        {
-          limit: parseLimit(c.req.query("limit")),
-          ...(cursor ? { cursor } : {}),
-          filters: {
-            starred: parseBooleanQuery(c.req.query("starred")),
-            hasAttachments: parseBooleanQuery(c.req.query("hasAttachments")),
-            from: c.req.query("from"),
-            after: c.req.query("after"),
-            before: c.req.query("before"),
-          },
-        },
-      ),
-    );
   });
 
   app.get("/api/mail-accounts/:accountId/messages/search", async (c) => {
@@ -571,46 +184,22 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
     if (!account) {
       return c.json({ error: "Mail account not found" }, 404);
     }
-
     const query = c.req.query("q");
     if (!query?.trim()) {
       return c.json({ error: "Search query is required" }, 400);
     }
-
-    if (config.gmailImapReader) {
-      try {
-        const page = await config.gmailImapReader.search(account, query, c.req.query("cursor"));
-        c.header("cache-control", "no-store");
-        return c.json(page);
-      } catch {
-        logError("mail.search.error", {
-          accountId,
-        });
-        return c.json({ error: "Search unavailable", accountId }, 502);
-      }
+    if (!config.gmailImapReader) {
+      return c.json({ error: "Live IMAP access is not configured" }, 503);
     }
 
-    const cursor = parseMessageCursor(c.req.query("cursor"));
-    if (cursor === null) {
-      return c.json({ error: "Invalid cursor" }, 400);
+    try {
+      const page = await config.gmailImapReader.search(account, query, c.req.query("cursor"));
+      c.header("cache-control", "no-store");
+      return c.json(page);
+    } catch {
+      logError("mail.search.error", { accountId });
+      return c.json({ error: "Search unavailable", accountId }, 502);
     }
-
-    return c.json(
-      paginateMessageSummaries(
-        persistence.mailDatabaseFor(accountId).searchMessages(accountId, query),
-        {
-          limit: parseLimit(c.req.query("limit")),
-          ...(cursor ? { cursor } : {}),
-          filters: {
-            starred: parseBooleanQuery(c.req.query("starred")),
-            hasAttachments: parseBooleanQuery(c.req.query("hasAttachments")),
-            from: c.req.query("from"),
-            after: c.req.query("after"),
-            before: c.req.query("before"),
-          },
-        },
-      ),
-    );
   });
 
   app.get("/api/mail-accounts/:accountId/messages/:messageId", async (c) => {
@@ -618,35 +207,23 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
       return c.json({ error: "Authentication required" }, 401);
     }
 
-    const account = config.mailAccounts.find(
-      (candidate) => candidate.id === c.req.param("accountId"),
-    );
+    const accountId = c.req.param("accountId");
+    const account = config.mailAccounts.find((candidate) => candidate.id === accountId);
     if (!account) {
       return c.json({ error: "Mail account not found" }, 404);
     }
-    if (config.gmailImapReader) {
-      try {
-        const message = await config.gmailImapReader.readMessage(account, c.req.param("messageId"));
-        c.header("cache-control", "no-store");
-        return message ? c.json({ message }) : c.json({ error: "Message not found" }, 404);
-      } catch (error) {
-        logError("mail.message.read.error", {
-          accountId: account.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return c.json({ error: "Message unavailable", accountId: account.id }, 502);
-      }
+    if (!config.gmailImapReader) {
+      return c.json({ error: "Live IMAP access is not configured" }, 503);
     }
 
-    const message = persistence
-      .mailDatabaseFor(account.id)
-      .getMessage(account.id, c.req.param("messageId"));
-
-    if (!message) {
-      return c.json({ error: "Message not found" }, 404);
+    try {
+      const message = await config.gmailImapReader.readMessage(account, c.req.param("messageId"));
+      c.header("cache-control", "no-store");
+      return message ? c.json({ message }) : c.json({ error: "Message not found" }, 404);
+    } catch (error) {
+      logError("mail.message.read.error", { accountId, error: errorMessage(error) });
+      return c.json({ error: "Message unavailable", accountId }, 502);
     }
-
-    return c.json({ message });
   });
 
   app.get(
@@ -661,48 +238,27 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
       if (!account) {
         return c.json({ error: "Mail account not found" }, 404);
       }
+      if (!config.gmailImapReader) {
+        return c.json({ error: "Live IMAP access is not configured" }, 503);
+      }
 
-      const messageId = c.req.param("messageId");
-      if (config.gmailImapReader) {
-        try {
-          const resource = await config.gmailImapReader.readInlineResource(
-            account,
-            messageId,
-            c.req.param("resourceId"),
-          );
-          if (!resource) {
-            return c.json({ error: "Inline message resource not found" }, 404);
-          }
-
-          return new Response(copyBytes(resource.bytes), {
-            headers: {
-              "content-type": resource.mimeType,
-              "cache-control": "no-store",
-            },
-          });
-        } catch (error) {
-          logError("mail.inline-resource.read.error", {
-            accountId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          return c.json({ error: "Inline message resource unavailable" }, 502);
+      try {
+        const resource = await config.gmailImapReader.readInlineResource(
+          account,
+          c.req.param("messageId"),
+          c.req.param("resourceId"),
+        );
+        if (!resource) {
+          return c.json({ error: "Inline message resource not found" }, 404);
         }
+
+        return new Response(copyBytes(resource.bytes), {
+          headers: { "content-type": resource.mimeType, "cache-control": "no-store" },
+        });
+      } catch (error) {
+        logError("mail.inline-resource.read.error", { accountId, error: errorMessage(error) });
+        return c.json({ error: "Inline message resource unavailable" }, 502);
       }
-
-      const resource = persistence
-        .mailDatabaseFor(accountId)
-        .getInlineMessageResource(messageId, c.req.param("resourceId"));
-
-      if (!resource) {
-        return c.json({ error: "Inline message resource not found" }, 404);
-      }
-
-      return new Response(copyBytes(resource.bytes), {
-        headers: {
-          "content-type": resource.mimeType,
-          "cache-control": "private, max-age=86400",
-        },
-      });
     },
   );
 
@@ -718,100 +274,33 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
       if (!account) {
         return c.json({ error: "Mail account not found" }, 404);
       }
-
-      const messageId = c.req.param("messageId");
-      const attachmentId = c.req.param("attachmentId");
-      if (config.gmailImapReader) {
-        try {
-          const attachment = await config.gmailImapReader.downloadAttachment(
-            account,
-            messageId,
-            attachmentId,
-          );
-          if (!attachment) {
-            return c.json({ error: "Attachment not found" }, 404);
-          }
-
-          return new Response(attachment.body, {
-            headers: {
-              "content-type": attachment.mimeType,
-              "content-disposition": attachmentDisposition(attachment.filename),
-              "cache-control": "no-store",
-            },
-          });
-        } catch (error) {
-          logError("mail.attachment.download.error", {
-            accountId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          return c.json({ error: "Attachment download failed" }, 502);
-        }
-      }
-
-      if (!attachmentDownloadClient) {
-        return c.json({ error: "Attachment download is not configured" }, 503);
-      }
-
-      const message = persistence.mailDatabaseFor(accountId).getMessage(accountId, messageId);
-
-      if (!message) {
-        return c.json({ error: "Message not found" }, 404);
-      }
-
-      const attachment = message.attachments.find((candidate) => candidate.id === attachmentId);
-      if (!attachment) {
-        return c.json({ error: "Attachment not found" }, 404);
+      if (!config.gmailImapReader) {
+        return c.json({ error: "Live IMAP access is not configured" }, 503);
       }
 
       try {
-        const bytes = await attachmentDownloadClient.downloadAttachment({
-          accountId,
-          messageId,
-          attachmentId,
-        });
+        const attachment = await config.gmailImapReader.downloadAttachment(
+          account,
+          c.req.param("messageId"),
+          c.req.param("attachmentId"),
+        );
+        if (!attachment) {
+          return c.json({ error: "Attachment not found" }, 404);
+        }
 
-        const body = new ArrayBuffer(bytes.byteLength);
-        new Uint8Array(body).set(bytes);
-
-        return new Response(body, {
+        return new Response(attachment.body, {
           headers: {
             "content-type": attachment.mimeType,
-            "content-disposition": `attachment; filename="${attachment.filename}"`,
+            "content-disposition": attachmentDisposition(attachment.filename),
+            "cache-control": "no-store",
           },
         });
-      } catch {
+      } catch (error) {
+        logError("mail.attachment.download.error", { accountId, error: errorMessage(error) });
         return c.json({ error: "Attachment download failed" }, 502);
       }
     },
   );
-
-  app.post("/api/mail-accounts/:accountId/messages/actions", async (c) => {
-    if (!isAuthenticated(c.req.header("cookie"))) {
-      return c.json({ error: "Authentication required" }, 401);
-    }
-
-    const accountId = c.req.param("accountId");
-    const body = await c.req.json<{ action: string; messageIds: string[] }>();
-
-    if (!isMailboxAction(body.action)) {
-      return c.json({ error: "Unsupported Mailbox action" }, 400);
-    }
-
-    const succeededIds: string[] = [];
-    const failed: Array<{ id: string; error: string }> = [];
-
-    for (const messageId of body.messageIds ?? []) {
-      const result = await performMailboxActionForMessage(accountId, messageId, body.action);
-
-      if (result.ok) {
-        succeededIds.push(messageId);
-      } else {
-        failed.push({ id: messageId, error: result.error });
-      }
-    }
-
-    return c.json({ succeededIds, failed });
-  });
 
   app.post("/api/mail-accounts/:accountId/messages/:messageId/actions", async (c) => {
     if (!isAuthenticated(c.req.header("cookie"))) {
@@ -821,274 +310,45 @@ export function createAppWithServices(config: AppConfig): CreatedApp {
     const accountId = c.req.param("accountId");
     const messageId = c.req.param("messageId");
     const body = await c.req.json<{ action: string }>();
-
     if (!isMailboxAction(body.action)) {
       return c.json({ error: "Unsupported Mailbox action" }, 400);
     }
 
-    logInfo("mailbox.action.start", { accountId, messageId, action: body.action });
-
     const account = config.mailAccounts.find((candidate) => candidate.id === accountId);
-
     if (!account) {
       return c.json({ error: "Mail account not found" }, 404);
     }
-
-    if (config.gmailImapReader) {
-      try {
-        const confirmation = await config.gmailImapReader.performMailboxAction(
-          account,
-          messageId,
-          body.action,
-        );
-        logInfo("mailbox.action.finish", { accountId, messageId, action: body.action });
-        return c.json(confirmation);
-      } catch (error) {
-        logError("mailbox.action.gmail.error", {
-          accountId,
-          messageId,
-          action: body.action,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return c.json(
-          {
-            error:
-              "Gmail did not confirm the Mailbox action. Refresh to verify or safely repeat the same target-state action.",
-          },
-          502,
-        );
-      }
+    if (!config.gmailImapReader) {
+      return c.json({ error: "Live IMAP access is not configured" }, 503);
     }
 
-    const mailDatabase = persistence.mailDatabaseFor(accountId);
-    const existingMessage = mailDatabase.getMessage(accountId, messageId);
-    if (!existingMessage) {
-      return c.json({ error: "Message not found" }, 404);
+    logInfo("mailbox.action.start", { accountId, messageId, action: body.action });
+    try {
+      const confirmation = await config.gmailImapReader.performMailboxAction(
+        account,
+        messageId,
+        body.action,
+      );
+      logInfo("mailbox.action.finish", { accountId, messageId, action: body.action });
+      return c.json(confirmation);
+    } catch (error) {
+      logError("mailbox.action.gmail.error", {
+        accountId,
+        messageId,
+        action: body.action,
+        error: errorMessage(error),
+      });
+      return c.json(
+        {
+          error:
+            "Gmail did not confirm the Mailbox action. Refresh to verify or safely repeat the same target-state action.",
+        },
+        502,
+      );
     }
-
-    const target = {
-      accountId,
-      emailAddress: account.emailAddress,
-      appPassword: account.appPassword,
-      messageId,
-      mailboxIds: existingMessage.mailboxIds,
-    };
-
-    if (mailboxActionClient) {
-      try {
-        await mailboxActionClient[body.action](target);
-      } catch (error) {
-        logError("mailbox.action.gmail.error", {
-          accountId,
-          messageId,
-          action: body.action,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return c.json({ error: "Mailbox action failed" }, 502);
-      }
-    }
-
-    applyLocalMailboxAction(mailDatabase, messageId, body.action);
-    logInfo("mailbox.action.local", { accountId, messageId, action: body.action });
-
-    const message = mailDatabase.getMessage(accountId, messageId);
-
-    if (!message) {
-      return c.json({ error: "Message not found" }, 404);
-    }
-
-    logInfo("mailbox.action.finish", { accountId, messageId, action: body.action });
-
-    return c.json({ message });
   });
 
-  return { app, syncQueue };
-
-  async function performMailboxActionForMessage(
-    accountId: string,
-    messageId: string,
-    action: MailboxAction,
-  ): Promise<{ ok: true } | { ok: false; error: string }> {
-    const mailDatabase = persistence.mailDatabaseFor(accountId);
-    const account = config.mailAccounts.find((candidate) => candidate.id === accountId);
-    const message = mailDatabase.getMessage(accountId, messageId);
-
-    logInfo("mailbox.action.start", { accountId, messageId, action });
-
-    if (!account) {
-      return { ok: false, error: "Mail account not found" };
-    }
-
-    if (!message) {
-      return { ok: false, error: "Message not found" };
-    }
-
-    const target = {
-      accountId,
-      emailAddress: account.emailAddress,
-      appPassword: account.appPassword,
-      messageId,
-      mailboxIds: message.mailboxIds,
-    };
-
-    if (mailboxActionClient) {
-      try {
-        await mailboxActionClient[action](target);
-      } catch (error) {
-        logError("mailbox.action.gmail.error", {
-          accountId,
-          messageId,
-          action,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return { ok: false, error: "Mailbox action failed" };
-      }
-    }
-
-    applyLocalMailboxAction(mailDatabase, messageId, action);
-    logInfo("mailbox.action.local", { accountId, messageId, action });
-    logInfo("mailbox.action.finish", { accountId, messageId, action });
-
-    return { ok: true };
-  }
-}
-
-export function createApp(config: AppConfig): Hono {
-  return createAppWithServices(config).app;
-}
-
-function syncJobRecord(job: SyncJob): SyncJobRecord {
-  return {
-    id: job.id,
-    accountId: job.accountId,
-    origin: job.origin,
-    scope: job.scope,
-    state: job.state,
-    createdAt: job.createdAt,
-    ...(job.startedAt ? { startedAt: job.startedAt } : {}),
-    ...(job.finishedAt ? { finishedAt: job.finishedAt } : {}),
-    ...(job.result ? { result: job.result } : {}),
-    ...(job.error ? { error: job.error } : {}),
-  };
-}
-
-function isValidCustomRangeDays(days: number): boolean {
-  return Number.isInteger(days) && days >= 1 && days <= 3650;
-}
-
-function isMailboxAction(action: string): action is MailboxAction {
-  return ["markRead", "markUnread", "archive", "delete", "star", "unstar"].includes(action);
-}
-
-function applyLocalMailboxAction(
-  mailDatabase: MailDatabase,
-  messageId: string,
-  action: MailboxAction,
-): void {
-  if (action === "markRead") {
-    mailDatabase.setMessageUnread(messageId, false);
-  }
-
-  if (action === "markUnread") {
-    mailDatabase.setMessageUnread(messageId, true);
-  }
-
-  if (action === "star") {
-    const message = mailDatabase.getMessage(messageId);
-    mailDatabase.setMessageStarred(messageId, true);
-    const starredMailboxId = systemMailboxId(mailDatabase, "starred") ?? "[Gmail]/Starred";
-    ensureLocalMailbox(mailDatabase, starredMailboxId);
-    const alreadyInStarred = message?.mailboxIds.includes(starredMailboxId) ?? false;
-    mailDatabase.saveMailboxEntry({
-      id: `${messageId}:${starredMailboxId}`,
-      mailboxId: starredMailboxId,
-      messageId,
-    });
-    if (message?.unread && !alreadyInStarred) {
-      mailDatabase.adjustMailboxUnreadCount(starredMailboxId, 1);
-    }
-  }
-
-  if (action === "unstar") {
-    mailDatabase.setMessageStarred(messageId, false);
-    const starredMailboxId = systemMailboxId(mailDatabase, "starred") ?? "[Gmail]/Starred";
-    mailDatabase.removeMailboxEntry(messageId, starredMailboxId);
-  }
-
-  if (action === "archive") {
-    const inboxMailboxId = systemMailboxId(mailDatabase, "inbox") ?? "inbox";
-    mailDatabase.removeMailboxEntry(messageId, inboxMailboxId);
-  }
-
-  if (action === "delete") {
-    const trashMailboxId = systemMailboxId(mailDatabase, "trash") ?? "[Gmail]/Trash";
-    const message = mailDatabase.getMessage(messageId);
-
-    for (const mailboxId of message?.mailboxIds ?? []) {
-      if (mailboxId !== trashMailboxId) {
-        mailDatabase.removeMailboxEntry(messageId, mailboxId);
-      }
-    }
-    mailDatabase.saveMailboxEntry({
-      id: `${messageId}:${trashMailboxId}`,
-      mailboxId: trashMailboxId,
-      messageId,
-    });
-    if (message?.unread) {
-      mailDatabase.adjustMailboxUnreadCount(trashMailboxId, 1);
-    }
-  }
-}
-
-function ensureLocalMailbox(mailDatabase: MailDatabase, mailboxId: string): void {
-  if (mailDatabase.listMailboxes().some((mailbox) => mailbox.id === mailboxId)) {
-    return;
-  }
-
-  mailDatabase.saveMailbox({ id: mailboxId, name: mailboxId, unreadCount: 0 });
-}
-
-function systemMailboxId(
-  mailDatabase: MailDatabase,
-  role: "inbox" | "trash" | "starred",
-): string | undefined {
-  const mailboxes = mailDatabase.listMailboxes();
-
-  const roleMailbox = mailboxes.find((mailbox) => mailbox.systemRole === role)?.id;
-  if (roleMailbox) {
-    return roleMailbox;
-  }
-
-  if (role === "inbox") {
-    return mailboxes.find(
-      (mailbox) => mailbox.id.toLowerCase() === "inbox" || mailbox.name.toLowerCase() === "inbox",
-    )?.id;
-  }
-
-  if (role === "starred") {
-    return (
-      mailboxes.find(
-        (mailbox) =>
-          mailbox.id.toLowerCase().endsWith("/starred") ||
-          mailbox.name.toLowerCase().endsWith("/starred"),
-      )?.id ??
-      mailboxes.find(
-        (mailbox) =>
-          mailbox.id.toLowerCase() === "starred" || mailbox.name.toLowerCase() === "starred",
-      )?.id
-    );
-  }
-
-  return (
-    mailboxes.find(
-      (mailbox) =>
-        mailbox.id.toLowerCase().endsWith("/trash") ||
-        mailbox.name.toLowerCase().endsWith("/trash"),
-    )?.id ??
-    mailboxes.find(
-      (mailbox) => mailbox.id.toLowerCase() === "trash" || mailbox.name.toLowerCase() === "trash",
-    )?.id
-  );
+  return app;
 }
 
 export const app = createApp({
@@ -1097,17 +357,10 @@ export const app = createApp({
     password: "test",
     sessionSecret: "test-session-secret",
   },
-  storage: {
-    databaseDir: ":memory:",
-  },
-  sync: {
-    recentMessageWindowDays: 90,
-    regularSyncIntervalMinutes: 5,
-    recentReconciliationIntervalMinutes: 30,
-    recentReconciliationWindowDays: 2,
+  reader: {
+    readDwellSeconds: 3,
   },
   mailAccounts: [],
-  persistence: createHybridPersistence(),
 });
 
 type AppSession = {
@@ -1119,24 +372,19 @@ function signSessionToken(session: AppSession, secret: string): string {
   const encodedHeader = base64UrlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const encodedPayload = base64UrlEncode(JSON.stringify(session));
   const unsignedToken = `${encodedHeader}.${encodedPayload}`;
-  const signature = sign(unsignedToken, secret);
-
-  return `${unsignedToken}.${signature}`;
+  return `${unsignedToken}.${sign(unsignedToken, secret)}`;
 }
 
 function verifySessionToken(token: string, secret: string): AppSession | undefined {
   const [encodedHeader, encodedPayload, signature, extra] = token.split(".");
-
   if (!encodedHeader || !encodedPayload || !signature || extra !== undefined) {
     return undefined;
   }
-
   if (!safeEqual(signature, sign(`${encodedHeader}.${encodedPayload}`, secret))) {
     return undefined;
   }
 
   let parsed: Partial<AppSession>;
-
   try {
     parsed = JSON.parse(
       Buffer.from(encodedPayload, "base64url").toString("utf8"),
@@ -1145,18 +393,14 @@ function verifySessionToken(token: string, secret: string): AppSession | undefin
     return undefined;
   }
 
-  if (typeof parsed.username !== "string" || typeof parsed.expiresAt !== "string") {
+  if (
+    typeof parsed.username !== "string" ||
+    typeof parsed.expiresAt !== "string" ||
+    Date.parse(parsed.expiresAt) <= Date.now()
+  ) {
     return undefined;
   }
-
-  if (Date.parse(parsed.expiresAt) <= Date.now()) {
-    return undefined;
-  }
-
-  return {
-    username: parsed.username,
-    expiresAt: parsed.expiresAt,
-  };
+  return { username: parsed.username, expiresAt: parsed.expiresAt };
 }
 
 function sign(value: string, secret: string): string {
@@ -1170,121 +414,11 @@ function base64UrlEncode(value: string): string {
 function safeEqual(left: string, right: string): boolean {
   const leftBuffer = Buffer.from(left);
   const rightBuffer = Buffer.from(right);
-
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-function parseLimit(value: string | undefined): number | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const parsed = Number(value);
-
-  if (!Number.isInteger(parsed) || parsed < 1) {
-    return undefined;
-  }
-
-  return Math.min(parsed, 200);
-}
-
-function parseBooleanQuery(value: string | undefined): boolean | undefined {
-  if (value === "true") {
-    return true;
-  }
-
-  if (value === "false") {
-    return false;
-  }
-
-  return undefined;
-}
-
-function parseMessageCursor(
-  value: string | undefined,
-): { receivedAt: string; id: string } | undefined | null {
-  if (!value) {
-    return undefined;
-  }
-
-  try {
-    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<{
-      receivedAt: string;
-      id: string;
-    }>;
-
-    if (typeof parsed.receivedAt !== "string" || typeof parsed.id !== "string") {
-      return null;
-    }
-
-    return {
-      receivedAt: parsed.receivedAt,
-      id: parsed.id,
-    };
-  } catch {
-    return null;
-  }
-}
-
-type MessageSummaryLike = {
-  id: string;
-  receivedAt: string;
-  starred: boolean;
-  sender: { address: string };
-  attachmentCount: number;
-};
-
-function paginateMessageSummaries<T extends MessageSummaryLike>(
-  messages: T[],
-  options: {
-    limit?: number;
-    cursor?: { receivedAt: string; id: string };
-    filters?: {
-      starred?: boolean;
-      hasAttachments?: boolean;
-      from?: string;
-      after?: string;
-      before?: string;
-    };
-  },
-): { messages: T[]; nextCursor?: string } {
-  const limit = Math.min(options.limit ?? 50, 200);
-  const filtered = messages
-    .filter(
-      (message) =>
-        options.filters?.starred === undefined || message.starred === options.filters.starred,
-    )
-    .filter(
-      (message) =>
-        options.filters?.hasAttachments === undefined ||
-        message.attachmentCount > 0 === options.filters.hasAttachments,
-    )
-    .filter(
-      (message) =>
-        !options.filters?.from ||
-        message.sender.address.toLowerCase() === options.filters.from.toLowerCase(),
-    )
-    .filter((message) => !options.filters?.after || message.receivedAt > options.filters.after)
-    .filter((message) => !options.filters?.before || message.receivedAt < options.filters.before)
-    .filter(
-      (message) =>
-        !options.cursor ||
-        message.receivedAt < options.cursor.receivedAt ||
-        (message.receivedAt === options.cursor.receivedAt && message.id < options.cursor.id),
-    );
-  const pageMessages = filtered.slice(0, limit);
-  const lastMessage = pageMessages.at(-1);
-
-  return {
-    messages: pageMessages,
-    ...(filtered.length > limit && lastMessage
-      ? { nextCursor: encodeMessageCursor(lastMessage.receivedAt, lastMessage.id) }
-      : {}),
-  };
-}
-
-function encodeMessageCursor(receivedAt: string, id: string): string {
-  return Buffer.from(JSON.stringify({ receivedAt, id }), "utf8").toString("base64url");
+function isMailboxAction(action: string): action is MailboxAction {
+  return ["markRead", "markUnread", "archive", "delete", "star", "unstar"].includes(action);
 }
 
 function copyBytes(bytes: Uint8Array): ArrayBuffer {
@@ -1294,8 +428,7 @@ function copyBytes(bytes: Uint8Array): ArrayBuffer {
 }
 
 function attachmentDisposition(filename: string): string {
-  const safeFilename = filename.replaceAll(/[\r\n"]/g, "_");
-  return `attachment; filename="${safeFilename}"`;
+  return `attachment; filename="${filename.replaceAll(/[\r\n"]/g, "_")}"`;
 }
 
 function sessionCookie(value: string, secure = false, clear = false): string {
@@ -1307,4 +440,8 @@ function sessionCookie(value: string, secure = false, clear = false): string {
     ...(secure ? ["Secure"] : []),
     ...(clear ? ["Max-Age=0"] : []),
   ].join("; ");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

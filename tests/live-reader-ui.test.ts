@@ -1,0 +1,36 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vite-plus/test";
+
+describe("Live reader UI", () => {
+  const appVue = readFileSync(resolve("apps/web/src/App.vue"), "utf8");
+
+  it("shows the selected Mail account identity in the Message list header", () => {
+    expect(appVue).toContain('class="max-w-[45%] shrink-0 truncate text-right"');
+    expect(appVue).toContain("{{ selectedAccount.emailAddress }}");
+  });
+
+  it("formats Message dates as local YYYY-MM-DD HH:mm", () => {
+    expect(appVue).toContain("function formatDate(value: string): string");
+    expect(appVue).toContain("return `${year}-${month}-${day} ${hour}:${minute}`;");
+  });
+
+  it("renders Message lists one page at a time with explicit Load more", () => {
+    expect(appVue).toContain("const liveMessageListPageSize = 50");
+    expect(appVue).toContain("const messageListNextCursor = computed");
+    expect(appVue).toContain("const loadMoreMessagesMutation = useMutation");
+    expect(appVue).toContain("Load more");
+  });
+
+  it("shows Archive in the Message action toolbar", () => {
+    expect(appVue).toContain('icon="i-lucide-archive"');
+    expect(appVue).toContain("Archive");
+  });
+
+  it("visually distinguishes starred Messages and toggles the Star action", () => {
+    expect(appVue).toContain("message.starred ? 'bg-amber-50' : ''");
+    expect(appVue).toContain('v-if="message.starred"');
+    expect(appVue).toContain("selectedMessage.starred ? 'i-lucide-star-off' : 'i-lucide-star'");
+    expect(appVue).toContain('{{ selectedMessage.starred ? "Unstar" : "Star" }}');
+  });
+});

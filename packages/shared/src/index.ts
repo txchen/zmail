@@ -1,13 +1,3 @@
-export type HealthStatus = {
-  service: "zmail-api";
-  status: "ok";
-};
-
-export const healthy: HealthStatus = {
-  service: "zmail-api",
-  status: "ok",
-};
-
 export type MailAccountSummary = {
   id: string;
   emailAddress: string;
@@ -40,16 +30,6 @@ export type SystemMailboxRole =
   | "allMail"
   | "archive"
   | "flagged";
-
-export type MailAccountMailboxTree = MailAccountSummary & {
-  syncStatus: "synced" | "syncing" | "stale" | "failing";
-  unreadCount: number;
-  mailboxes: MailboxSummary[];
-};
-
-export type MailboxTreeResponse = {
-  mailAccounts: MailAccountMailboxTree[];
-};
 
 export type LiveMailAccount = MailAccountSummary & {
   unreadCount: number;
@@ -135,42 +115,6 @@ export type MessageParticipant = {
   displayName?: string;
 };
 
-export type MailboxMessageSummary = {
-  accountId: string;
-  id: string;
-  stableIdentity: string;
-  threadId?: string;
-  subject: string;
-  sender: MessageParticipant;
-  recipients: MessageParticipant[];
-  ccRecipients: MessageParticipant[];
-  bccRecipients: MessageParticipant[];
-  receivedAt: string;
-  unread: boolean;
-  starred: boolean;
-  mailboxIds: string[];
-  snippet: string;
-  attachmentCount: number;
-  updatedAt: string;
-};
-
-export type MessageDetail = MailboxMessageSummary & {
-  readableBody: string;
-  plainTextBody?: string;
-  blockedRemoteImageCount: number;
-  inlineResources: InlineMessageResourceMetadata[];
-  attachments: AttachmentMetadata[];
-};
-
-export type MailboxMessagesResponse = {
-  messages: MailboxMessageSummary[];
-  nextCursor?: string;
-};
-
-export type MessageResponse = {
-  message: MessageDetail;
-};
-
 export type MailboxAction = "markRead" | "markUnread" | "archive" | "delete" | "star" | "unstar";
 
 export type MailboxActionMessageState = {
@@ -199,72 +143,3 @@ export type SessionResponse =
       username: string;
       expiresAt: string;
     };
-
-export type AccountSyncStatusResponse = {
-  accountId: string;
-  syncStatus: MailAccountMailboxTree["syncStatus"];
-  lastSyncStartedAt?: string;
-  lastSyncFinishedAt?: string;
-  lastError?: string;
-};
-
-export type MailAccountDiagnosticsResponse =
-  | {
-      success: true;
-      visibleMailboxCount: number;
-    }
-  | {
-      success: false;
-      lastError: string;
-    };
-
-export type SyncJobState =
-  | "pending"
-  | "running"
-  | "succeeded"
-  | "failed"
-  | "skipped"
-  | "superseded";
-
-export type SyncJobOrigin = "automatic" | "appUser";
-
-export type SyncScope =
-  | { type: "regular" }
-  | { type: "recentReconciliation"; days: number }
-  | { type: "customRange"; days: number };
-
-export type SyncJobResult = {
-  mailboxCount?: number;
-  scannedMailboxCount?: number;
-  skippedMailboxCount?: number;
-  fetchedMessageCount?: number;
-  storedMessageCount?: number;
-  removedMailboxEntryCount?: number;
-  durationMs?: number;
-};
-
-export type SyncJobRecord = {
-  id: string;
-  accountId: string;
-  origin: SyncJobOrigin;
-  scope: SyncScope;
-  state: SyncJobState;
-  createdAt: string;
-  startedAt?: string;
-  finishedAt?: string;
-  result?: SyncJobResult;
-  error?: string;
-};
-
-export type ScheduleSyncJobRequest = {
-  accountId: string;
-  days?: number;
-};
-
-export type SyncJobResponse = {
-  job: SyncJobRecord;
-};
-
-export type SyncJobsResponse = {
-  jobs: SyncJobRecord[];
-};

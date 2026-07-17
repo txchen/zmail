@@ -1,7 +1,6 @@
 import { serve } from "@hono/node-server";
 import { resolve } from "node:path";
 import { loadConfig } from "./config.js";
-import { createGmailImapMailboxSyncClient } from "./gmail-imap.js";
 import {
   createImapSessionCoordinator,
   type ImapClientSession,
@@ -14,16 +13,12 @@ const webDistDir = process.env.ZMAIL_WEB_DIST_DIR
   ? resolve(process.env.ZMAIL_WEB_DIST_DIR)
   : resolve(process.cwd(), "apps/web/dist");
 const imapSessionCoordinator = createImapSessionCoordinator<ImapClientSession>();
-const gmailImapClient = createGmailImapMailboxSyncClient(undefined, imapSessionCoordinator);
 const gmailImapReader = createGmailImapReader(undefined, imapSessionCoordinator);
 const config = loadConfig();
 const app = createServerApp(config, {
   webDistDir,
   secureCookies: process.env.NODE_ENV === "production",
   services: {
-    mailboxSyncClient: gmailImapClient,
-    messageSyncClient: gmailImapClient,
-    mailboxActionClient: gmailImapClient,
     gmailImapReader,
   },
 });

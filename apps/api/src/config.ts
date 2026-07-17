@@ -2,11 +2,7 @@ import type { MailAccountSummary } from "@zmail/shared";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, parse, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
-import type { MailboxActionClient } from "./mailbox-actions.js";
 import type { GmailImapReader } from "./live-imap.js";
-import type { HybridPersistence } from "./persistence.js";
-import type { MailboxSyncClient, MessageSyncClient } from "./sync.js";
-import type { SyncQueue } from "./sync-queue.js";
 
 export type AppLogin = {
   username: string;
@@ -19,43 +15,16 @@ export type ConfiguredMailAccount = MailAccountSummary & {
   appPassword: string;
 };
 
-export type StorageConfig = {
-  databaseDir: string;
-};
-
-export type SyncConfig = {
-  recentMessageWindowDays: number;
-  regularSyncIntervalMinutes: number;
-  recentReconciliationIntervalMinutes: number;
-  recentReconciliationWindowDays: number;
-};
-
 export type ReaderConfig = {
   readDwellSeconds: number;
 };
 
 export type AppConfig = {
   appLogin: AppLogin;
-  storage: StorageConfig;
-  sync: SyncConfig;
   reader?: ReaderConfig;
   mailAccounts: ConfiguredMailAccount[];
-  persistence?: HybridPersistence;
-  mailboxSyncClient?: MailboxSyncClient;
-  messageSyncClient?: MessageSyncClient;
-  syncQueue?: SyncQueue;
-  mailboxActionClient?: MailboxActionClient;
-  attachmentDownloadClient?: AttachmentDownloadClient;
   gmailImapReader?: GmailImapReader;
   secureCookies?: boolean;
-};
-
-export type AttachmentDownloadClient = {
-  downloadAttachment(request: {
-    accountId: string;
-    messageId: string;
-    attachmentId: string;
-  }): Promise<Uint8Array>;
 };
 
 type Env = Record<string, string | undefined>;
@@ -80,7 +49,7 @@ export function loadConfigFromFile(path: string): AppConfig {
     throw new Error(`Invalid App configuration file at ${resolvedPath}: ${errorMessage(error)}`);
   }
 
-  return parseConfigFile(parsed, findWorkspaceRoot(dirname(resolvedPath)));
+  return parseConfigFile(parsed);
 }
 
 export function resolveConfigPath(env: Env = process.env, cwd = process.cwd()): string {
@@ -91,18 +60,23 @@ export function resolveConfigPath(env: Env = process.env, cwd = process.cwd()): 
   return join(findWorkspaceRoot(cwd), "zmail.toml");
 }
 
-function parseConfigFile(value: unknown, workspaceRoot: string): AppConfig {
+function parseConfigFile(value: unknown): AppConfig {
   if (!isRecord(value)) {
     throw new Error("Invalid App configuration: expected TOML table");
   }
 
-  assertKnownKeys(value, "App configuration", [
-    "app_login",
-    "storage",
-    "sync",
-    "reader",
-    "mail_accounts",
-  ]);
+  if ("storage" in value) {
+    throw new Error(
+      "Obsolete [storage] configuration is no longer supported; remove it for Live IMAP access",
+    );
+  }
+  if ("sync" in value) {
+    throw new Error(
+      "Obsolete [sync] configuration is no longer supported; remove it for Live IMAP access",
+    );
+  }
+
+  assertKnownKeys(value, "App configuration", ["app_login", "reader", "mail_accounts"]);
 
   if (!isRecord(value.app_login)) {
     throw new Error("Invalid App configuration: missing app_login table");
@@ -139,16 +113,6 @@ function parseConfigFile(value: unknown, workspaceRoot: string): AppConfig {
 
   const mailAccounts = value.mail_accounts.map(parseMailAccount);
 
-  if (!isRecord(value.storage)) {
-    throw new Error("Invalid App configuration: missing storage table");
-  }
-
-  assertKnownKeys(value.storage, "storage", ["database_dir"]);
-  const databaseDir = resolve(
-    workspaceRoot,
-    requireString(value.storage.database_dir, "storage.database_dir"),
-  );
-  const sync = parseSyncConfig(value.sync);
   const reader = parseReaderConfig(value.reader);
 
   return {
@@ -158,10 +122,6 @@ function parseConfigFile(value: unknown, workspaceRoot: string): AppConfig {
       sessionSecret,
       sessionTtlDays: sessionTtlDays ?? 365,
     },
-    storage: {
-      databaseDir,
-    },
-    sync,
     reader,
     mailAccounts,
   };
@@ -178,63 +138,6 @@ function parseReaderConfig(value: unknown): ReaderConfig {
   return {
     readDwellSeconds:
       optionalIntegerInRange(value.read_dwell_seconds, "reader.read_dwell_seconds", 0, 60) ?? 3,
-  };
-}
-
-function parseSyncConfig(value: unknown): SyncConfig {
-  if (value === undefined) {
-    return defaultSyncConfig();
-  }
-
-  if (!isRecord(value)) {
-    throw new Error("Invalid sync: expected table");
-  }
-
-  assertKnownKeys(value, "sync", [
-    "recent_message_window_days",
-    "regular_sync_interval_minutes",
-    "recent_reconciliation_interval_minutes",
-    "recent_reconciliation_window_days",
-  ]);
-
-  return {
-    recentMessageWindowDays:
-      optionalIntegerInRange(
-        value.recent_message_window_days,
-        "sync.recent_message_window_days",
-        1,
-        3650,
-      ) ?? 90,
-    regularSyncIntervalMinutes:
-      optionalIntegerInRange(
-        value.regular_sync_interval_minutes,
-        "sync.regular_sync_interval_minutes",
-        1,
-        1440,
-      ) ?? 5,
-    recentReconciliationIntervalMinutes:
-      optionalIntegerInRange(
-        value.recent_reconciliation_interval_minutes,
-        "sync.recent_reconciliation_interval_minutes",
-        1,
-        1440,
-      ) ?? 30,
-    recentReconciliationWindowDays:
-      optionalIntegerInRange(
-        value.recent_reconciliation_window_days,
-        "sync.recent_reconciliation_window_days",
-        1,
-        3650,
-      ) ?? 2,
-  };
-}
-
-function defaultSyncConfig(): SyncConfig {
-  return {
-    recentMessageWindowDays: 90,
-    regularSyncIntervalMinutes: 5,
-    recentReconciliationIntervalMinutes: 30,
-    recentReconciliationWindowDays: 2,
   };
 }
 

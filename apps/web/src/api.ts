@@ -2,22 +2,17 @@ import type {
   AccountOpenResponse,
   AccountRefreshRequest,
   AccountRefreshResponse,
-  AccountSyncStatusResponse,
-  HealthStatus,
   LiveMessagePage,
   LiveMessageResponse,
   MailboxActionConfirmation,
-  MailAccountDiagnosticsResponse,
   MailboxAction,
-  MailboxTreeResponse,
   MailAccountsResponse,
-  ScheduleSyncJobRequest,
   SessionResponse,
-  SyncJobResponse,
-  SyncJobsResponse,
 } from "@zmail/shared";
 
-export async function fetchHealth(fetcher: typeof fetch = fetch): Promise<HealthStatus> {
+export async function fetchHealth(
+  fetcher: typeof fetch = fetch,
+): Promise<{ service: "zmail-api"; status: "ok" }> {
   const response = await fetcher("/api/health");
 
   return response.json();
@@ -84,45 +79,17 @@ export async function openMailAccount(
   return response.json();
 }
 
-export async function fetchMailboxTree(
-  fetcher: typeof fetch = fetch,
-): Promise<MailboxTreeResponse> {
-  const response = await fetcher("/api/mailbox-tree");
-
-  if (!response.ok) {
-    throw new Error("Authentication required");
-  }
-
-  return response.json();
-}
-
-export function refreshMailAccount(
-  mailAccountId: string,
-  request: AccountRefreshRequest,
-  fetcher?: typeof fetch,
-): Promise<AccountRefreshResponse>;
-/** @deprecated Retained for the persisted-mail path until ticket 07 removes legacy surfaces. */
-export function refreshMailAccount(
-  mailAccountId: string,
-  fetcher?: typeof fetch,
-): Promise<MailboxTreeResponse>;
 export async function refreshMailAccount(
   mailAccountId: string,
-  requestOrFetcher: AccountRefreshRequest | typeof fetch = fetch,
+  request: AccountRefreshRequest,
   fetcher: typeof fetch = fetch,
-): Promise<AccountRefreshResponse | MailboxTreeResponse> {
-  const request = typeof requestOrFetcher === "function" ? undefined : requestOrFetcher;
-  const resolvedFetcher = typeof requestOrFetcher === "function" ? requestOrFetcher : fetcher;
-  const response = await resolvedFetcher(
+): Promise<AccountRefreshResponse> {
+  const response = await fetcher(
     `/api/mail-accounts/${encodeURIComponent(mailAccountId)}/refresh`,
     {
       method: "POST",
-      ...(request
-        ? {
-            body: JSON.stringify(request),
-            headers: { "content-type": "application/json" },
-          }
-        : {}),
+      body: JSON.stringify(request),
+      headers: { "content-type": "application/json" },
     },
   );
 
@@ -212,61 +179,6 @@ export async function searchMessagesForAccount(
 
   if (!response.ok) {
     throw new Error("Search unavailable");
-  }
-
-  return response.json();
-}
-
-export async function fetchAccountSyncStatus(
-  mailAccountId: string,
-  fetcher: typeof fetch = fetch,
-): Promise<AccountSyncStatusResponse> {
-  const response = await fetcher(`/api/mail-accounts/${mailAccountId}/sync-status`);
-
-  if (!response.ok) {
-    throw new Error("Sync status unavailable");
-  }
-
-  return response.json();
-}
-
-export async function runMailAccountDiagnostics(
-  mailAccountId: string,
-  fetcher: typeof fetch = fetch,
-): Promise<MailAccountDiagnosticsResponse> {
-  const response = await fetcher(`/api/mail-accounts/${mailAccountId}/diagnose`, {
-    method: "POST",
-  });
-
-  if (!response.ok) {
-    throw new Error("Diagnostics unavailable");
-  }
-
-  return response.json();
-}
-
-export async function scheduleSyncJob(
-  request: ScheduleSyncJobRequest,
-  fetcher: typeof fetch = fetch,
-): Promise<SyncJobResponse> {
-  const response = await fetcher("/api/sync-jobs", {
-    method: "POST",
-    body: JSON.stringify(request),
-    headers: { "content-type": "application/json" },
-  });
-
-  if (!response.ok) {
-    throw new Error("Sync job scheduling failed");
-  }
-
-  return response.json();
-}
-
-export async function fetchSyncJobs(fetcher: typeof fetch = fetch): Promise<SyncJobsResponse> {
-  const response = await fetcher("/api/sync-jobs");
-
-  if (!response.ok) {
-    throw new Error("Sync jobs unavailable");
   }
 
   return response.json();

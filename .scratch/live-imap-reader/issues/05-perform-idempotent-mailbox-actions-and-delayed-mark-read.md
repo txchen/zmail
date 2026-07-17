@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — Read live Message content and download Attachments.
 
-**Status:** done
+**Status:** completed
 
 - [x] Mark read, mark unread, star, and unstar set explicit Gmail flag target states rather than toggling unknown state.
 - [x] Archive ensures the Gmail Inbox label is absent while the Message remains in Gmail.

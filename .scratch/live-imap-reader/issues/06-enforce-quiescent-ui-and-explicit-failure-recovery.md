@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Search one Gmail account with native Gmail syntax; 05 — Perform idempotent Mailbox actions and delayed mark-read.
 
-**Status:** done
+**Status:** completed
 
 - [x] TanStack Query and reader code disable interval, focus, reconnect, mount, visibility, and other automatic refetch triggers.
 - [x] The UI performs no polling, prefetch, Search-as-you-type, automatic pagination, automatic retry, or IMAP IDLE.
