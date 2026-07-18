@@ -52,6 +52,7 @@ try {
     "Desktop did not render three visible reader panes",
   );
 
+  await fetch(`${apiUrl}/api/__smoke/fail/inline`, { method: "POST" });
   await clickButton("Quiescent UI smoke");
   await browser("wait", "1500");
   assert(await bodyIncludes("Archive"), "Message detail did not render");
@@ -60,11 +61,37 @@ try {
   }
   await assertCalls(
     ["open", "open", "detail", "inline", "action"],
-    "Message open, inline resource, and delayed mark-read",
+    "Message open, failed inline message resource, and delayed mark-read",
+  );
+  assert(
+    await bodyIncludes("Inline message resource unavailable"),
+    "Inline message resource failure was not visible",
+  );
+  const beforePassiveInlineEvents = await gmailCalls();
+  await browser(
+    "eval",
+    `Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("blur"));
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("focus"));`,
+  );
+  await browser("wait", "300");
+  assert(
+    await bodyIncludes("Inline message resource unavailable"),
+    "Passive page lifecycle events cleared the inline message resource failure",
+  );
+  await assertCalls(beforePassiveInlineEvents, "inline failure page lifecycle events");
+  await clickButton("Manual retry");
+  await browser("wait", "500");
+  await assertCalls(
+    ["open", "open", "detail", "inline", "action", "inline"],
+    "Inline message resource Manual retry",
   );
   await assertPage(
     `document.querySelector('iframe[title="Message body"]').srcdoc.includes("data:image/png;base64")`,
-    "Authenticated inline resource was not rendered from browser memory",
+    "Retried authenticated inline message resource was not rendered from browser memory",
   );
   assert(
     (await smokeState()).trackingCalls === 0,
@@ -74,7 +101,7 @@ try {
   await browser("wait", "500");
   assert((await smokeState()).trackingCalls > 0, "Remote image opt-in did not load remote images");
   await assertCalls(
-    ["open", "open", "detail", "inline", "action"],
+    ["open", "open", "detail", "inline", "action", "inline"],
     "Remote image opt-in iframe reload",
   );
 
@@ -84,14 +111,14 @@ try {
   await browser("wait", "300");
   assert(await bodyIncludes("Messages unavailable"), "Search failure was not visible");
   await assertCalls(
-    ["open", "open", "detail", "inline", "action", "search"],
+    ["open", "open", "detail", "inline", "action", "inline", "search"],
     "failed explicit Search",
   );
   await clickButton("Manual retry");
   await browser("wait", "300");
   assert(await bodyIncludes('Search results for "invoice"'), "Search retry did not recover");
   await assertCalls(
-    ["open", "open", "detail", "inline", "action", "search", "search"],
+    ["open", "open", "detail", "inline", "action", "inline", "search", "search"],
     "Search retry",
   );
 

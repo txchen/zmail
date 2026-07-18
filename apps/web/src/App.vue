@@ -36,6 +36,7 @@ import {
   liveMessageListKey,
   type LiveBrowserMessageListView,
 } from "./live-mail-memory";
+import { createInlineMessageResourceController } from "./inline-message-resource-controller";
 import { renderReadableMessage } from "./message-rendering";
 import {
   applyConfirmedAccountCounts,
@@ -83,6 +84,7 @@ const documentVisible = ref(
 const windowFocused = ref(typeof document === "undefined" ? true : document.hasFocus());
 const renderedBodyMessageKey = ref("");
 const inlineResourceDataUrls = ref(new Map<string, string>());
+const inlineResourceFailures = ref(new Map<string, { resourceId: string }>());
 const mailboxActionError = ref("");
 const failedManualRefresh = ref<{ accountId: string; request: AccountRefreshRequest } | null>(null);
 const attachmentDownloadError = ref<AttachmentDownloadRequest | null>(null);
@@ -91,8 +93,6 @@ const liveMessageListPageSize = 50;
 let resizeStartX = 0;
 let resizeStartWidth = 0;
 let attachmentDownloadAbortController: AbortController | undefined;
-let inlineResourceAbortController: AbortController | undefined;
-let inlineResourceMessageKey = "";
 
 type MailboxTreeNode = {
   id: string;
@@ -250,6 +250,7 @@ const selectedMessageRemoteImagesAllowed = computed(
     !!selectedMessageKey.value &&
     remoteImagesAllowedMessageKeys.value.has(selectedMessageKey.value),
 );
+const failedInlineResources = computed(() => [...inlineResourceFailures.value.values()]);
 
 const renderedMessage = computed(() => {
   if (!selectedMessage.value) {
@@ -290,9 +291,7 @@ const logoutMutation = useMutation({
   onMutate: async () => {
     readDwellController.cancel();
     attachmentDownloadAbortController?.abort();
-    inlineResourceAbortController?.abort();
-    inlineResourceMessageKey = "";
-    inlineResourceDataUrls.value = new Map();
+    inlineResourceController.cancel();
     loggedOut.value = true;
     openedMailAccounts.value = new Map();
     remoteImagesAllowedMessageKeys.value = new Set();
@@ -461,6 +460,16 @@ const readDwellController = createReadDwellController({
       .then(() => {}),
 });
 
+const inlineResourceController = createInlineMessageResourceController({
+  fetchResource: (accountId, messageId, resourceId, signal) =>
+    fetchInlineResource(accountId, messageId, resourceId, fetch, signal),
+  toDataUrl: blobDataUrl,
+  onStateChange: (state) => {
+    inlineResourceDataUrls.value = new Map(state.dataUrls);
+    inlineResourceFailures.value = new Map(state.failures);
+  },
+});
+
 watch(
   () => route.fullPath,
   (fullPath) => {
@@ -489,7 +498,7 @@ watch([selectedAccountId, selectedMessageId], () => {
 watch(
   selectedMessage,
   (message) => {
-    void loadInlineResourceDataUrls(message);
+    void inlineResourceController.select(message);
   },
   { immediate: true },
 );
@@ -523,49 +532,12 @@ watch(
 
 onBeforeUnmount(() => {
   stopColumnResize();
-  inlineResourceAbortController?.abort();
+  inlineResourceController.cancel();
   document.removeEventListener("visibilitychange", updateDocumentVisible);
   window.removeEventListener("focus", updateWindowFocus);
   window.removeEventListener("blur", updateWindowFocus);
   readDwellController.cancel();
 });
-
-async function loadInlineResourceDataUrls(message: LiveMessageDetail | null): Promise<void> {
-  const messageKey = message ? messageRemoteImagesKey(message) : "";
-  if (messageKey === inlineResourceMessageKey) {
-    return;
-  }
-  inlineResourceMessageKey = messageKey;
-  inlineResourceAbortController?.abort();
-  inlineResourceDataUrls.value = new Map();
-  if (!message || message.inlineResources.length === 0) {
-    return;
-  }
-
-  const controller = new AbortController();
-  inlineResourceAbortController = controller;
-  const entries = await Promise.all(
-    message.inlineResources.map(async (resource) => {
-      try {
-        const blob = await fetchInlineResource(
-          message.accountId,
-          message.id,
-          resource.id,
-          fetch,
-          controller.signal,
-        );
-        return [resource.id, await blobDataUrl(blob)] as const;
-      } catch {
-        return undefined;
-      }
-    }),
-  );
-
-  if (inlineResourceAbortController !== controller || selectedMessageKey.value !== messageKey) {
-    return;
-  }
-  inlineResourceDataUrls.value = new Map(entries.filter((entry) => entry !== undefined));
-}
 
 function blobDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -1488,6 +1460,25 @@ function loadMoreMessages(): void {
                     Show images
                   </button>
                 </div>
+                <UAlert
+                  v-for="failure in failedInlineResources"
+                  :key="failure.resourceId"
+                  class="mt-4"
+                  color="error"
+                  variant="soft"
+                  title="Inline message resource unavailable"
+                  :description="`Message ${selectedMessage.id} resource ${failure.resourceId} failed to load.`"
+                >
+                  <template #actions>
+                    <button
+                      class="h-8 rounded-md border border-red-300 bg-white px-3 text-sm font-medium text-red-900"
+                      type="button"
+                      @click="inlineResourceController.retry(failure.resourceId)"
+                    >
+                      Manual retry
+                    </button>
+                  </template>
+                </UAlert>
                 <iframe
                   :key="selectedMessageKey"
                   class="message-body mt-6 block w-full"
