@@ -147,13 +147,14 @@ function frameDocument(
 html { color-scheme: light; }
 body {
   margin: 0;
-  color: #1f2933;
+  background: #faf9f6;
+  color: #29353d;
   font: 14px/1.6 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   overflow-wrap: anywhere;
 }
 img, video { max-width: 100%; height: auto; }
 table { max-width: 100%; }
-a { color: #2563eb; }
+a { color: #416b86; }
 </style>
 </head>
 <body>${body}</body>

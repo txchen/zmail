@@ -1,6 +1,20 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 
+:root {
+  --reader-canvas: #eeece6;
+  --reader-panel: #f4f2ed;
+  --reader-paper: #faf9f6;
+  --reader-chrome: #e8e5de;
+  --reader-hover: #e7e3db;
+  --reader-selected: #ddd9d0;
+  --reader-border: #d4d0c7;
+  --reader-text: #29353d;
+  --reader-muted: #52606a;
+  --reader-accent: #556d7b;
+  --reader-accent-hover: #465e6c;
+}
+
 html,
 body,
 #app {
@@ -9,7 +23,64 @@ body,
 
 body {
   margin: 0;
-  background: #f7f7f4;
+  background: var(--reader-canvas);
+}
+
+.reader-theme {
+  background: var(--reader-canvas);
+  color: var(--reader-text);
+}
+
+.reader-panel {
+  background: var(--reader-panel);
+}
+
+.reader-paper {
+  background: var(--reader-paper);
+}
+
+.reader-chrome {
+  background: var(--reader-chrome);
+}
+
+.reader-border {
+  border-color: var(--reader-border);
+}
+
+.reader-muted {
+  color: var(--reader-muted);
+}
+
+.reader-button {
+  background: var(--reader-accent);
+  color: #fafafa;
+}
+
+.reader-button:hover {
+  background: var(--reader-accent-hover);
+}
+
+.reader-hover:hover {
+  background: var(--reader-hover);
+}
+
+.reader-message-unread {
+  border-left-color: var(--reader-accent);
+  background: var(--reader-paper);
+  color: var(--reader-text);
+}
+
+.reader-message-read {
+  border-left-color: transparent;
+  background: var(--reader-panel);
+}
+
+.reader-message-starred {
+  background: #f5efe0;
+}
+
+.reader-selected {
+  background: var(--reader-selected);
 }
 
 @media (min-width: 64rem) {
@@ -22,7 +93,7 @@ body {
 
 .reader-resize-handle {
   cursor: col-resize;
-  background: #e7e5e4;
+  background: var(--reader-border);
   position: relative;
 }
 
@@ -34,7 +105,7 @@ body {
 
 .reader-resize-handle:hover,
 .reader-resize-handle-active {
-  background: #94a3b8;
+  background: var(--reader-accent);
 }
 
 .reader-resizing {
@@ -45,7 +116,7 @@ body {
 .message-body {
   min-height: 70vh;
   border: 0;
-  color: #1f2933;
+  color: var(--reader-text);
   line-height: 1.6;
 }
 

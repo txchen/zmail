@@ -1030,14 +1030,14 @@ function loadMoreMessages(): void {
 </script>
 
 <template>
-  <main class="min-h-screen bg-stone-100 text-slate-950">
+  <main class="reader-theme min-h-screen">
     <section
       v-if="!authenticated"
       class="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6"
     >
       <div class="mb-8">
         <h1 class="text-3xl font-semibold tracking-normal">ZMail</h1>
-        <p class="mt-3 text-sm text-slate-600">
+        <p class="reader-muted mt-3 text-sm">
           API {{ healthQuery.data.value?.status ?? "checking" }}
         </p>
       </div>
@@ -1064,7 +1064,7 @@ function loadMoreMessages(): void {
         </UFormField>
         <UAlert v-if="loginError" color="error" variant="soft" :title="loginError" />
         <button
-          class="flex h-11 w-32 items-center justify-center rounded-md bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          class="reader-button flex h-11 w-32 items-center justify-center rounded-md px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
           :disabled="loginMutation.isPending.value"
           type="submit"
         >
@@ -1073,9 +1073,9 @@ function loadMoreMessages(): void {
       </form>
     </section>
 
-    <section v-else class="flex h-screen min-h-0 flex-col bg-stone-100">
+    <section v-else class="reader-panel flex h-screen min-h-0 flex-col">
       <header
-        class="flex h-10 shrink-0 items-center justify-between border-b border-stone-300 bg-stone-200 px-3"
+        class="reader-border reader-chrome flex h-10 shrink-0 items-center justify-between border-b px-3"
       >
         <div class="min-w-0">
           <button class="text-sm font-semibold" type="button" @click="router.push('/')">
@@ -1096,22 +1096,19 @@ function loadMoreMessages(): void {
 
       <div class="reader-grid grid min-h-0 flex-1 grid-cols-1" :style="readerGridStyle">
         <aside
-          class="min-h-0 border-r border-stone-300 bg-stone-100"
+          class="reader-border reader-panel min-h-0 border-r"
           :class="mobilePane === 'nav' ? 'block' : 'hidden lg:block'"
           aria-label="Account mailbox tree"
         >
           <div class="flex h-full flex-col">
             <div class="min-h-0 flex-1 overflow-y-auto p-2">
-              <p
-                v-if="readerShellMailAccounts.length === 0"
-                class="px-2 py-3 text-xs text-slate-500"
-              >
+              <p v-if="readerShellMailAccounts.length === 0" class="reader-muted px-2 py-3 text-xs">
                 No Mail accounts are configured.
               </p>
               <div v-for="account in readerShellMailAccounts" :key="account.id" class="mb-3">
                 <div class="flex items-start justify-between gap-1">
                   <button
-                    class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded text-slate-500 hover:bg-stone-200"
+                    class="reader-muted reader-hover mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded"
                     type="button"
                     :disabled="accountOpening(account.id)"
                     :aria-label="accountCollapsed(account) ? 'Expand account' : 'Collapse account'"
@@ -1133,13 +1130,10 @@ function loadMoreMessages(): void {
                     <span class="block min-w-0 truncate text-xs font-semibold">
                       {{ account.id }}
                     </span>
-                    <span class="block truncate text-[11px] text-slate-500">{{
+                    <span class="reader-muted block truncate text-[11px]">{{
                       account.emailAddress
                     }}</span>
-                    <span
-                      v-if="accountOpening(account.id)"
-                      class="block text-[11px] text-slate-500"
-                    >
+                    <span v-if="accountOpening(account.id)" class="reader-muted block text-[11px]">
                       Opening...
                     </span>
                   </button>
@@ -1174,10 +1168,10 @@ function loadMoreMessages(): void {
                 </UAlert>
                 <div v-if="account.opened && !accountCollapsed(account)" class="mt-1 space-y-0.5">
                   <button
-                    class="flex w-full items-center justify-between rounded-md px-6 py-1 text-left text-xs hover:bg-stone-200"
+                    class="reader-hover flex w-full items-center justify-between rounded-md px-6 py-1 text-left text-xs"
                     :class="
                       readerRoute.kind === 'unread' && readerRoute.accountId === account.id
-                        ? 'bg-stone-200'
+                        ? 'reader-selected'
                         : ''
                     "
                     type="button"
@@ -1200,20 +1194,20 @@ function loadMoreMessages(): void {
                   >
                     <div>
                       <div
-                        class="group flex items-center gap-1 rounded-md py-1 text-xs hover:bg-stone-200"
+                        class="reader-hover group flex items-center gap-1 rounded-md py-1 text-xs"
                         :class="
                           readerRoute.kind === 'mailbox' &&
                           readerRoute.accountId === account.id &&
                           row.mailbox &&
                           readerRoute.mailboxId === row.mailbox.id
-                            ? 'bg-stone-200'
+                            ? 'reader-selected'
                             : ''
                         "
                         :style="{ paddingLeft: `${row.depth * 12 + 2}px`, paddingRight: '6px' }"
                       >
                         <button
                           v-if="row.hasChildren"
-                          class="grid h-4 w-4 shrink-0 place-items-center rounded text-slate-500 hover:bg-stone-300"
+                          class="reader-muted reader-hover grid h-4 w-4 shrink-0 place-items-center rounded"
                           type="button"
                           :aria-label="
                             row.collapsed ? 'Expand mailbox group' : 'Collapse mailbox group'
@@ -1225,7 +1219,7 @@ function loadMoreMessages(): void {
                         <span v-else class="h-4 w-4 shrink-0"></span>
                         <button
                           class="flex min-w-0 flex-1 items-center gap-2 truncate text-left"
-                          :class="row.mailbox ? '' : 'font-medium text-slate-600'"
+                          :class="row.mailbox ? '' : 'reader-muted font-medium'"
                           type="button"
                           :aria-label="
                             row.mailbox
@@ -1241,7 +1235,7 @@ function loadMoreMessages(): void {
                           <span class="truncate">{{ row.label }}</span>
                           <span
                             v-if="row.mailbox && mailboxRefreshing(account.id, row.mailbox.id)"
-                            class="shrink-0 text-[11px] text-slate-500"
+                            class="reader-muted shrink-0 text-[11px]"
                           >
                             Refreshing...
                           </span>
@@ -1286,12 +1280,12 @@ function loadMoreMessages(): void {
         ></div>
 
         <section
-          class="min-h-0 border-r border-stone-300 bg-stone-100"
+          class="reader-border reader-panel min-h-0 border-r"
           :class="mobilePane === 'list' ? 'block' : 'hidden lg:block'"
           aria-label="Message list"
         >
           <div class="flex h-full flex-col">
-            <div class="space-y-2 border-b border-stone-300 bg-stone-100 p-2">
+            <div class="reader-border reader-panel space-y-2 border-b p-2">
               <div class="flex items-center gap-2 lg:hidden">
                 <UButton
                   aria-label="Account mailbox tree"
@@ -1312,7 +1306,7 @@ function loadMoreMessages(): void {
                   placeholder="Search this account"
                 />
                 <button
-                  class="h-8 rounded-md bg-slate-900 px-3 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  class="reader-button h-8 rounded-md px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
                   :disabled="!selectedAccount"
                   type="submit"
                 >
@@ -1328,7 +1322,7 @@ function loadMoreMessages(): void {
                   @click="clearSearch"
                 />
               </form>
-              <div class="flex min-w-0 items-center gap-2 text-xs text-slate-500">
+              <div class="reader-muted flex min-w-0 items-center gap-2 text-xs">
                 <p class="min-w-0 flex-1 truncate">
                   <template v-if="readerRoute.kind === 'unread'">Unread Messages</template>
                   <template v-else-if="readerRoute.kind === 'mailbox' && selectedAccount">
@@ -1346,7 +1340,7 @@ function loadMoreMessages(): void {
             </div>
 
             <div class="min-h-0 flex-1 overflow-y-auto">
-              <div v-if="messageListQuery.isLoading.value" class="p-4 text-sm text-slate-500">
+              <div v-if="messageListQuery.isLoading.value" class="reader-muted p-4 text-sm">
                 Loading messages...
               </div>
               <UAlert
@@ -1366,7 +1360,7 @@ function loadMoreMessages(): void {
                   </button>
                 </template>
               </UAlert>
-              <div v-else-if="messages.length === 0" class="p-6 text-sm text-slate-500">
+              <div v-else-if="messages.length === 0" class="reader-muted p-6 text-sm">
                 {{
                   selectedAccount
                     ? "No messages in this view."
@@ -1377,13 +1371,13 @@ function loadMoreMessages(): void {
                 v-for="message in messages"
                 v-else
                 :key="message.id"
-                class="block w-full border-b border-stone-300 px-3 py-2 text-left hover:bg-stone-200"
+                class="reader-border reader-hover block w-full border-b px-3 py-2 text-left"
                 :class="[
                   message.unread
-                    ? 'border-l-4 border-l-slate-800 bg-stone-50'
-                    : 'border-l-4 border-l-transparent bg-stone-100',
-                  message.starred ? 'bg-amber-50' : '',
-                  selectedMessageId === message.id ? 'bg-stone-200' : '',
+                    ? 'reader-message-unread border-l-4'
+                    : 'reader-message-read border-l-4',
+                  message.starred ? 'reader-message-starred' : '',
+                  selectedMessageId === message.id ? 'reader-selected' : '',
                 ]"
                 type="button"
                 @click="selectMessage(message.id)"
@@ -1393,25 +1387,25 @@ function loadMoreMessages(): void {
                     <span v-if="message.starred" class="shrink-0 text-amber-500">★</span>
                     <span
                       class="truncate text-xs"
-                      :class="message.unread ? 'font-bold text-slate-950' : 'font-medium'"
+                      :class="message.unread ? 'font-bold' : 'font-medium'"
                     >
                       {{ senderLabel(message) }}
                     </span>
                   </div>
-                  <span class="shrink-0 text-[11px] text-slate-500">{{
+                  <span class="reader-muted shrink-0 text-[11px]">{{
                     formatDate(message.receivedAt)
                   }}</span>
                 </div>
                 <p
                   class="mt-0.5 truncate text-xs"
-                  :class="message.unread ? 'font-bold text-slate-950' : 'text-slate-700'"
+                  :class="message.unread ? 'font-bold' : 'reader-muted'"
                 >
                   {{ message.subject || "(No subject)" }}
                 </p>
               </button>
               <div v-if="messageListNextCursor" class="p-3">
                 <button
-                  class="h-8 w-full rounded-md border border-stone-300 bg-stone-50 px-3 text-sm font-medium text-slate-700 hover:bg-stone-200 disabled:cursor-not-allowed disabled:opacity-60"
+                  class="reader-border reader-paper reader-hover reader-muted h-8 w-full rounded-md border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
                   type="button"
                   :disabled="loadMoreMessagesMutation.isPending.value"
                   @click="loadMoreMessages"
@@ -1441,13 +1435,13 @@ function loadMoreMessages(): void {
         ></div>
 
         <article
-          class="min-h-0 bg-stone-50"
+          class="reader-paper min-h-0"
           :class="mobilePane === 'message' ? 'block' : 'hidden lg:block'"
           aria-label="Message content"
         >
           <div class="flex h-full flex-col">
             <div
-              class="flex h-12 shrink-0 items-center gap-2 border-b border-stone-300 bg-stone-100 px-3"
+              class="reader-border reader-panel flex h-12 shrink-0 items-center gap-2 border-b px-3"
             >
               <UButton
                 class="lg:hidden"
@@ -1503,12 +1497,12 @@ function loadMoreMessages(): void {
             />
 
             <div class="min-h-0 flex-1 overflow-y-auto">
-              <div v-if="messageDetailQuery.isLoading.value" class="p-6 text-sm text-slate-500">
+              <div v-if="messageDetailQuery.isLoading.value" class="reader-muted p-6 text-sm">
                 Loading message...
               </div>
               <div
                 v-else-if="messageDetailQuery.isError.value"
-                class="grid h-full place-items-center p-6 text-center text-sm text-slate-600"
+                class="reader-muted grid h-full place-items-center p-6 text-center text-sm"
               >
                 <div>
                   <p>
@@ -1516,7 +1510,7 @@ function loadMoreMessages(): void {
                     {{ selectedAccountId }}.
                   </p>
                   <button
-                    class="mt-3 h-8 rounded-md border border-stone-300 bg-white px-3 font-medium text-slate-900 hover:bg-stone-100"
+                    class="reader-border reader-paper reader-hover mt-3 h-8 rounded-md border px-3 font-medium"
                     type="button"
                     @click="messageDetailQuery.refetch()"
                   >
@@ -1526,7 +1520,7 @@ function loadMoreMessages(): void {
               </div>
               <div
                 v-else-if="!selectedMessage"
-                class="grid h-full place-items-center p-6 text-center text-sm text-slate-500"
+                class="reader-muted grid h-full place-items-center p-6 text-center text-sm"
               >
                 Select a Message to read.
               </div>
@@ -1534,24 +1528,21 @@ function loadMoreMessages(): void {
                 <h1 class="text-2xl font-semibold tracking-normal">
                   {{ selectedMessage.subject || "(No subject)" }}
                 </h1>
-                <div class="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                <div class="reader-muted mt-3 flex flex-wrap items-center gap-2 text-sm">
                   <span>{{ senderLabel(selectedMessage) }}</span>
                   <span>{{ selectedMessage.sender.address }}</span>
                   <span>{{ formatDate(selectedMessage.receivedAt) }}</span>
                 </div>
-                <div v-if="selectedMessage.recipients.length" class="mt-1 text-sm text-slate-600">
-                  <span class="font-medium text-slate-700">To</span>
+                <div v-if="selectedMessage.recipients.length" class="reader-muted mt-1 text-sm">
+                  <span class="font-medium">To</span>
                   {{ participantsLabel(selectedMessage.recipients) }}
                 </div>
-                <div v-if="selectedMessage.ccRecipients.length" class="mt-1 text-sm text-slate-600">
-                  <span class="font-medium text-slate-700">Cc</span>
+                <div v-if="selectedMessage.ccRecipients.length" class="reader-muted mt-1 text-sm">
+                  <span class="font-medium">Cc</span>
                   {{ participantsLabel(selectedMessage.ccRecipients) }}
                 </div>
-                <div
-                  v-if="selectedMessage.bccRecipients.length"
-                  class="mt-1 text-sm text-slate-600"
-                >
-                  <span class="font-medium text-slate-700">Bcc</span>
+                <div v-if="selectedMessage.bccRecipients.length" class="reader-muted mt-1 text-sm">
+                  <span class="font-medium">Bcc</span>
                   {{ participantsLabel(selectedMessage.bccRecipients) }}
                 </div>
                 <div

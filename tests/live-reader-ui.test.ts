@@ -28,7 +28,7 @@ describe("Live reader UI", () => {
   });
 
   it("visually distinguishes starred Messages and toggles the Star action", () => {
-    expect(appVue).toContain("message.starred ? 'bg-amber-50' : ''");
+    expect(appVue).toContain("message.starred ? 'reader-message-starred' : ''");
     expect(appVue).toContain('v-if="message.starred"');
     expect(appVue).toContain("selectedMessage.starred ? 'i-lucide-star-off' : 'i-lucide-star'");
     expect(appVue).toContain('{{ selectedMessage.starred ? "Unstar" : "Star" }}');
