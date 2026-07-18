@@ -202,10 +202,30 @@ try {
   );
   await assertCalls(beforePassiveEvents, "authenticated full reload");
 
+  await fetch(`${apiUrl}/api/__smoke/delay/open/personal`, { method: "POST" });
+  await clickButton("Open account personal");
+  await browser("wait", "100");
+  await assertPage(
+    `document.querySelector('button[aria-label="Open account personal"]').textContent.includes("Opening") &&
+      !document.querySelector('button[aria-label="Open account work"]').disabled`,
+    "Opening one Mail account disabled an independent account",
+  );
+  await clickButton("Open account work");
+  await waitForCalls(
+    [...beforePassiveEvents, "open", "open"],
+    "parallel Account open for independent accounts",
+  );
+  await browser("wait", "5500");
+  await assertPage(
+    `location.pathname === "/accounts/work/mailboxes/INBOX" &&
+      document.querySelectorAll('aside button[aria-label="Collapse account"]').length === 2`,
+    "Parallel Account open did not preserve the latest selected account and expand both accounts",
+  );
+
   await clickButton("Log out");
   await browser("wait", "300");
   assert(await bodyIncludes("Log in"), "Logout did not clear browser reader state");
-  await assertCalls([...beforePassiveEvents, "closeAll"], "logout");
+  await assertCalls([...beforePassiveEvents, "open", "open", "closeAll"], "logout");
 
   console.log("Focused Live IMAP browser smoke passed.");
 } finally {

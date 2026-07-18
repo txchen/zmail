@@ -71,7 +71,10 @@ const lastListRouteByAccount = ref(new Map<string, string>());
 const searchDraft = ref("");
 const loggedOut = ref(false);
 const openedMailAccounts = ref(new Map<string, LiveMailAccount>());
-const accountOpenErrorId = ref("");
+const openingAccountIds = ref(new Set<string>());
+const accountOpenErrorIds = ref(new Set<string>());
+const accountOpenDestinationId = ref("");
+let accountOpenGeneration = 0;
 const savedReaderLayout = readSavedReaderLayout();
 const navColumnWidth = ref(savedReaderLayout.navColumnWidth);
 const listColumnWidth = ref(savedReaderLayout.listColumnWidth);
@@ -300,11 +303,14 @@ const logoutMutation = useMutation({
     attachmentDownloadAbortController?.abort();
     inlineResourceController.cancel();
     loggedOut.value = true;
+    accountOpenGeneration += 1;
     openedMailAccounts.value = new Map();
+    openingAccountIds.value = new Set();
+    accountOpenErrorIds.value = new Set();
+    accountOpenDestinationId.value = "";
     remoteImagesAllowedMessageKeys.value = new Set();
     lastListRouteByAccount.value = new Map();
     searchDraft.value = "";
-    accountOpenErrorId.value = "";
     failedManualRefresh.value = null;
     attachmentDownloadError.value = null;
     failedLoadMore.value = null;
@@ -313,32 +319,6 @@ const logoutMutation = useMutation({
     queryClient.clear();
     queryClient.setQueryData(["session"], { authenticated: false });
     await router.push("/");
-  },
-});
-
-const accountOpenMutation = useMutation({
-  mutationFn: (accountId: string) => openMailAccount(accountId),
-  onSuccess: async (response) => {
-    accountOpenErrorId.value = "";
-    const account = response.mailAccount;
-    openedMailAccounts.value = new Map(openedMailAccounts.value).set(account.id, account);
-    const nextCollapsedAccounts = new Set(collapsedAccounts.value);
-    nextCollapsedAccounts.delete(account.id);
-    collapsedAccounts.value = nextCollapsedAccounts;
-    const inboxRoute = {
-      kind: "mailbox" as const,
-      accountId: account.id,
-      mailboxId: response.inbox.mailboxId,
-    };
-
-    queryClient.setQueryData(liveMessageListKey(inboxRoute), {
-      messages: response.inbox.messages,
-      ...(response.inbox.nextCursor ? { nextCursor: response.inbox.nextCursor } : {}),
-    });
-    await router.push(mailboxPath(account.id, response.inbox.mailboxId));
-  },
-  onError: (_error, accountId) => {
-    accountOpenErrorId.value = accountId;
   },
 });
 
@@ -577,11 +557,13 @@ async function submitLogin() {
 }
 
 async function selectList(path: string) {
+  accountOpenDestinationId.value = "";
   await router.push(path);
   mobilePane.value = "list";
 }
 
 async function selectMessage(messageId: string) {
+  accountOpenDestinationId.value = "";
   await router.push(messagePath(readerRoute.value, messageId, route.fullPath));
   mobilePane.value = "message";
 }
@@ -888,23 +870,65 @@ async function selectReaderShellAccount(account: ReaderShellMailAccount) {
   await selectAccountDefault(account.opened);
 }
 
-function openConfiguredAccount(account: MailAccountSummary): void {
-  if (accountOpenMutation.isPending.value) {
+async function openConfiguredAccount(account: MailAccountSummary): Promise<void> {
+  if (openingAccountIds.value.has(account.id)) {
     return;
   }
 
-  accountOpenErrorId.value = "";
-  accountOpenMutation.mutate(account.id);
+  accountOpenDestinationId.value = account.id;
+  const requestGeneration = accountOpenGeneration;
+  openingAccountIds.value = new Set(openingAccountIds.value).add(account.id);
+  const nextErrors = new Set(accountOpenErrorIds.value);
+  nextErrors.delete(account.id);
+  accountOpenErrorIds.value = nextErrors;
+
+  try {
+    const response = await openMailAccount(account.id);
+    if (requestGeneration !== accountOpenGeneration) {
+      return;
+    }
+
+    const openedAccount = response.mailAccount;
+    openedMailAccounts.value = new Map(openedMailAccounts.value).set(
+      openedAccount.id,
+      openedAccount,
+    );
+    const nextCollapsedAccounts = new Set(collapsedAccounts.value);
+    nextCollapsedAccounts.delete(openedAccount.id);
+    collapsedAccounts.value = nextCollapsedAccounts;
+    const inboxRoute = {
+      kind: "mailbox" as const,
+      accountId: openedAccount.id,
+      mailboxId: response.inbox.mailboxId,
+    };
+
+    queryClient.setQueryData(liveMessageListKey(inboxRoute), {
+      messages: response.inbox.messages,
+      ...(response.inbox.nextCursor ? { nextCursor: response.inbox.nextCursor } : {}),
+    });
+
+    if (accountOpenDestinationId.value === account.id) {
+      await router.push(mailboxPath(openedAccount.id, response.inbox.mailboxId));
+    }
+  } catch {
+    if (requestGeneration === accountOpenGeneration) {
+      accountOpenErrorIds.value = new Set(accountOpenErrorIds.value).add(account.id);
+    }
+  } finally {
+    if (requestGeneration === accountOpenGeneration) {
+      const nextOpeningAccounts = new Set(openingAccountIds.value);
+      nextOpeningAccounts.delete(account.id);
+      openingAccountIds.value = nextOpeningAccounts;
+    }
+  }
 }
 
 function accountOpening(accountId: string): boolean {
-  return accountOpenMutation.isPending.value && accountOpenMutation.variables.value === accountId;
+  return openingAccountIds.value.has(accountId);
 }
 
-function retryAccountOpen(): void {
-  if (accountOpenErrorId.value && !accountOpenMutation.isPending.value) {
-    accountOpenMutation.mutate(accountOpenErrorId.value);
-  }
+function retryAccountOpen(account: MailAccountSummary): void {
+  void openConfiguredAccount(account);
 }
 
 function manualRefreshRequest(accountId: string): {
@@ -1058,7 +1082,7 @@ function loadMoreMessages(): void {
                     <button
                       class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded text-slate-500 hover:bg-stone-200"
                       type="button"
-                      :disabled="accountOpenMutation.isPending.value"
+                      :disabled="accountOpening(account.id)"
                       :aria-label="
                         accountCollapsed(account) ? 'Expand account' : 'Collapse account'
                       "
@@ -1069,7 +1093,7 @@ function loadMoreMessages(): void {
                     <button
                       class="min-w-0 flex-1 text-left"
                       type="button"
-                      :disabled="accountOpenMutation.isPending.value"
+                      :disabled="accountOpening(account.id)"
                       :aria-label="
                         account.opened
                           ? `Open Inbox for account ${account.id}`
@@ -1102,7 +1126,7 @@ function loadMoreMessages(): void {
                   </div>
                 </UContextMenu>
                 <UAlert
-                  v-if="accountOpenErrorId === account.id"
+                  v-if="accountOpenErrorIds.has(account.id)"
                   class="mt-2"
                   color="error"
                   variant="soft"
@@ -1113,8 +1137,8 @@ function loadMoreMessages(): void {
                     <button
                       class="h-8 rounded-md border border-red-300 bg-white px-3 text-sm font-medium text-red-900"
                       type="button"
-                      :disabled="accountOpenMutation.isPending.value"
-                      @click="retryAccountOpen"
+                      :disabled="accountOpening(account.id)"
+                      @click="retryAccountOpen(account)"
                     >
                       Manual retry
                     </button>

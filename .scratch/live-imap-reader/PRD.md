@@ -41,7 +41,7 @@ Zmail retains mark read/unread, star/unstar, archive, and delete as idempotent t
 19. As the App user, I want a failed Gmail read to stop and show a Manual retry action, so that Zmail does not reconnect behind my back.
 20. As the App user, I want failed Gmail writes never automatically retried, so that an uncertain remote outcome is not repeated without my decision.
 21. As the App user, I want one ordinary active IMAP connection at most per Mail account, so that rapid interaction does not create a connection storm.
-22. As the App user, I want overlapping account commands serialized, so that Mailbox selection state cannot race.
+22. As the App user, I want overlapping commands for the same Mail account serialized while different Mail accounts remain independent and may open in parallel, so that one account does not block another and each account's Mailbox selection state cannot race.
 23. As the App user, I want a short Interaction lease, so that listing mail, opening a Message, and delayed mark-read can reuse one login.
 24. As the App user, I want the Interaction lease to expire ten seconds after the last authorized operation, so that connections do not remain open indefinitely.
 25. As the App user, I want automatic IMAP IDLE disabled, so that a retained interaction connection does not become background synchronization.
@@ -109,6 +109,7 @@ Zmail retains mark read/unread, star/unstar, archive, and delete as idempotent t
 - Introduce a per-account IMAP session coordinator.
 - Allow at most one ordinary active IMAP session per Mail account across overlapping requests.
 - Serialize ordinary commands for one Mail account because an IMAP connection has one selected Mailbox at a time.
+- Allow different Mail accounts to perform Account open in parallel, with pending and failure state isolated per account.
 - Disable ImapFlow automatic IDLE.
 - Start or reset a fixed ten-second Interaction lease after each user-authorized operation.
 - Close the session when the Interaction lease expires, on logout, or when the connection becomes unusable.

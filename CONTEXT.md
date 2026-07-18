@@ -37,7 +37,7 @@ Browser-memory state used to render mail already read during the current page se
 _Avoid_: Mail persistence, offline cache
 
 **Live IMAP session**:
-A short-lived Gmail connection opened for user-triggered work and managed under an **Interaction lease**. Zmail allows at most one ordinary session per Mail account, serializes its commands, disables automatic IMAP IDLE, and keeps attachment streaming on independent sessions.
+A short-lived Gmail connection opened for user-triggered work and managed under an **Interaction lease**. Zmail allows at most one ordinary session per Mail account, serializes commands within that account, permits different Mail accounts to operate in parallel, disables automatic IMAP IDLE, and keeps attachment streaming on independent sessions.
 _Avoid_: Background connection, persistent IMAP session
 
 **Interaction lease**:

@@ -69,6 +69,26 @@ const accountOpen: AccountOpenResponse = {
   },
   inbox: { mailboxId: "INBOX", ...page },
 };
+const workAccountOpen: AccountOpenResponse = {
+  mailAccount: {
+    id: "work",
+    emailAddress: "work@example.com",
+    unreadCount: 0,
+    mailboxes: [
+      {
+        id: "INBOX",
+        name: "Inbox",
+        path: "INBOX",
+        systemRole: "inbox",
+        unreadCount: 0,
+        totalCount: 0,
+        selectable: true,
+      },
+    ],
+  },
+  inbox: { mailboxId: "INBOX", messages: [] },
+};
+let delayedOpenAccountId = "";
 
 function record<T>(operation: string, value: T): T {
   calls.push(operation);
@@ -81,7 +101,14 @@ function record<T>(operation: string, value: T): T {
 }
 
 const reader: GmailImapReader = {
-  openAccount: async () => record("open", accountOpen),
+  openAccount: async (account) => {
+    const response = record("open", account.id === "work" ? workAccountOpen : accountOpen);
+    if (delayedOpenAccountId === account.id) {
+      delayedOpenAccountId = "";
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
+    return response;
+  },
   listMailbox: async () => record("list", page),
   listUnread: async () => record("unread", page),
   search: async () => record("search", page),
@@ -147,6 +174,11 @@ const app = createServerApp(
         emailAddress: "reader@example.com",
         appPassword: "unused-fake-password",
       },
+      {
+        id: "work",
+        emailAddress: "work@example.com",
+        appPassword: "unused-fake-password",
+      },
     ],
   },
   {
@@ -165,6 +197,10 @@ app.get("/api/__smoke/tracking.png", (c) => {
 });
 app.post("/api/__smoke/fail/:operation", (c) => {
   failures.set(c.req.param("operation"), 1);
+  return c.body(null, 204);
+});
+app.post("/api/__smoke/delay/open/:accountId", (c) => {
+  delayedOpenAccountId = c.req.param("accountId");
   return c.body(null, 204);
 });
 
