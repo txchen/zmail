@@ -76,23 +76,6 @@ export function cacheManualRefresh(
   accountId: string,
   response: AccountRefreshResponse,
 ): void {
-  queryClient.removeQueries({
-    predicate: (query) => {
-      if (query.queryKey[0] !== "message-list") {
-        return false;
-      }
-
-      const view = query.queryKey[1];
-      return (
-        typeof view === "object" &&
-        view !== null &&
-        "accountId" in view &&
-        view.accountId === accountId &&
-        "kind" in view &&
-        (view.kind === "mailbox" || view.kind === "unread")
-      );
-    },
-  });
   const { messages, nextCursor, ...listView } = response.view;
   const view = { accountId, ...listView };
 

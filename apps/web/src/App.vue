@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type {
-  AccountRefreshRequest,
   LiveMailAccount,
   LiveMessageDetail,
   LiveMessageSummary,
@@ -89,7 +88,15 @@ const renderedBodyMessageKey = ref("");
 const inlineResourceDataUrls = ref(new Map<string, string>());
 const inlineResourceFailures = ref(new Map<string, { resourceId: string }>());
 const mailboxActionError = ref("");
-const failedManualRefresh = ref<{ accountId: string; request: AccountRefreshRequest } | null>(null);
+type ManualRefreshVariables = {
+  accountId: string;
+  request: {
+    view: { kind: "mailbox"; mailboxId: string };
+    selectedMessageId?: string;
+  };
+};
+const failedManualRefreshes = ref(new Map<string, ManualRefreshVariables>());
+const refreshingMailboxKeys = ref(new Set<string>());
 const attachmentDownloadError = ref<AttachmentDownloadRequest | null>(null);
 const failedLoadMore = ref<LoadMoreRequest | null>(null);
 const liveMessageListPageSize = 50;
@@ -311,7 +318,8 @@ const logoutMutation = useMutation({
     remoteImagesAllowedMessageKeys.value = new Set();
     lastListRouteByAccount.value = new Map();
     searchDraft.value = "";
-    failedManualRefresh.value = null;
+    failedManualRefreshes.value = new Map();
+    refreshingMailboxKeys.value = new Set();
     attachmentDownloadError.value = null;
     failedLoadMore.value = null;
     mailboxActionError.value = "";
@@ -323,18 +331,14 @@ const logoutMutation = useMutation({
 });
 
 const manualRefreshMutation = useMutation({
-  mutationFn: async ({
-    accountId,
-    request,
-  }: {
-    accountId: string;
-    request: AccountRefreshRequest;
-  }) => {
+  mutationFn: async ({ accountId, request }: ManualRefreshVariables) => {
     const response = await refreshMailAccount(accountId, request);
     return { accountId, response };
   },
-  onSuccess: async ({ accountId, response }) => {
-    failedManualRefresh.value = null;
+  onSuccess: async ({ accountId, response }, variables) => {
+    const nextFailures = new Map(failedManualRefreshes.value);
+    nextFailures.delete(manualRefreshKey(variables));
+    failedManualRefreshes.value = nextFailures;
     if (
       response.selectedMessageId &&
       !response.selectedMessage &&
@@ -351,7 +355,13 @@ const manualRefreshMutation = useMutation({
     cacheManualRefresh(queryClient, accountId, response);
   },
   onError: (_error, variables) => {
-    failedManualRefresh.value = variables;
+    failedManualRefreshes.value = new Map(failedManualRefreshes.value).set(
+      manualRefreshKey(variables),
+      variables,
+    );
+  },
+  onSettled: (_data, _error, variables) => {
+    setMailboxRefreshing(variables, false);
   },
 });
 
@@ -653,7 +663,7 @@ function toggleAccount(account: ReaderShellMailAccount) {
   collapsedAccounts.value = toggledSet(collapsedAccounts.value, account.id);
 }
 
-function mailboxGroupKey(accountId: string, mailboxId: string): string {
+function mailboxKey(accountId: string, mailboxId: string): string {
   return `${accountId}:${mailboxId}`;
 }
 
@@ -665,25 +675,25 @@ function updateWindowFocus(): void {
   windowFocused.value = document.hasFocus();
 }
 
-function accountContextMenuItems(account: LiveMailAccount) {
+function mailboxContextMenuItems(accountId: string, mailbox: MailboxSummary) {
   return [
     {
       label: "Refresh",
       icon: "i-lucide-refresh-cw",
-      disabled: manualRefreshMutation.isPending.value,
-      onSelect: () => manualRefreshMutation.mutate(manualRefreshRequest(account.id)),
+      disabled: mailboxRefreshing(accountId, mailbox.id),
+      onSelect: () => requestMailboxRefresh(accountId, mailbox.id),
     },
   ];
 }
 
 function mailboxGroupCollapsed(accountId: string, mailboxId: string): boolean {
-  return collapsedMailboxGroups.value.has(mailboxGroupKey(accountId, mailboxId));
+  return collapsedMailboxGroups.value.has(mailboxKey(accountId, mailboxId));
 }
 
 function toggleMailboxGroup(accountId: string, mailboxId: string) {
   collapsedMailboxGroups.value = toggledSet(
     collapsedMailboxGroups.value,
-    mailboxGroupKey(accountId, mailboxId),
+    mailboxKey(accountId, mailboxId),
   );
 }
 
@@ -720,7 +730,7 @@ function appendMailboxRows(
   const collapsed = hasChildren && mailboxGroupCollapsed(accountId, node.id);
 
   rows.push({
-    key: mailboxGroupKey(accountId, node.id),
+    key: mailboxKey(accountId, node.id),
     id: node.id,
     label: node.label,
     depth,
@@ -931,36 +941,78 @@ function retryAccountOpen(account: MailAccountSummary): void {
   void openConfiguredAccount(account);
 }
 
-function manualRefreshRequest(accountId: string): {
-  accountId: string;
-  request: AccountRefreshRequest;
-} {
+function mailboxRefreshRequest(accountId: string, mailboxId: string): ManualRefreshVariables {
   const current = readerRoute.value;
-  let view: AccountRefreshRequest["view"];
-
-  if (current.kind === "mailbox" && current.accountId === accountId) {
-    view = { kind: "mailbox", mailboxId: current.mailboxId };
-  } else if (current.kind === "unread" && current.accountId === accountId) {
-    view = { kind: "unread" };
-  } else {
-    const inbox = openedMailAccounts.value
-      .get(accountId)
-      ?.mailboxes.find((mailbox) => mailbox.systemRole === "inbox");
-    if (!inbox) {
-      throw new Error("Inbox unavailable");
-    }
-    view = { kind: "mailbox", mailboxId: inbox.id };
-  }
 
   return {
     accountId,
     request: {
-      view,
-      ...(current.kind !== "none" && current.accountId === accountId && current.messageId
+      view: { kind: "mailbox", mailboxId },
+      ...(current.kind === "mailbox" &&
+      current.accountId === accountId &&
+      current.mailboxId === mailboxId &&
+      current.messageId
         ? { selectedMessageId: current.messageId }
         : {}),
     },
   };
+}
+
+function manualRefreshKey(variables: ManualRefreshVariables): string {
+  return mailboxKey(variables.accountId, variables.request.view.mailboxId);
+}
+
+function mailboxRefreshing(accountId: string, mailboxId: string): boolean {
+  return refreshingMailboxKeys.value.has(mailboxKey(accountId, mailboxId));
+}
+
+function failedMailboxRefresh(
+  accountId: string,
+  mailboxId: string,
+): ManualRefreshVariables | undefined {
+  return failedManualRefreshes.value.get(mailboxKey(accountId, mailboxId));
+}
+
+function setMailboxRefreshing(variables: ManualRefreshVariables, refreshing: boolean): void {
+  const nextRefreshingMailboxes = new Set(refreshingMailboxKeys.value);
+  const key = manualRefreshKey(variables);
+  if (refreshing) {
+    nextRefreshingMailboxes.add(key);
+  } else {
+    nextRefreshingMailboxes.delete(key);
+  }
+  refreshingMailboxKeys.value = nextRefreshingMailboxes;
+}
+
+function requestMailboxRefresh(accountId: string, mailboxId: string): void {
+  const variables = mailboxRefreshRequest(accountId, mailboxId);
+  const key = manualRefreshKey(variables);
+  if (refreshingMailboxKeys.value.has(key)) {
+    return;
+  }
+
+  const nextFailures = new Map(failedManualRefreshes.value);
+  nextFailures.delete(key);
+  failedManualRefreshes.value = nextFailures;
+  setMailboxRefreshing(variables, true);
+  manualRefreshMutation.mutate(variables);
+}
+
+function retryManualRefresh(failed: ManualRefreshVariables): void {
+  if (!refreshingMailboxKeys.value.has(manualRefreshKey(failed))) {
+    const nextFailures = new Map(failedManualRefreshes.value);
+    nextFailures.delete(manualRefreshKey(failed));
+    failedManualRefreshes.value = nextFailures;
+    setMailboxRefreshing(failed, true);
+    manualRefreshMutation.mutate(failed);
+  }
+}
+
+function retryMailboxRefresh(accountId: string, mailboxId: string): void {
+  const failed = failedMailboxRefresh(accountId, mailboxId);
+  if (failed) {
+    retryManualRefresh(failed);
+  }
 }
 
 function requestAttachmentDownload(request: AttachmentDownloadRequest): void {
@@ -1042,24 +1094,6 @@ function loadMoreMessages(): void {
         </div>
       </header>
 
-      <UAlert
-        v-if="failedManualRefresh"
-        color="error"
-        variant="soft"
-        title="Manual refresh failed"
-        :description="`Could not refresh ${failedManualRefresh.accountId}.`"
-      >
-        <template #actions>
-          <button
-            class="h-8 rounded-md border border-red-300 bg-white px-3 text-sm font-medium text-red-900"
-            type="button"
-            @click="manualRefreshMutation.mutate(failedManualRefresh)"
-          >
-            Manual retry
-          </button>
-        </template>
-      </UAlert>
-
       <div class="reader-grid grid min-h-0 flex-1 grid-cols-1" :style="readerGridStyle">
         <aside
           class="min-h-0 border-r border-stone-300 bg-stone-100"
@@ -1075,56 +1109,50 @@ function loadMoreMessages(): void {
                 No Mail accounts are configured.
               </p>
               <div v-for="account in readerShellMailAccounts" :key="account.id" class="mb-3">
-                <UContextMenu
-                  :items="account.opened ? accountContextMenuItems(account.opened) : []"
-                >
-                  <div class="flex items-start justify-between gap-1">
-                    <button
-                      class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded text-slate-500 hover:bg-stone-200"
-                      type="button"
-                      :disabled="accountOpening(account.id)"
-                      :aria-label="
-                        accountCollapsed(account) ? 'Expand account' : 'Collapse account'
-                      "
-                      @click="toggleAccount(account)"
+                <div class="flex items-start justify-between gap-1">
+                  <button
+                    class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded text-slate-500 hover:bg-stone-200"
+                    type="button"
+                    :disabled="accountOpening(account.id)"
+                    :aria-label="accountCollapsed(account) ? 'Expand account' : 'Collapse account'"
+                    @click="toggleAccount(account)"
+                  >
+                    <span class="text-[10px]">{{ accountCollapsed(account) ? ">" : "v" }}</span>
+                  </button>
+                  <button
+                    class="min-w-0 flex-1 text-left"
+                    type="button"
+                    :disabled="accountOpening(account.id)"
+                    :aria-label="
+                      account.opened
+                        ? `Open Inbox for account ${account.id}`
+                        : `Open account ${account.id}`
+                    "
+                    @click="selectReaderShellAccount(account)"
+                  >
+                    <span class="block min-w-0 truncate text-xs font-semibold">
+                      {{ account.id }}
+                    </span>
+                    <span class="block truncate text-[11px] text-slate-500">{{
+                      account.emailAddress
+                    }}</span>
+                    <span
+                      v-if="accountOpening(account.id)"
+                      class="block text-[11px] text-slate-500"
                     >
-                      <span class="text-[10px]">{{ accountCollapsed(account) ? ">" : "v" }}</span>
-                    </button>
-                    <button
-                      class="min-w-0 flex-1 text-left"
-                      type="button"
-                      :disabled="accountOpening(account.id)"
-                      :aria-label="
-                        account.opened
-                          ? `Open Inbox for account ${account.id}`
-                          : `Open account ${account.id}`
-                      "
-                      @click="selectReaderShellAccount(account)"
+                      Opening...
+                    </span>
+                  </button>
+                  <div class="flex shrink-0 items-center gap-1">
+                    <UBadge
+                      v-if="account.opened && account.opened.unreadCount > 0"
+                      color="neutral"
+                      size="sm"
+                      variant="subtle"
+                      >{{ account.opened.unreadCount }}</UBadge
                     >
-                      <span class="block min-w-0 truncate text-xs font-semibold">
-                        {{ account.id }}
-                      </span>
-                      <span class="block truncate text-[11px] text-slate-500">{{
-                        account.emailAddress
-                      }}</span>
-                      <span
-                        v-if="accountOpening(account.id)"
-                        class="block text-[11px] text-slate-500"
-                      >
-                        Opening...
-                      </span>
-                    </button>
-                    <div class="flex shrink-0 items-center gap-1">
-                      <UBadge
-                        v-if="account.opened && account.opened.unreadCount > 0"
-                        color="neutral"
-                        size="sm"
-                        variant="subtle"
-                        >{{ account.opened.unreadCount }}</UBadge
-                      >
-                    </div>
                   </div>
-                </UContextMenu>
+                </div>
                 <UAlert
                   v-if="accountOpenErrorIds.has(account.id)"
                   class="mt-2"
@@ -1165,48 +1193,83 @@ function loadMoreMessages(): void {
                       {{ account.opened.unreadCount }}
                     </UBadge>
                   </button>
-                  <div
+                  <UContextMenu
                     v-for="row in visibleMailboxRows(account.opened)"
                     :key="row.key"
-                    class="group flex items-center gap-1 rounded-md py-1 text-xs hover:bg-stone-200"
-                    :class="
-                      readerRoute.kind === 'mailbox' &&
-                      readerRoute.accountId === account.id &&
-                      row.mailbox &&
-                      readerRoute.mailboxId === row.mailbox.id
-                        ? 'bg-stone-200'
-                        : ''
-                    "
-                    :style="{ paddingLeft: `${row.depth * 12 + 2}px`, paddingRight: '6px' }"
+                    :items="row.mailbox ? mailboxContextMenuItems(account.id, row.mailbox) : []"
                   >
-                    <button
-                      v-if="row.hasChildren"
-                      class="grid h-4 w-4 shrink-0 place-items-center rounded text-slate-500 hover:bg-stone-300"
-                      type="button"
-                      :aria-label="
-                        row.collapsed ? 'Expand mailbox group' : 'Collapse mailbox group'
-                      "
-                      @click.stop="toggleMailboxGroup(account.id, row.id)"
-                    >
-                      <span class="text-[9px]">{{ row.collapsed ? ">" : "v" }}</span>
-                    </button>
-                    <span v-else class="h-4 w-4 shrink-0"></span>
-                    <button
-                      class="min-w-0 flex-1 truncate text-left"
-                      :class="row.mailbox ? '' : 'font-medium text-slate-600'"
-                      type="button"
-                      @click="
-                        row.mailbox
-                          ? selectList(mailboxPath(account.id, row.mailbox.id))
-                          : toggleMailboxGroup(account.id, row.id)
-                      "
-                    >
-                      {{ row.label }}
-                    </button>
-                    <UBadge v-if="row.unreadCount > 0" color="neutral" size="sm" variant="subtle">{{
-                      row.unreadCount
-                    }}</UBadge>
-                  </div>
+                    <div>
+                      <div
+                        class="group flex items-center gap-1 rounded-md py-1 text-xs hover:bg-stone-200"
+                        :class="
+                          readerRoute.kind === 'mailbox' &&
+                          readerRoute.accountId === account.id &&
+                          row.mailbox &&
+                          readerRoute.mailboxId === row.mailbox.id
+                            ? 'bg-stone-200'
+                            : ''
+                        "
+                        :style="{ paddingLeft: `${row.depth * 12 + 2}px`, paddingRight: '6px' }"
+                      >
+                        <button
+                          v-if="row.hasChildren"
+                          class="grid h-4 w-4 shrink-0 place-items-center rounded text-slate-500 hover:bg-stone-300"
+                          type="button"
+                          :aria-label="
+                            row.collapsed ? 'Expand mailbox group' : 'Collapse mailbox group'
+                          "
+                          @click.stop="toggleMailboxGroup(account.id, row.id)"
+                        >
+                          <span class="text-[9px]">{{ row.collapsed ? ">" : "v" }}</span>
+                        </button>
+                        <span v-else class="h-4 w-4 shrink-0"></span>
+                        <button
+                          class="flex min-w-0 flex-1 items-center gap-2 truncate text-left"
+                          :class="row.mailbox ? '' : 'font-medium text-slate-600'"
+                          type="button"
+                          :aria-label="
+                            row.mailbox
+                              ? `Open mailbox ${row.mailbox.id} for account ${account.id}`
+                              : undefined
+                          "
+                          @click="
+                            row.mailbox
+                              ? selectList(mailboxPath(account.id, row.mailbox.id))
+                              : toggleMailboxGroup(account.id, row.id)
+                          "
+                        >
+                          <span class="truncate">{{ row.label }}</span>
+                          <span
+                            v-if="row.mailbox && mailboxRefreshing(account.id, row.mailbox.id)"
+                            class="shrink-0 text-[11px] text-slate-500"
+                          >
+                            Refreshing...
+                          </span>
+                        </button>
+                        <UBadge
+                          v-if="row.unreadCount > 0"
+                          color="neutral"
+                          size="sm"
+                          variant="subtle"
+                          >{{ row.unreadCount }}</UBadge
+                        >
+                      </div>
+                      <div
+                        v-if="row.mailbox && failedMailboxRefresh(account.id, row.mailbox.id)"
+                        class="ml-6 flex items-center gap-2 px-1 pb-1 text-[11px] text-red-700"
+                      >
+                        <span>Refresh failed.</span>
+                        <button
+                          class="font-medium underline"
+                          type="button"
+                          :disabled="mailboxRefreshing(account.id, row.mailbox.id)"
+                          @click.stop="retryMailboxRefresh(account.id, row.mailbox.id)"
+                        >
+                          Manual retry
+                        </button>
+                      </div>
+                    </div>
+                  </UContextMenu>
                 </div>
               </div>
             </div>

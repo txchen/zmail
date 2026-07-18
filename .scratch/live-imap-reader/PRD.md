@@ -36,8 +36,8 @@ Zmail retains mark read/unread, star/unstar, archive, and delete as idempotent t
 14. As the App user, I want account and Mailbox unread counts read from Gmail, so that the tree reflects the state observed during Account open or Manual refresh.
 15. As the App user, I want the UI to do nothing while idle, so that it does not poll, prefetch, retry, enter IMAP IDLE, or mutate Gmail without my action.
 16. As the App user, I want no automatic refresh, so that leaving Zmail open does not generate Gmail traffic.
-17. As the App user, I want Manual refresh scoped to one Mail account, so that refreshing one account does not read every account.
-18. As the App user, I want Manual refresh to reload the current account tree and visible Message state, so that I can explicitly request freshness.
+17. As the App user, I want Manual refresh on a Mailbox context menu and scoped to that Mail account and Mailbox, so that the action is discoverable where I browse mail and does not read every account.
+18. As the App user, I want Manual refresh to reload the current account tree and selected Mailbox state with visible progress on that Mailbox row, so that I can explicitly request freshness and see that work is underway.
 19. As the App user, I want a failed Gmail read to stop and show a Manual retry action, so that Zmail does not reconnect behind my back.
 20. As the App user, I want failed Gmail writes never automatically retried, so that an uncertain remote outcome is not repeated without my decision.
 21. As the App user, I want one ordinary active IMAP connection at most per Mail account, so that rapid interaction does not create a connection storm.
@@ -118,6 +118,7 @@ Zmail retains mark read/unread, star/unstar, archive, and delete as idempotent t
 - Do not cache mail responses on the server.
 - Treat TanStack Query and component state as page-session browser memory only.
 - Disable query refetch on mount restoration, interval, focus, reconnect, and other automatic triggers.
+- Expose Manual refresh on Mailbox context menus rather than Mail account rows, bind the request to the selected Mailbox, and show pending state on that Mailbox row.
 - Clear all mail queries and reader routes on full page load and logout.
 - Preserve App session across an API restart and page reload, but always render the Reader shell with configured accounts collapsed before any Gmail access.
 - Implement Account open as one API operation and one IMAP session returning configured account identity, Mailbox tree/counts, and the first Inbox page.
@@ -166,6 +167,7 @@ Zmail retains mark read/unread, star/unstar, archive, and delete as idempotent t
 - Test Mailbox action target states, Gmail-confirmed browser updates, no automatic reread, and failure/uncertain-result responses.
 - Test delayed mark-read behavior at the web seam with fake timers: successful body load, configured delay, disable value, selection change, hidden page, lost focus, success, and failure.
 - Test browser behavior with a focused smoke path: App login, Reader shell with Configured Mail accounts, Account open, Inbox, opening a Message, and explicit Search.
+- Browser smoke covers the absence of an account-level Refresh menu, Mailbox context-menu refresh, and Mailbox-scoped pending feedback.
 - Test that client query configuration performs no interval, focus, reconnect, mount, or background refetch.
 - Test cache-first navigation within one page session and cache clearing on reload/logout.
 - Unit test the IMAP session coordinator only where API fakes cannot prove connection lifecycle.

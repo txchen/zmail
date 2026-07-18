@@ -125,7 +125,7 @@ A **Mail account** declared in server-side configuration rather than added throu
 _Avoid_: User-added account
 
 **Manual refresh**:
-A user-triggered, bounded re-read of one **Mail account** through **Live IMAP access**. It refreshes that account's Mailbox tree, counts, current **Message list**, and selected Message state without starting background work or reading other accounts.
+A user-triggered, bounded re-read started from a **Mailbox** context menu through **Live IMAP access**. It refreshes that account's Mailbox tree and counts plus the selected Mailbox's **Message list** and selected Message state, shows progress on that Mailbox row, and does not start background work or read other accounts. Mail account rows do not expose refresh actions.
 _Avoid_: Sync, background refresh, refresh all
 
 **Manual retry**:

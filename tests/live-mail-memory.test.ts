@@ -95,8 +95,13 @@ describe("Ephemeral mail state", () => {
     });
   });
 
-  it("Manual refresh clears only one account list memory and rebuilds its current view", () => {
+  it("Manual refresh replaces only the selected Mailbox and preserves other list memory", () => {
     const queryClient = createEphemeralMailState();
+    const sentView = {
+      kind: "mailbox" as const,
+      accountId: "personal",
+      mailboxId: "[Gmail]/Sent",
+    };
     const workView = {
       kind: "mailbox" as const,
       accountId: "work",
@@ -108,6 +113,9 @@ describe("Ephemeral mail state", () => {
     });
     queryClient.setQueryData(liveMessageListKey({ kind: "unread", accountId: "personal" }), {
       messages: [message("also-stale")],
+    });
+    queryClient.setQueryData(liveMessageListKey(sentView), {
+      messages: [message("sent-cached")],
     });
     queryClient.setQueryData(liveMessageListKey(workView), {
       messages: [message("work-cached", "work")],
@@ -155,7 +163,10 @@ describe("Ephemeral mail state", () => {
     });
     expect(
       queryClient.getQueryData(liveMessageListKey({ kind: "unread", accountId: "personal" })),
-    ).toBeUndefined();
+    ).toEqual({ messages: [message("also-stale")] });
+    expect(queryClient.getQueryData(liveMessageListKey(sentView))).toEqual({
+      messages: [message("sent-cached")],
+    });
     expect(queryClient.getQueryData(liveMessageListKey(workView))).toEqual({
       messages: [message("work-cached", "work")],
     });

@@ -222,10 +222,63 @@ try {
     "Parallel Account open did not preserve the latest selected account and expand both accounts",
   );
 
+  await browser(
+    "eval",
+    `document.querySelector('button[aria-label="Open Inbox for account work"]').dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, button: 2 })
+    );`,
+  );
+  await browser("wait", "100");
+  assert(!(await bodyIncludes("Refresh")), "Account context menu still exposed Refresh");
+  await browser("press", "Escape");
+
+  await fetch(`${apiUrl}/api/__smoke/delay/refresh`, { method: "POST" });
+  await browser(
+    "eval",
+    `document.querySelector('button[aria-label="Open mailbox INBOX for account work"]').dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, button: 2 })
+    );`,
+  );
+  await browser("wait", "100");
+  assert(await bodyIncludes("Refresh"), "Inbox context menu did not expose Refresh");
+  await clickButton("Refresh");
+  await browser("wait", "100");
+  assert(await bodyIncludes("Refreshing..."), "Inbox did not show Manual refresh progress");
+  await waitForCalls(
+    [...beforePassiveEvents, "open", "open", "refresh"],
+    "Inbox context-menu Manual refresh",
+  );
+  await browser("wait", "5500");
+
+  await fetch(`${apiUrl}/api/__smoke/fail/refresh`, { method: "POST" });
+  await browser(
+    "eval",
+    `document.querySelector('button[aria-label="Open mailbox INBOX for account personal"]').dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, button: 2 })
+    );`,
+  );
+  await browser("wait", "100");
+  await clickButton("Refresh");
+  await browser("wait", "300");
+  assert(await bodyIncludes("Refresh failed."), "Mailbox refresh failure lacked row feedback");
+  await assertCalls(
+    [...beforePassiveEvents, "open", "open", "refresh", "refresh"],
+    "failed Inbox context-menu Manual refresh",
+  );
+  await clickButton("Manual retry");
+  await browser("wait", "300");
+  await assertCalls(
+    [...beforePassiveEvents, "open", "open", "refresh", "refresh", "refresh"],
+    "Inbox context-menu Manual retry",
+  );
+
   await clickButton("Log out");
   await browser("wait", "300");
   assert(await bodyIncludes("Log in"), "Logout did not clear browser reader state");
-  await assertCalls([...beforePassiveEvents, "open", "open", "closeAll"], "logout");
+  await assertCalls(
+    [...beforePassiveEvents, "open", "open", "refresh", "refresh", "refresh", "closeAll"],
+    "logout",
+  );
 
   console.log("Focused Live IMAP browser smoke passed.");
 } finally {

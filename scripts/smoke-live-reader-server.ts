@@ -89,6 +89,7 @@ const workAccountOpen: AccountOpenResponse = {
   inbox: { mailboxId: "INBOX", messages: [] },
 };
 let delayedOpenAccountId = "";
+let delayNextRefresh = false;
 
 function record<T>(operation: string, value: T): T {
   calls.push(operation);
@@ -112,14 +113,23 @@ const reader: GmailImapReader = {
   listMailbox: async () => record("list", page),
   listUnread: async () => record("unread", page),
   search: async () => record("search", page),
-  refreshAccount: async (_account, request) =>
-    record("refresh", {
-      mailAccount: accountOpen.mailAccount,
-      view: { ...request.view, ...page },
+  refreshAccount: async (account, request) => {
+    const response = record("refresh", {
+      mailAccount: account.id === "work" ? workAccountOpen.mailAccount : accountOpen.mailAccount,
+      view: {
+        ...request.view,
+        ...(account.id === "work" ? { messages: [] } : page),
+      },
       ...(request.selectedMessageId
         ? { selectedMessageId: request.selectedMessageId, selectedMessage: message }
         : {}),
-    }),
+    });
+    if (delayNextRefresh) {
+      delayNextRefresh = false;
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
+    return response;
+  },
   readMessage: async () => record("detail", detail),
   readInlineResource: async () =>
     record("inline", {
@@ -201,6 +211,10 @@ app.post("/api/__smoke/fail/:operation", (c) => {
 });
 app.post("/api/__smoke/delay/open/:accountId", (c) => {
   delayedOpenAccountId = c.req.param("accountId");
+  return c.body(null, 204);
+});
+app.post("/api/__smoke/delay/refresh", (c) => {
+  delayNextRefresh = true;
   return c.body(null, 204);
 });
 
