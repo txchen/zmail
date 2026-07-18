@@ -12,6 +12,7 @@ import { createServerApp } from "../apps/api/src/server-app.js";
 const calls: string[] = [];
 let trackingCalls = 0;
 const failures = new Map<string, number>([["open", 1]]);
+const readDwellSeconds = Number(process.env.ZMAIL_SMOKE_READ_DWELL_SECONDS ?? 1);
 const message = {
   accountId: "personal",
   id: "gmail-message-1",
@@ -139,7 +140,7 @@ const app = createServerApp(
       password: "secret",
       sessionSecret: "smoke-session-secret",
     },
-    reader: { readDwellSeconds: 1 },
+    reader: { readDwellSeconds },
     mailAccounts: [
       {
         id: "personal",

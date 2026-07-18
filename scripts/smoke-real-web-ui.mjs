@@ -54,15 +54,14 @@ try {
 
   await fetch(`${apiUrl}/api/__smoke/fail/inline`, { method: "POST" });
   await clickButton("Quiescent UI smoke");
-  await browser("wait", "1500");
+  await waitForCalls(
+    ["open", "open", "detail", "inline", "action"],
+    "Message open, failed inline message resource, and delayed mark-read",
+  );
   assert(await bodyIncludes("Archive"), "Message detail did not render");
   for (const action of ["Mark", "Archive", "Delete", "Star"]) {
     assert(await bodyIncludes(action), `Message detail missing ${action} action`);
   }
-  await assertCalls(
-    ["open", "open", "detail", "inline", "action"],
-    "Message open, failed inline message resource, and delayed mark-read",
-  );
   assert(
     await bodyIncludes("Inline message resource unavailable"),
     "Inline message resource failure was not visible",
@@ -207,6 +206,25 @@ async function assertCalls(expected, phase) {
     JSON.stringify(actual) === JSON.stringify(expected),
     `${phase} performed unexpected Gmail work: ${JSON.stringify(actual)}`,
   );
+}
+
+async function waitForCalls(expected, phase, timeoutMs = 30_000) {
+  const startedAt = Date.now();
+  let actual = [];
+
+  while (Date.now() - startedAt < timeoutMs) {
+    actual = await gmailCalls();
+    const matchesExpectedPrefix = actual.every((call, index) => call === expected[index]);
+    if (!matchesExpectedPrefix || actual.length > expected.length) {
+      throw new Error(`${phase} performed unexpected Gmail work: ${JSON.stringify(actual)}`);
+    }
+    if (actual.length === expected.length) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  throw new Error(`${phase} timed out waiting for Gmail work: ${JSON.stringify(actual)}`);
 }
 
 async function execFile(command, args) {
