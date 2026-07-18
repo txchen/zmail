@@ -52,11 +52,25 @@ try {
     "Desktop did not render three visible reader panes",
   );
 
+  await browser(
+    "eval",
+    `Object.defineProperty(document, "hasFocus", {
+      configurable: true,
+      value: () => true
+    });
+    window.dispatchEvent(new Event("focus"));`,
+  );
+  await assertPage("document.hasFocus()", "Smoke page did not enter the active reading state");
   await fetch(`${apiUrl}/api/__smoke/fail/inline`, { method: "POST" });
   await clickButton("Quiescent UI smoke");
   await waitForCalls(
     ["open", "open", "detail", "inline", "action"],
     "Message open, failed inline message resource, and delayed mark-read",
+  );
+  await browser(
+    "eval",
+    `delete document.hasFocus;
+    window.dispatchEvent(new Event("blur"));`,
   );
   assert(await bodyIncludes("Archive"), "Message detail did not render");
   for (const action of ["Mark", "Archive", "Delete", "Star"]) {
