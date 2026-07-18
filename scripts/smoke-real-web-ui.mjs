@@ -168,19 +168,34 @@ try {
     "Search retry",
   );
 
+  await browser(
+    "eval",
+    `document.querySelector('button[aria-label="Open mailbox INBOX for account personal"]').click()`,
+  );
+  await browser("wait", "100");
   await browser("set", "viewport", "390", "844");
   await assertPage(
     `innerWidth === 390 &&
       getComputedStyle(document.querySelector('section[aria-label="Message list"]')).display === 'block' &&
-      getComputedStyle(document.querySelector('aside')).display === 'none'`,
+      getComputedStyle(document.querySelector('aside')).display === 'none' &&
+      document.documentElement.scrollWidth === innerWidth &&
+      document.querySelector('button[aria-label="Refresh current mailbox"]') &&
+      getComputedStyle(document.querySelector('.reader-search-input [data-slot="leading"]')).display === 'none'`,
     "Mobile reader did not start in the Message list pane",
   );
   await clickButton("Account mailbox tree");
   await assertPage(
-    `getComputedStyle(document.querySelector('aside')).display === 'block'`,
+    `getComputedStyle(document.querySelector('aside')).display === 'block' &&
+      document.querySelector('aside button[aria-label="Collapse account"]').getBoundingClientRect().height === 40 &&
+      document.querySelector('aside button[aria-label="Open mailbox INBOX for account personal"]').getBoundingClientRect().height === 40`,
     "Mobile reader did not expose Account mailbox navigation",
   );
   await browser("set", "viewport", "1280", "900");
+  await assertPage(
+    `document.querySelector('button[aria-label="Refresh current mailbox"]').offsetParent === null &&
+      document.querySelector('aside button[aria-label="Collapse account"]').getBoundingClientRect().height === 20`,
+    "Mobile-only Reader controls changed the desktop layout",
+  );
 
   const beforePassiveEvents = await gmailCalls();
   await browser(

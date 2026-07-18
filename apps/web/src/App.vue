@@ -1108,7 +1108,7 @@ function loadMoreMessages(): void {
               <div v-for="account in readerShellMailAccounts" :key="account.id" class="mb-3">
                 <div class="flex items-start justify-between gap-1">
                   <button
-                    class="reader-muted reader-hover mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded"
+                    class="reader-muted reader-hover mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded max-lg:mt-0 max-lg:h-10 max-lg:w-10"
                     type="button"
                     :disabled="accountOpening(account.id)"
                     :aria-label="accountCollapsed(account) ? 'Expand account' : 'Collapse account'"
@@ -1117,7 +1117,7 @@ function loadMoreMessages(): void {
                     <span class="text-[10px]">{{ accountCollapsed(account) ? ">" : "v" }}</span>
                   </button>
                   <button
-                    class="min-w-0 flex-1 text-left"
+                    class="min-w-0 flex-1 text-left max-lg:min-h-10"
                     type="button"
                     :disabled="accountOpening(account.id)"
                     :aria-label="
@@ -1168,7 +1168,7 @@ function loadMoreMessages(): void {
                 </UAlert>
                 <div v-if="account.opened && !accountCollapsed(account)" class="mt-1 space-y-0.5">
                   <button
-                    class="reader-hover flex w-full items-center justify-between rounded-md px-6 py-1 text-left text-xs"
+                    class="reader-hover flex w-full items-center justify-between rounded-md px-6 py-1 text-left text-xs max-lg:min-h-10"
                     :class="
                       readerRoute.kind === 'unread' && readerRoute.accountId === account.id
                         ? 'reader-selected'
@@ -1194,7 +1194,7 @@ function loadMoreMessages(): void {
                   >
                     <div>
                       <div
-                        class="reader-hover group flex items-center gap-1 rounded-md py-1 text-xs"
+                        class="reader-hover group flex items-center gap-1 rounded-md py-1 text-xs max-lg:min-h-10 max-lg:py-0"
                         :class="
                           readerRoute.kind === 'mailbox' &&
                           readerRoute.accountId === account.id &&
@@ -1207,7 +1207,7 @@ function loadMoreMessages(): void {
                       >
                         <button
                           v-if="row.hasChildren"
-                          class="reader-muted reader-hover grid h-4 w-4 shrink-0 place-items-center rounded"
+                          class="reader-muted reader-hover grid h-4 w-4 shrink-0 place-items-center rounded max-lg:h-10 max-lg:w-10"
                           type="button"
                           :aria-label="
                             row.collapsed ? 'Expand mailbox group' : 'Collapse mailbox group'
@@ -1216,9 +1216,9 @@ function loadMoreMessages(): void {
                         >
                           <span class="text-[9px]">{{ row.collapsed ? ">" : "v" }}</span>
                         </button>
-                        <span v-else class="h-4 w-4 shrink-0"></span>
+                        <span v-else class="h-4 w-4 shrink-0 max-lg:h-10 max-lg:w-10"></span>
                         <button
-                          class="flex min-w-0 flex-1 items-center gap-2 truncate text-left"
+                          class="flex min-w-0 flex-1 items-center gap-2 truncate text-left max-lg:min-h-10"
                           :class="row.mailbox ? '' : 'reader-muted font-medium'"
                           type="button"
                           :aria-label="
@@ -1295,12 +1295,22 @@ function loadMoreMessages(): void {
                   variant="ghost"
                   @click="mobilePane = 'nav'"
                 />
-                <span class="text-sm font-medium">Messages</span>
+                <span class="flex-1 text-sm font-medium">Messages</span>
+                <UButton
+                  v-if="readerRoute.kind === 'mailbox'"
+                  aria-label="Refresh current mailbox"
+                  color="neutral"
+                  icon="i-lucide-refresh-cw"
+                  :loading="mailboxRefreshing(readerRoute.accountId, readerRoute.mailboxId)"
+                  square
+                  variant="ghost"
+                  @click="requestMailboxRefresh(readerRoute.accountId, readerRoute.mailboxId)"
+                />
               </div>
               <form class="flex gap-2" @submit.prevent="submitSearch">
                 <UInput
                   v-model="searchDraft"
-                  class="min-w-0 flex-1"
+                  class="reader-search-input min-w-0 flex-1"
                   :disabled="!selectedAccount"
                   icon="i-lucide-search"
                   placeholder="Search this account"
@@ -1322,6 +1332,18 @@ function loadMoreMessages(): void {
                   @click="clearSearch"
                 />
               </form>
+              <button
+                v-if="
+                  readerRoute.kind === 'mailbox' &&
+                  failedMailboxRefresh(readerRoute.accountId, readerRoute.mailboxId)
+                "
+                class="text-left text-xs font-medium text-red-700 lg:hidden"
+                type="button"
+                :disabled="mailboxRefreshing(readerRoute.accountId, readerRoute.mailboxId)"
+                @click="retryMailboxRefresh(readerRoute.accountId, readerRoute.mailboxId)"
+              >
+                Refresh failed. Retry
+              </button>
               <div class="reader-muted flex min-w-0 items-center gap-2 text-xs">
                 <p class="min-w-0 flex-1 truncate">
                   <template v-if="readerRoute.kind === 'unread'">Unread Messages</template>
@@ -1445,6 +1467,7 @@ function loadMoreMessages(): void {
             >
               <UButton
                 class="lg:hidden"
+                aria-label="Back to message list"
                 color="neutral"
                 icon="i-lucide-arrow-left"
                 square
@@ -1487,14 +1510,15 @@ function loadMoreMessages(): void {
                 </UButton>
               </template>
             </div>
-            <UAlert
-              v-if="mailboxActionError"
-              class="m-3"
-              color="error"
-              variant="soft"
-              title="Mailbox action not confirmed"
-              :description="mailboxActionError"
-            />
+            <div v-if="mailboxActionError" class="px-3 pt-3 lg:contents">
+              <UAlert
+                class="lg:m-3"
+                color="error"
+                variant="soft"
+                title="Mailbox action not confirmed"
+                :description="mailboxActionError"
+              />
+            </div>
 
             <div class="min-h-0 flex-1 overflow-y-auto">
               <div v-if="messageDetailQuery.isLoading.value" class="reader-muted p-6 text-sm">

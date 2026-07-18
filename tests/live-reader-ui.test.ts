@@ -12,6 +12,23 @@ describe("Live reader UI", () => {
     expect(mainCss).toContain("--reader-selected: #d6d1c6");
   });
 
+  it("exposes current-Mailbox Manual refresh in the mobile Message list", () => {
+    expect(appVue).toContain('aria-label="Refresh current mailbox"');
+    expect(appVue).toContain("requestMailboxRefresh(readerRoute.accountId, readerRoute.mailboxId)");
+    expect(appVue).toContain("Refresh failed. Retry");
+  });
+
+  it("keeps mobile navigation controls accessible and touchable", () => {
+    expect(appVue).toContain('aria-label="Back to message list"');
+    expect(appVue).toContain("max-lg:h-10 max-lg:w-10");
+    expect(appVue).toContain("max-lg:min-h-10");
+  });
+
+  it("contains the Mailbox action error without overflowing the mobile viewport", () => {
+    expect(appVue).toContain('<div v-if="mailboxActionError" class="px-3 pt-3 lg:contents">');
+    expect(appVue).toContain('class="lg:m-3"');
+  });
+
   it("shows the selected Mail account identity in the Message list header", () => {
     expect(appVue).toContain('class="max-w-[45%] shrink-0 truncate text-right"');
     expect(appVue).toContain("{{ selectedAccount.emailAddress }}");

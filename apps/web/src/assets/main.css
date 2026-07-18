@@ -83,6 +83,16 @@ body {
   background: var(--reader-selected);
 }
 
+@media (max-width: 63.999rem) {
+  .reader-search-input [data-slot="leading"] {
+    display: none;
+  }
+
+  .reader-search-input [data-slot="base"] {
+    padding-inline-start: 0.625rem;
+  }
+}
+
 @media (min-width: 64rem) {
   .reader-grid {
     grid-template-columns:
