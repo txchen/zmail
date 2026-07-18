@@ -125,6 +125,7 @@ Zmail retains mark read/unread, star/unstar, archive, and delete as idempotent t
 - Use `(accountId, X-GM-MSGID)` as public Message identity.
 - Keep Mailbox path, UID, and UIDVALIDITY only as internal or opaque cursor/locator data.
 - Return Message list metadata without body snippets.
+- Treat an incomplete Gmail FETCH row or a Message that disappears during multi-phase page reads as a transient per-Message condition: skip that row, return the remaining page, and do not automatically retry.
 - Use newest-first pages of 50 and explicit cursor-based Load more.
 - Perform Account unread against Gmail All Mail and exclude Spam and Trash.
 - Execute Search only after explicit form submission.
@@ -170,6 +171,7 @@ Zmail retains mark read/unread, star/unstar, archive, and delete as idempotent t
 - Unit test the IMAP session coordinator only where API fakes cannot prove connection lifecycle.
 - Coordinator tests cover one ordinary connection per account, serialization, same-account burst reuse, independent accounts, ten-second lease reset/expiry, disabled automatic IDLE, logout closure, broken-connection cleanup, and independent attachment sessions.
 - Add a small adapter-focused test set for Gmail/ImapFlow protocol mapping: Special-Use Mailboxes, `X-GM-MSGID`, `X-GM-RAW`, UID cursors, peek body parts, Gmail labels, flags, archive, Trash, and attachment streams.
+- Adapter tests cover incomplete Gmail Message identity and Messages disappearing between sort-key and summary FETCH phases without failing the containing page.
 - Reuse the repository's existing API request tests, fake IMAP constructor pattern, Vue API tests, route tests, rendering tests, and browser smoke infrastructure.
 - Remove tests whose only contract is SQLite persistence, Sync jobs, reconciliation, scheduler behavior, AI API, or diagnostics.
 - Keep typecheck, formatting, lint, full unit/integration suite, and browser smoke as release gates.

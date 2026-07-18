@@ -21,7 +21,7 @@ import {
   type ImapClientSession,
   type ImapSessionCoordinator,
 } from "./imap-session-coordinator.js";
-import { logInfo } from "./logger.js";
+import { logInfo, logWarn } from "./logger.js";
 
 export type GmailImapReader = {
   openAccount(account: ConfiguredMailAccount): Promise<AccountOpenResponse>;
@@ -1029,7 +1029,9 @@ async function readSearchPage(
       uidValidity,
       upperUid,
     };
-    candidates.push(...(await fetchMessageSortKeysByUid(client, mailbox.path, snapshotUids)));
+    candidates.push(
+      ...(await fetchMessageSortKeysByUid(client, accountId, mailbox.path, snapshotUids)),
+    );
   }
 
   const eligible = deduplicateSortedKeys(candidates).filter(
@@ -1186,7 +1188,7 @@ async function readMessagePage(
   const upperUid =
     cursor?.upperUid ?? matchingUids.reduce((highestUid, uid) => Math.max(highestUid, uid), 0);
   const snapshotUids = matchingUids.filter((uid) => uid <= upperUid);
-  const keys = await fetchMessageSortKeysByUid(client, mailboxId, snapshotUids);
+  const keys = await fetchMessageSortKeysByUid(client, accountId, mailboxId, snapshotUids);
   const eligible = deduplicateSortedKeys(keys).filter(
     (candidate) =>
       !cursor ||
@@ -1246,17 +1248,20 @@ type MessageSortKey = {
 
 async function fetchMessageSortKeysByUid(
   client: LiveImapClient,
+  accountId: string,
   mailboxId: string,
   uids: number[],
 ): Promise<MessageSortKey[]> {
   const keys: MessageSortKey[] = [];
+  let skippedCount = 0;
   if (uids.length === 0) {
     return keys;
   }
 
   for await (const message of client.fetch(uids.join(","), { internalDate: true }, { uid: true })) {
     if (!message.emailId || message.uid === undefined) {
-      throw new Error("Gmail Message is missing X-GM-MSGID or UID");
+      skippedCount += 1;
+      continue;
     }
     keys.push({
       mailboxId,
@@ -1265,6 +1270,16 @@ async function fetchMessageSortKeysByUid(
       receivedAt: normalizeDate(message.internalDate).toISOString(),
     });
   }
+
+  if (skippedCount > 0) {
+    logWarn("gmail.message.identity.skipped", {
+      accountId,
+      mailboxId,
+      phase: "sort-key",
+      skippedCount,
+    });
+  }
+
   return keys;
 }
 
@@ -1315,13 +1330,21 @@ async function fetchCurrentPageSummaries(
     }
   }
 
-  return pageKeys.map((key) => {
+  const messages = pageKeys.flatMap((key) => {
     const message = byId.get(key.id);
-    if (!message) {
-      throw new Error("Gmail Message summary disappeared while reading the current page");
-    }
-    return message;
+    return message ? [message] : [];
   });
+  const skippedCount = pageKeys.length - messages.length;
+
+  if (skippedCount > 0) {
+    logWarn("gmail.message.summary.skipped", {
+      accountId,
+      phase: "current-page",
+      skippedCount,
+    });
+  }
+
+  return messages;
 }
 
 async function fetchMessageSummariesByUid(
@@ -1330,6 +1353,7 @@ async function fetchMessageSummariesByUid(
   uids: number[],
 ): Promise<Array<LiveMessageSummary & { uid: number }>> {
   const messages: Array<LiveMessageSummary & { uid: number }> = [];
+  let skippedCount = 0;
 
   if (uids.length > 0) {
     for await (const message of client.fetch(
@@ -1343,7 +1367,8 @@ async function fetchMessageSummariesByUid(
       { uid: true },
     )) {
       if (!message.emailId || message.uid === undefined) {
-        throw new Error("Gmail Message is missing X-GM-MSGID or UID");
+        skippedCount += 1;
+        continue;
       }
 
       messages.push({
@@ -1359,6 +1384,14 @@ async function fetchMessageSummariesByUid(
         uid: message.uid,
       });
     }
+  }
+
+  if (skippedCount > 0) {
+    logWarn("gmail.message.identity.skipped", {
+      accountId,
+      phase: "summary",
+      skippedCount,
+    });
   }
 
   return messages;

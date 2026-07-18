@@ -352,6 +352,76 @@ describe("Gmail Live IMAP Account open mapping", () => {
     expect(mailboxOpen).toHaveBeenCalledWith("[Gmail]/All Mail", { readOnly: true });
   });
 
+  it("skips Gmail rows that are missing a stable Message identity during refresh", async () => {
+    const valid = messageFixture(1, "valid");
+    const fetch = vi.fn(async function* (
+      _range: string,
+      query: { envelope?: true; internalDate?: true },
+    ) {
+      if (query.envelope) {
+        yield valid;
+        return;
+      }
+
+      yield valid;
+      yield { uid: 2, internalDate: new Date(2_000) };
+      yield { emailId: "missing-uid", internalDate: new Date(3_000) };
+    });
+    const reader = createGmailImapReader(
+      vi.fn(function () {
+        return {
+          connect: vi.fn(async () => undefined),
+          list: vi.fn(async () => refreshMailboxes()),
+          mailboxOpen: vi.fn(async () => ({ exists: 3, uidValidity: 9n })),
+          search: vi.fn(async () => [1, 2, 3]),
+          fetch,
+          logout: vi.fn(async () => undefined),
+        };
+      }),
+    );
+
+    const response = await reader.refreshAccount(accountFixture(), {
+      view: { kind: "mailbox", mailboxId: "INBOX" },
+    });
+
+    expect(response.view.messages.map((message) => message.id)).toEqual(["valid"]);
+  });
+
+  it("returns the remaining Messages when a summary disappears during refresh", async () => {
+    const first = messageFixture(1, "first");
+    const disappeared = messageFixture(2, "disappeared");
+    const fetch = vi.fn(async function* (
+      _range: string,
+      query: { envelope?: true; internalDate?: true },
+    ) {
+      if (query.envelope) {
+        yield first;
+        return;
+      }
+
+      yield first;
+      yield disappeared;
+    });
+    const reader = createGmailImapReader(
+      vi.fn(function () {
+        return {
+          connect: vi.fn(async () => undefined),
+          list: vi.fn(async () => refreshMailboxes()),
+          mailboxOpen: vi.fn(async () => ({ exists: 2, uidValidity: 9n })),
+          search: vi.fn(async () => [1, 2]),
+          fetch,
+          logout: vi.fn(async () => undefined),
+        };
+      }),
+    );
+
+    const response = await reader.refreshAccount(accountFixture(), {
+      view: { kind: "mailbox", mailboxId: "INBOX" },
+    });
+
+    expect(response.view.messages.map((message) => message.id)).toEqual(["first"]);
+  });
+
   it("explicitly reports a selected Message that is no longer visible in the account", async () => {
     const connect = vi.fn(async () => undefined);
     const list = vi.fn(async () => [
@@ -885,6 +955,23 @@ function accountFixture() {
     emailAddress: "me@example.com",
     appPassword: "gmail-app-password",
   };
+}
+
+function refreshMailboxes() {
+  return [
+    {
+      path: "INBOX",
+      specialUse: "\\Inbox",
+      flags: new Set<string>(),
+      status: { unseen: 1, messages: 3 },
+    },
+    {
+      path: "[Gmail]/All Mail",
+      specialUse: "\\All",
+      flags: new Set<string>(),
+      status: { unseen: 1, messages: 3 },
+    },
+  ];
 }
 
 function messageMailboxes() {
