@@ -33,7 +33,7 @@ describe("stateless deployment contract", () => {
     const security = readFileSync("docs/security.md", "utf8");
 
     for (const phrase of [
-      "Account selection",
+      "Reader shell",
       "Live IMAP access",
       "browser memory",
       "Manual refresh",

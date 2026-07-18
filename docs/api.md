@@ -11,7 +11,7 @@ persisted or cached by the server.
 - `GET /api/session` returns `SessionResponse`.
 - `POST /api/logout` closes active Live IMAP sessions, clears the cookie, and returns `204`.
 
-## Account selection and open
+## Configured accounts and Account open
 
 All endpoints below require `zmail_session`.
 

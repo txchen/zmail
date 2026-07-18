@@ -15,6 +15,7 @@ Existing SQLite files are not used by the Live IMAP reader and remain untouched 
 operation. Zmail does not inspect, migrate, truncate, or delete them. Keep them wherever they are
 until the operator chooses to delete them after completing any desired backup or rollback period.
 
-After starting the new image, App login shows Account selection without contacting Gmail. Select
-one Mail account to verify Live IMAP access, then use Manual refresh or Manual retry only when you
+After starting the new image, App login shows the Reader shell with configured Mail accounts
+collapsed in the left sidebar without contacting Gmail. Select one Mail account to expand it,
+open its Inbox, and verify Live IMAP access; then use Manual refresh or Manual retry only when you
 intend to contact Gmail again.

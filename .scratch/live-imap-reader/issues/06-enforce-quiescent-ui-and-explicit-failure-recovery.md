@@ -11,7 +11,7 @@
 - [x] Apart from a previously authorized dwell timer and Interaction lease expiry, an idle UI initiates no Gmail read or write.
 - [x] A failed Account open, Message list, Search, Message detail, Manual refresh, or Attachment request ends and presents an explicit Manual retry control.
 - [x] Manual retry repeats only the failed user-selected read operation.
-- [x] A full page load or authenticated reload clears reader routes and browser mail state, then shows Account selection without Gmail access.
+- [x] A full page load or authenticated reload clears reader routes and browser mail state, then shows the Reader shell with collapsed configured accounts without Gmail access.
 - [x] App sessions use an HttpOnly, SameSite=Lax, browser-session-only cookie and add Secure in production.
 - [x] Logout clears browser mail state, cancels dwell timers, closes all ordinary account sessions and attachment sessions, and clears the App session cookie.
 - [x] Broken or expired IMAP sessions are cleaned up without reconnect loops.

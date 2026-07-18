@@ -144,9 +144,9 @@ _Avoid_: Unified inbox, smart view
 A per-**Mail account** view of unread **Messages** across Gmail All Mail, deduplicated by **Message** and excluding Spam and Trash. **Account unread view** is not a cross-account unified inbox.
 _Avoid_: Unified inbox, global unread
 
-**Account selection view**:
-The post-login and full-page-load state that lists configured **Mail accounts** without connecting to Gmail. Zmail never restores a prior account or Message from the URL after reload; selecting an account authorizes a **Live IMAP session** for that account and opens its Inbox.
-_Avoid_: Default inbox, automatic account load
+**Reader shell**:
+The three-pane post-login and full-page-load UI. It lists configured **Mail accounts** collapsed in the left sidebar without connecting to Gmail; the middle and right panes remain empty until an account is selected. Zmail never restores a prior account or Message from the URL after reload; selecting an account authorizes a **Live IMAP session**, expands that account, and opens its Inbox.
+_Avoid_: Account selection view, automatic account load
 
 **Account open**:
 The explicit operation started by selecting a **Mail account**. In one **Live IMAP session** and one response, it reads the **Visible mailbox set**, Mailbox counts, and the first Inbox **Message list** page.
@@ -244,7 +244,7 @@ Domain expert: "No. The Account mailbox tree should show each Mail account separ
 
 Developer: "What should Zmail show immediately after login?"
 
-Domain expert: "Show the Account selection view without connecting to Gmail. I explicitly select the account whose Inbox I want to open."
+Domain expert: "Show the Reader shell with my configured Mail accounts collapsed in the left sidebar, without connecting to Gmail. I explicitly select the account whose Inbox I want to open."
 
 Developer: "If I search, am I filtering the current Mailbox?"
 

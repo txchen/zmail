@@ -82,7 +82,7 @@ session_secret = "stateless-container-smoke-secret"
     accountsResponse.status === 200 &&
       accounts.mailAccounts?.length === 1 &&
       accounts.mailAccounts[0].id === "personal",
-    `Account selection returned an unexpected response: ${JSON.stringify(accounts)}`,
+    `Configured Mail accounts returned an unexpected response: ${JSON.stringify(accounts)}`,
   );
 
   const shellResponse = await fetch(baseUrl);
@@ -92,7 +92,7 @@ session_secret = "stateless-container-smoke-secret"
   );
 
   console.log(
-    "Stateless container smoke passed: App login and Account selection required no Gmail access or writable data volume.",
+    "Stateless container smoke passed: App login and Configured Mail accounts in the Reader shell required no Gmail access or writable data volume.",
   );
 } finally {
   await run("docker", ["rm", "--force", container], { allowFailure: true }).catch(() => undefined);

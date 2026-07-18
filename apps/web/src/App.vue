@@ -113,6 +113,10 @@ type VisibleMailboxRow = {
   unreadCount: number;
 };
 
+type ReaderShellMailAccount = MailAccountSummary & {
+  opened?: LiveMailAccount;
+};
+
 const healthQuery = useQuery({ queryKey: ["health"], queryFn: () => fetchHealth() });
 const sessionQuery = useQuery({ queryKey: ["session"], queryFn: () => fetchSession() });
 
@@ -130,14 +134,17 @@ const configuredMailAccounts = computed(() => mailAccountsQuery.data.value?.mail
 const readDwellSeconds = computed(
   () => mailAccountsQuery.data.value?.reader?.readDwellSeconds ?? 3,
 );
-const mailAccounts = computed(() => [...openedMailAccounts.value.values()]);
+const readerShellMailAccounts = computed<ReaderShellMailAccount[]>(() =>
+  configuredMailAccounts.value.map((account) => ({
+    ...account,
+    opened: openedMailAccounts.value.get(account.id),
+  })),
+);
 const readerRoute = computed(() => parseReaderRoute(route.path, route.query));
 const selectedAccountId = computed(() =>
   readerRoute.value.kind === "none" ? "" : readerRoute.value.accountId,
 );
-const selectedAccount = computed(() =>
-  mailAccounts.value.find((account) => account.id === selectedAccountId.value),
-);
+const selectedAccount = computed(() => openedMailAccounts.value.get(selectedAccountId.value));
 const selectedMessageId = computed(() =>
   readerRoute.value.kind === "none" ? "" : (readerRoute.value.messageId ?? ""),
 );
@@ -315,6 +322,9 @@ const accountOpenMutation = useMutation({
     accountOpenErrorId.value = "";
     const account = response.mailAccount;
     openedMailAccounts.value = new Map(openedMailAccounts.value).set(account.id, account);
+    const nextCollapsedAccounts = new Set(collapsedAccounts.value);
+    nextCollapsedAccounts.delete(account.id);
+    collapsedAccounts.value = nextCollapsedAccounts;
     const inboxRoute = {
       kind: "mailbox" as const,
       accountId: account.id,
@@ -648,12 +658,17 @@ function openAdjacentMessage(messageId: string) {
   );
 }
 
-function accountCollapsed(accountId: string): boolean {
-  return collapsedAccounts.value.has(accountId);
+function accountCollapsed(account: ReaderShellMailAccount): boolean {
+  return !account.opened || collapsedAccounts.value.has(account.id);
 }
 
-function toggleAccount(accountId: string) {
-  collapsedAccounts.value = toggledSet(collapsedAccounts.value, accountId);
+function toggleAccount(account: ReaderShellMailAccount) {
+  if (!account.opened) {
+    openConfiguredAccount(account);
+    return;
+  }
+
+  collapsedAccounts.value = toggledSet(collapsedAccounts.value, account.id);
 }
 
 function mailboxGroupKey(accountId: string, mailboxId: string): string {
@@ -861,13 +876,33 @@ async function selectAccountDefault(account: LiveMailAccount) {
   }
 }
 
+async function selectReaderShellAccount(account: ReaderShellMailAccount) {
+  if (!account.opened) {
+    openConfiguredAccount(account);
+    return;
+  }
+
+  const nextCollapsedAccounts = new Set(collapsedAccounts.value);
+  nextCollapsedAccounts.delete(account.id);
+  collapsedAccounts.value = nextCollapsedAccounts;
+  await selectAccountDefault(account.opened);
+}
+
 function openConfiguredAccount(account: MailAccountSummary): void {
+  if (accountOpenMutation.isPending.value) {
+    return;
+  }
+
   accountOpenErrorId.value = "";
   accountOpenMutation.mutate(account.id);
 }
 
+function accountOpening(accountId: string): boolean {
+  return accountOpenMutation.isPending.value && accountOpenMutation.variables.value === accountId;
+}
+
 function retryAccountOpen(): void {
-  if (accountOpenErrorId.value) {
+  if (accountOpenErrorId.value && !accountOpenMutation.isPending.value) {
     accountOpenMutation.mutate(accountOpenErrorId.value);
   }
 }
@@ -1001,59 +1036,7 @@ function loadMoreMessages(): void {
         </template>
       </UAlert>
 
-      <div
-        v-if="readerRoute.kind === 'none'"
-        class="grid flex-1 place-items-center px-6 text-center"
-      >
-        <div class="w-full max-w-lg">
-          <h2 class="text-xl font-semibold">Choose a Mail account</h2>
-          <p class="mt-2 text-sm text-slate-600">
-            Zmail connects to Gmail only after you select an account.
-          </p>
-          <p v-if="configuredMailAccounts.length === 0" class="mt-6 text-sm text-slate-500">
-            No Mail accounts are configured.
-          </p>
-          <div v-else class="mt-6 space-y-2 text-left">
-            <button
-              v-for="account in configuredMailAccounts"
-              :key="account.id"
-              class="flex w-full items-center justify-between rounded-md border border-stone-300 bg-white px-4 py-3 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-60"
-              type="button"
-              :disabled="accountOpenMutation.isPending.value"
-              @click="openConfiguredAccount(account)"
-            >
-              <span class="min-w-0">
-                <span class="block truncate text-sm font-semibold">{{ account.id }}</span>
-                <span class="block truncate text-xs text-slate-500">{{
-                  account.emailAddress
-                }}</span>
-              </span>
-              <span class="shrink-0 text-sm text-slate-600">
-                {{ accountOpenMutation.isPending.value ? "Opening..." : "Open Inbox" }}
-              </span>
-            </button>
-            <UAlert
-              v-if="accountOpenErrorId"
-              color="error"
-              variant="soft"
-              title="Mail account unavailable"
-              :description="`Could not open ${accountOpenErrorId}. Choose another account or retry.`"
-            >
-              <template #actions>
-                <button
-                  class="h-8 rounded-md border border-red-300 bg-white px-3 text-sm font-medium text-red-900"
-                  type="button"
-                  @click="retryAccountOpen"
-                >
-                  Manual retry
-                </button>
-              </template>
-            </UAlert>
-          </div>
-        </div>
-      </div>
-
-      <div v-else class="reader-grid grid min-h-0 flex-1 grid-cols-1" :style="readerGridStyle">
+      <div class="reader-grid grid min-h-0 flex-1 grid-cols-1" :style="readerGridStyle">
         <aside
           class="min-h-0 border-r border-stone-300 bg-stone-100"
           :class="mobilePane === 'nav' ? 'block' : 'hidden lg:block'"
@@ -1061,25 +1044,38 @@ function loadMoreMessages(): void {
         >
           <div class="flex h-full flex-col">
             <div class="min-h-0 flex-1 overflow-y-auto p-2">
-              <div v-for="account in mailAccounts" :key="account.id" class="mb-3">
-                <UContextMenu :items="accountContextMenuItems(account)">
+              <p
+                v-if="readerShellMailAccounts.length === 0"
+                class="px-2 py-3 text-xs text-slate-500"
+              >
+                No Mail accounts are configured.
+              </p>
+              <div v-for="account in readerShellMailAccounts" :key="account.id" class="mb-3">
+                <UContextMenu
+                  :items="account.opened ? accountContextMenuItems(account.opened) : []"
+                >
                   <div class="flex items-start justify-between gap-1">
                     <button
                       class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded text-slate-500 hover:bg-stone-200"
                       type="button"
+                      :disabled="accountOpenMutation.isPending.value"
                       :aria-label="
-                        accountCollapsed(account.id) ? 'Expand account' : 'Collapse account'
+                        accountCollapsed(account) ? 'Expand account' : 'Collapse account'
                       "
-                      @click="toggleAccount(account.id)"
+                      @click="toggleAccount(account)"
                     >
-                      <span class="text-[10px]">{{
-                        accountCollapsed(account.id) ? ">" : "v"
-                      }}</span>
+                      <span class="text-[10px]">{{ accountCollapsed(account) ? ">" : "v" }}</span>
                     </button>
                     <button
                       class="min-w-0 flex-1 text-left"
                       type="button"
-                      @click="selectAccountDefault(account)"
+                      :disabled="accountOpenMutation.isPending.value"
+                      :aria-label="
+                        account.opened
+                          ? `Open Inbox for account ${account.id}`
+                          : `Open account ${account.id}`
+                      "
+                      @click="selectReaderShellAccount(account)"
                     >
                       <span class="block min-w-0 truncate text-xs font-semibold">
                         {{ account.id }}
@@ -1087,19 +1083,44 @@ function loadMoreMessages(): void {
                       <span class="block truncate text-[11px] text-slate-500">{{
                         account.emailAddress
                       }}</span>
+                      <span
+                        v-if="accountOpening(account.id)"
+                        class="block text-[11px] text-slate-500"
+                      >
+                        Opening...
+                      </span>
                     </button>
                     <div class="flex shrink-0 items-center gap-1">
                       <UBadge
-                        v-if="account.unreadCount > 0"
+                        v-if="account.opened && account.opened.unreadCount > 0"
                         color="neutral"
                         size="sm"
                         variant="subtle"
-                        >{{ account.unreadCount }}</UBadge
+                        >{{ account.opened.unreadCount }}</UBadge
                       >
                     </div>
                   </div>
                 </UContextMenu>
-                <div v-if="!accountCollapsed(account.id)" class="mt-1 space-y-0.5">
+                <UAlert
+                  v-if="accountOpenErrorId === account.id"
+                  class="mt-2"
+                  color="error"
+                  variant="soft"
+                  title="Mail account unavailable"
+                  :description="`Could not open ${account.id}. Choose another account or retry.`"
+                >
+                  <template #actions>
+                    <button
+                      class="h-8 rounded-md border border-red-300 bg-white px-3 text-sm font-medium text-red-900"
+                      type="button"
+                      :disabled="accountOpenMutation.isPending.value"
+                      @click="retryAccountOpen"
+                    >
+                      Manual retry
+                    </button>
+                  </template>
+                </UAlert>
+                <div v-if="account.opened && !accountCollapsed(account)" class="mt-1 space-y-0.5">
                   <button
                     class="flex w-full items-center justify-between rounded-md px-6 py-1 text-left text-xs hover:bg-stone-200"
                     :class="
@@ -1112,16 +1133,16 @@ function loadMoreMessages(): void {
                   >
                     <span>Unread</span>
                     <UBadge
-                      v-if="account.unreadCount > 0"
+                      v-if="account.opened.unreadCount > 0"
                       color="neutral"
                       size="sm"
                       variant="subtle"
                     >
-                      {{ account.unreadCount }}
+                      {{ account.opened.unreadCount }}
                     </UBadge>
                   </button>
                   <div
-                    v-for="row in visibleMailboxRows(account)"
+                    v-for="row in visibleMailboxRows(account.opened)"
                     :key="row.key"
                     class="group flex items-center gap-1 rounded-md py-1 text-xs hover:bg-stone-200"
                     :class="
@@ -1199,11 +1220,13 @@ function loadMoreMessages(): void {
                 <UInput
                   v-model="searchDraft"
                   class="min-w-0 flex-1"
+                  :disabled="!selectedAccount"
                   icon="i-lucide-search"
                   placeholder="Search this account"
                 />
                 <button
-                  class="h-8 rounded-md bg-slate-900 px-3 text-sm font-medium text-white hover:bg-slate-800"
+                  class="h-8 rounded-md bg-slate-900 px-3 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  :disabled="!selectedAccount"
                   type="submit"
                 >
                   Search
@@ -1227,6 +1250,7 @@ function loadMoreMessages(): void {
                   <template v-else-if="readerRoute.kind === 'search'"
                     >Search results for "{{ readerRoute.query }}"</template
                   >
+                  <template v-else>Select a Mail account</template>
                 </p>
                 <p v-if="selectedAccount" class="max-w-[45%] shrink-0 truncate text-right">
                   {{ selectedAccount.emailAddress }}
@@ -1256,7 +1280,11 @@ function loadMoreMessages(): void {
                 </template>
               </UAlert>
               <div v-else-if="messages.length === 0" class="p-6 text-sm text-slate-500">
-                No messages in this view.
+                {{
+                  selectedAccount
+                    ? "No messages in this view."
+                    : "Select a Mail account from the left."
+                }}
               </div>
               <button
                 v-for="message in messages"

@@ -10,7 +10,7 @@ Zmail should instead behave as an intentional live Gmail interface. It should co
 
 ## Solution
 
-Replace the synchronized Local read model with **Live IMAP access**. After App login or a full page reload, Zmail shows an **Account selection view** without connecting to Gmail. Selecting a **Mail account** performs one explicit **Account open** operation that uses a short-lived **Live IMAP session** to read the account's **Visible mailbox set**, Mailbox counts, and the first 50 Inbox Messages.
+Replace the synchronized Local read model with **Live IMAP access**. After App login or a full page reload, Zmail shows the three-pane **Reader shell** with configured **Mail accounts** collapsed in the left sidebar, without connecting to Gmail. Selecting a **Mail account** expands it and performs one explicit **Account open** operation that uses a short-lived **Live IMAP session** to read the account's **Visible mailbox set**, Mailbox counts, and the first 50 Inbox Messages.
 
 Each Mail account has at most one ordinary active IMAP session. Its commands are serialized, automatic IMAP IDLE is disabled, and the session can be reused during a ten-second **Interaction lease** after the latest user-triggered operation. Attachment downloads use independent streaming sessions. The server does not persist or cache mail responses. Previously read lists and Message bodies are cache-first only in browser memory until page reload, logout, page close, or **Manual refresh**.
 
@@ -27,8 +27,8 @@ Zmail retains mark read/unread, star/unstar, archive, and delete as idempotent t
 5. As the App user, I want previously read mail retained in browser memory during the current page session, so that back navigation does not repeat Gmail calls.
 6. As the App user, I want browser mail state cleared by reload, logout, or page close, so that it is ephemeral.
 7. As the App user, I want App login to avoid connecting to Gmail, so that authentication itself does not read mail.
-8. As the App user, I want a post-login Account selection view, so that I explicitly choose which Gmail account Zmail may access.
-9. As the App user, I want a full page reload to return to Account selection, so that Zmail never silently restores a prior Gmail connection from a URL.
+8. As the App user, I want the post-login Reader shell to list configured Mail accounts collapsed in the left sidebar, so that I explicitly choose which Gmail account Zmail may access.
+9. As the App user, I want a full page reload to return to the Reader shell with every configured account unopened, so that Zmail never silently restores a prior Gmail connection from a URL.
 10. As the App user, I want selecting an account to open its Inbox, so that the first Gmail read follows an explicit action.
 11. As the App user, I want Account open to return the Mailbox tree, counts, and first Inbox page together, so that one user action does not create redundant requests.
 12. As the App user, I want one Gmail account failure isolated from other accounts, so that I can continue using healthy accounts.
@@ -118,7 +118,7 @@ Zmail retains mark read/unread, star/unstar, archive, and delete as idempotent t
 - Treat TanStack Query and component state as page-session browser memory only.
 - Disable query refetch on mount restoration, interval, focus, reconnect, and other automatic triggers.
 - Clear all mail queries and reader routes on full page load and logout.
-- Preserve App session across an API restart and page reload, but always render Account selection before any Gmail access.
+- Preserve App session across an API restart and page reload, but always render the Reader shell with configured accounts collapsed before any Gmail access.
 - Implement Account open as one API operation and one IMAP session returning configured account identity, Mailbox tree/counts, and the first Inbox page.
 - Discover system Mailboxes by Gmail Special-Use attributes rather than hard-coded localized paths.
 - Use `(accountId, X-GM-MSGID)` as public Message identity.
@@ -163,7 +163,7 @@ Zmail retains mark read/unread, star/unstar, archive, and delete as idempotent t
 - Test that Message body and attachment reads request peek semantics from the adapter.
 - Test Mailbox action target states, Gmail-confirmed browser updates, no automatic reread, and failure/uncertain-result responses.
 - Test delayed mark-read behavior at the web seam with fake timers: successful body load, configured delay, disable value, selection change, hidden page, lost focus, success, and failure.
-- Test browser behavior with a focused smoke path: App login, Account selection, Account open, Inbox, opening a Message, and explicit Search.
+- Test browser behavior with a focused smoke path: App login, Reader shell with Configured Mail accounts, Account open, Inbox, opening a Message, and explicit Search.
 - Test that client query configuration performs no interval, focus, reconnect, mount, or background refetch.
 - Test cache-first navigation within one page session and cache clearing on reload/logout.
 - Unit test the IMAP session coordinator only where API fakes cannot prove connection lifecycle.

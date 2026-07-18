@@ -6,10 +6,11 @@ Zmail is a private, self-hosted Gmail Mail reader. It lets you read and manage e
 work laptop or other browser without adding the Gmail account to that device.
 
 Zmail uses **Live IMAP access**: mail is read from Gmail only after an explicit action. App login
-and page reload stop at the **Account selection** view without contacting Gmail; choosing a
-configured Mail account opens its Inbox. Previously visited Mailboxes, Search results, pagination,
-and Message bodies are cached only in browser memory for the current page session. Reloading,
-logging out, or closing the page clears that state.
+and page reload show the three-pane Reader shell with configured Mail accounts collapsed in the
+left sidebar, without contacting Gmail; choosing an account expands it and opens its Inbox.
+Previously visited Mailboxes, Search results, pagination, and Message bodies are cached only in
+browser memory for the current page session. Reloading, logging out, or closing the page clears
+that state.
 
 Zmail does not persist mail. The server does not cache Messages, Mailboxes, bodies, Attachments,
 Search results, or cursors, and Gmail remains authoritative. Use **Manual refresh** to re-read the
@@ -95,8 +96,8 @@ vp run smoke:container
 ```
 
 The smoke builds the image, mounts a generated config file readonly, starts without Gmail access,
-logs in through the production API, verifies the Account selection contract, and confirms that the
-container has no writable data mount.
+logs in through the production API, verifies the Reader shell contract with Configured Mail
+accounts, and confirms that the container has no writable data mount.
 
 GitHub Actions builds the image on pull requests. Pushes to `master` publish `latest` and a short
 SHA tag; version tags publish the corresponding version tag.

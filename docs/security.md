@@ -24,9 +24,9 @@ corresponding user action and are not persisted by the server.
 
 ## Gmail reads and writes
 
-App login, Account selection, page reload, idle time, focus changes, and reconnect events do not
-contact Gmail. Reads occur through Live IMAP access after an explicit reader operation, with no
-background polling, prefetch, IMAP IDLE, or automatic retry.
+App login, rendering configured accounts in the Reader shell, page reload, idle time, focus
+changes, and reconnect events do not contact Gmail. Reads occur through Live IMAP access after an
+explicit reader operation, with no background polling, prefetch, IMAP IDLE, or automatic retry.
 
 **User-authorized writes** are limited to explicit Mailbox actions and delayed mark-read that was
 authorized by opening and continuously viewing an unread Message. Passive reads and background

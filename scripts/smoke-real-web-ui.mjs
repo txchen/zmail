@@ -25,20 +25,53 @@ try {
   await browser("find", "label", "Password", "fill", "secret");
   await browser("find", "role", "button", "click", "--name", "Log in");
   await browser("wait", "500");
-  assert(await bodyIncludes("Choose a Mail account"), "Login did not show Account selection");
+  assert(
+    await bodyIncludes("reader@example.com"),
+    "Login did not show the configured Mail account",
+  );
+  assert(
+    !(await bodyIncludes("Choose a Mail account")),
+    "Login showed a separate Account selection",
+  );
+  await assertPage(
+    `Array.from(document.querySelectorAll(
+      'aside, section[aria-label="Message list"], article[aria-label="Message content"]'
+    )).length === 3`,
+    "Login did not show the Reader shell",
+  );
+  await assertPage(
+    `document.querySelector('aside button[aria-label="Expand account"]') &&
+      !Array.from(document.querySelectorAll("aside button")).some(
+        (button) => button.textContent.trim() === "Inbox"
+      )`,
+    "Configured Mail account was not collapsed before Account open",
+  );
   assert((await gmailCalls()).length === 0, "Login or restored route accessed Gmail");
 
   await browser(
     "eval",
-    "Array.from(document.querySelectorAll('button')).find((button) => button.innerText.includes('Open Inbox'))?.click()",
+    `const openAccount = document.querySelector('button[aria-label="Open account personal"]');
+    openAccount.click();
+    openAccount.click();`,
   );
   await browser("wait", "300");
   assert(await bodyIncludes("Mail account unavailable"), "Account open failure was not visible");
   await assertCalls(["open"], "failed Account open");
 
-  await clickButton("Manual retry");
+  await browser(
+    "eval",
+    `const retryAccount = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent.trim() === "Manual retry"
+    );
+    retryAccount.click();
+    retryAccount.click();`,
+  );
   await browser("wait", "500");
   assert(await bodyIncludes("Quiescent UI smoke"), "Account open retry did not reach Inbox");
+  await assertPage(
+    `document.querySelector('aside button[aria-label="Collapse account"]')`,
+    "Successful Account open did not expand the account",
+  );
   await assertCalls(["open", "open"], "Account open retry");
   await assertPage(
     `(() => {
@@ -159,7 +192,14 @@ try {
 
   await browser("open", `${webUrl}/accounts/personal/search?q=invoice`);
   await browser("wait", "500");
-  assert(await bodyIncludes("Choose a Mail account"), "Authenticated reload restored reader route");
+  assert(
+    await bodyIncludes("reader@example.com"),
+    "Authenticated reload hid the configured account",
+  );
+  assert(
+    !(await bodyIncludes("Choose a Mail account")),
+    "Authenticated reload showed a separate Account selection",
+  );
   await assertCalls(beforePassiveEvents, "authenticated full reload");
 
   await clickButton("Log out");

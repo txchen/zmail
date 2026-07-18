@@ -1,13 +1,13 @@
 # 01 — Open one Gmail account through Live IMAP access
 
-**What to build:** Replace the automatic post-login mail load with an explicit Account selection and Account open path. Selecting one configured Mail account should use the new live Gmail reader and one coordinated IMAP session to return that account's Mailbox tree, counts, and first Inbox Message metadata page while the legacy sync path remains available for later contraction.
+**What to build:** Replace the automatic post-login mail load with an explicit Account open path in the Reader shell. Selecting one configured Mail account in the left sidebar should use the new live Gmail reader and one coordinated IMAP session to return that account's Mailbox tree, counts, and first Inbox Message metadata page while the legacy sync path remains available for later contraction.
 
 **Blocked by:** None — can start immediately.
 
 **Status:** completed
 
 - [x] App login and a full page load expose configured Mail accounts without opening an IMAP connection.
-- [x] The post-login UI renders Account selection rather than automatically opening the first account.
+- [x] The post-login UI renders the Reader shell with configured accounts collapsed rather than automatically opening the first account.
 - [x] Selecting one Mail account performs one Account open operation and opens that account's Inbox.
 - [x] Account open returns the Visible mailbox set, Special-Use roles, Mailbox counts, and the newest 50 Inbox Messages in one response.
 - [x] Message rows expose `(accountId, X-GM-MSGID)` identity plus envelope and state metadata without fetching or returning body snippets.
