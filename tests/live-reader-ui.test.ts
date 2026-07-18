@@ -4,6 +4,13 @@ import { describe, expect, it } from "vite-plus/test";
 
 describe("Live reader UI", () => {
   const appVue = readFileSync(resolve("apps/web/src/App.vue"), "utf8");
+  const mainCss = readFileSync(resolve("apps/web/src/assets/main.css"), "utf8");
+
+  it("uses the approved warm-paper Reader palette", () => {
+    expect(mainCss).toContain("--reader-canvas: #e9e6de");
+    expect(mainCss).toContain("--reader-paper: #f1eee6");
+    expect(mainCss).toContain("--reader-selected: #d6d1c6");
+  });
 
   it("shows the selected Mail account identity in the Message list header", () => {
     expect(appVue).toContain('class="max-w-[45%] shrink-0 truncate text-right"');

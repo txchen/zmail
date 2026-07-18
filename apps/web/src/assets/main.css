@@ -2,15 +2,15 @@
 @import "@nuxt/ui";
 
 :root {
-  --reader-canvas: #eeece6;
-  --reader-panel: #f4f2ed;
-  --reader-paper: #faf9f6;
-  --reader-chrome: #e8e5de;
-  --reader-hover: #e7e3db;
-  --reader-selected: #ddd9d0;
-  --reader-border: #d4d0c7;
+  --reader-canvas: #e9e6de;
+  --reader-panel: #f0ede6;
+  --reader-paper: #f1eee6;
+  --reader-chrome: #e3dfd6;
+  --reader-hover: #e1dcd2;
+  --reader-selected: #d6d1c6;
+  --reader-border: #cbc5ba;
   --reader-text: #29353d;
-  --reader-muted: #52606a;
+  --reader-muted: #4e5c66;
   --reader-accent: #556d7b;
   --reader-accent-hover: #465e6c;
 }

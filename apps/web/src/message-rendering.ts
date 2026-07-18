@@ -147,7 +147,7 @@ function frameDocument(
 html { color-scheme: light; }
 body {
   margin: 0;
-  background: #faf9f6;
+  background: #f1eee6;
   color: #29353d;
   font: 14px/1.6 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   overflow-wrap: anywhere;

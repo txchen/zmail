@@ -8,6 +8,18 @@ import {
 import { renderReadableMessage } from "../apps/web/src/message-rendering";
 
 describe("readable Message rendering", () => {
+  it("uses the warm-paper background when a Message does not specify one", () => {
+    const rendered = renderReadableMessage({
+      accountId: "personal",
+      messageId: "message-1",
+      readableBody: "<p>Hello</p>",
+      inlineResources: [],
+      showRemoteImages: false,
+    });
+
+    expect(rendered.srcdoc).toContain("background: #f1eee6");
+  });
+
   it("sanitizes unsafe HTML and blocks remote images by default", () => {
     expect(
       renderReadableMessage({
