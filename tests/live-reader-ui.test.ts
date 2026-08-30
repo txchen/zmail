@@ -67,4 +67,8 @@ describe("Live reader UI", () => {
     expect(appVue).not.toContain("collapsedMailboxGroups: [...collapsedMailboxGroups.value]");
     expect(appVue).toContain("saveReaderLayout(navColumnWidth.value, listColumnWidth.value)");
   });
+
+  it("starts the Gmail system Mailbox group collapsed when an account opens", () => {
+    expect(appVue).toContain('mailboxKey(openedAccount.id, "[Gmail]")');
+  });
 });

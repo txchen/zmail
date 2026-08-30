@@ -906,6 +906,11 @@ async function openConfiguredAccount(account: MailAccountSummary): Promise<void>
     const nextCollapsedAccounts = new Set(collapsedAccounts.value);
     nextCollapsedAccounts.delete(openedAccount.id);
     collapsedAccounts.value = nextCollapsedAccounts;
+    if (openedAccount.mailboxes.some((mailbox) => mailbox.id.startsWith("[Gmail]/"))) {
+      collapsedMailboxGroups.value = new Set(collapsedMailboxGroups.value).add(
+        mailboxKey(openedAccount.id, "[Gmail]"),
+      );
+    }
     const inboxRoute = {
       kind: "mailbox" as const,
       accountId: openedAccount.id,
