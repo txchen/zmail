@@ -734,16 +734,16 @@ async function readMessageDetail(
       (part.type.toLowerCase() === "text/plain" || part.type.toLowerCase() === "text/html") &&
       !isAttachmentPart(part),
   );
-  const bodyPartIds = textParts.flatMap((part) => (part.part ? [part.part] : []));
+  const bodyPartIds = textParts.map((part) => part.part ?? "text");
   const bodyResponse =
     bodyPartIds.length > 0
       ? await client.fetchOne(String(located.uid), { bodyParts: bodyPartIds }, { uid: true })
       : false;
   const decodedBodyParts = new Map(
-    textParts.map((part) => [
+    textParts.map((part, index) => [
       part.type.toLowerCase(),
       decodeTextPart(
-        bodyResponse && part.part ? bodyResponse.bodyParts?.get(part.part) : undefined,
+        bodyResponse ? bodyResponse.bodyParts?.get(bodyPartIds[index]) : undefined,
         part,
       ),
     ]),

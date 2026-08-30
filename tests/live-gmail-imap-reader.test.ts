@@ -596,6 +596,39 @@ describe("Gmail Live IMAP Message content mapping", () => {
     });
   });
 
+  it("reads a single-part HTML Message through the root TEXT section", async () => {
+    const structure = messageStructureFixture();
+    structure.bodyStructure = {
+      type: "text/html",
+      parameters: { charset: "utf-8" },
+      encoding: "quoted-printable",
+      size: 25,
+    };
+    const client = contentClient();
+    client.fetchOne = vi
+      .fn()
+      .mockResolvedValueOnce(structure)
+      .mockResolvedValueOnce({
+        uid: 42,
+        bodyParts: new Map([["text", Buffer.from("<p>XBOX =E2=9D=AF</p>")]]),
+      });
+    const ImapFlowClient = vi.fn(function () {
+      return client;
+    });
+    const reader = createGmailImapReader(ImapFlowClient);
+
+    const detail = await reader.readMessage(accountFixture(), "1876543210");
+
+    expect(client.fetchOne).toHaveBeenNthCalledWith(
+      2,
+      "42",
+      { bodyParts: ["text"] },
+      { uid: true },
+    );
+    expect(detail?.readableBody).toBe("<p>XBOX ❯</p>");
+    await reader.closeAllSessions();
+  });
+
   it("keeps attached Messages out of the Readable body and accepts CID resources without disposition", async () => {
     const structure = messageStructureFixture();
     structure.bodyStructure.childNodes = [
