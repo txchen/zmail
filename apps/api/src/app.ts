@@ -43,7 +43,10 @@ export function createApp(config: AppConfig): Hono {
       { username: config.appLogin.username, expiresAt },
       config.appLogin.sessionSecret,
     );
-    c.header("set-cookie", sessionCookie(token, config.secureCookies));
+    c.header(
+      "set-cookie",
+      sessionCookie(token, config.secureCookies, sessionTtlDays * 24 * 60 * 60),
+    );
     return c.body(null, 204);
   });
 
@@ -65,7 +68,7 @@ export function createApp(config: AppConfig): Hono {
       logError("mail.sessions.close.error", { error: errorMessage(error) });
     }
 
-    c.header("set-cookie", sessionCookie("", config.secureCookies, true));
+    c.header("set-cookie", sessionCookie("", config.secureCookies, 0));
     return c.body(null, 204);
   });
 
@@ -431,14 +434,14 @@ function attachmentDisposition(filename: string): string {
   return `attachment; filename="${filename.replaceAll(/[\r\n"]/g, "_")}"`;
 }
 
-function sessionCookie(value: string, secure = false, clear = false): string {
+function sessionCookie(value: string, secure: boolean | undefined, maxAgeSeconds: number): string {
   return [
     `${sessionCookieName}=${value}`,
     "HttpOnly",
     "SameSite=Lax",
     "Path=/",
+    `Max-Age=${maxAgeSeconds}`,
     ...(secure ? ["Secure"] : []),
-    ...(clear ? ["Max-Age=0"] : []),
   ].join("; ");
 }
 

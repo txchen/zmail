@@ -186,8 +186,8 @@ try {
   await clickButton("Account mailbox tree");
   await assertPage(
     `getComputedStyle(document.querySelector('aside')).display === 'block' &&
-      document.querySelector('aside button[aria-label="Collapse account"]').getBoundingClientRect().height === 40 &&
-      document.querySelector('aside button[aria-label="Open mailbox INBOX for account personal"]').getBoundingClientRect().height === 40`,
+      document.querySelector('aside button[aria-label="Collapse account"]').getBoundingClientRect().height === 44 &&
+      document.querySelector('aside button[aria-label="Open mailbox INBOX for account personal"]').getBoundingClientRect().height === 44`,
     "Mobile reader did not expose Account mailbox navigation",
   );
   await browser("set", "viewport", "1280", "900");

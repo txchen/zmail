@@ -9,9 +9,10 @@ Gmail app passwords live only in server-side configuration. They are used for Li
 are never included in browser responses or logs. The App login is separate from every Gmail
 credential.
 
-The App session is a signed, HttpOnly, SameSite=Lax, browser-session cookie. In production the
-cookie is also `Secure`, so deploy the service behind HTTPS. Rotating
-`app_login.session_secret` revokes existing sessions. Logging out clears browser mail memory and
+The App session is a signed, HttpOnly, SameSite=Lax cookie that persists for
+`app_login.session_ttl_days` (default 365), so closing the browser or a home screen web app does
+not require a new App login. In production the cookie is also `Secure`, so deploy the service
+behind HTTPS. Rotating `app_login.session_secret` revokes existing sessions. Logging out clears browser mail memory and
 closes active Live IMAP sessions.
 
 ## Message content and network access
@@ -19,7 +20,9 @@ closes active Live IMAP sessions.
 Remote images are blocked by default so opening a Message does not notify an external image host.
 The App user can opt in for one Message during the current page session. Message HTML is sanitized
 and rendered inside a sandboxed iframe; scripts, forms, executable embeds, and redirects are
-removed or disabled. Attachments and inline resources are fetched from Gmail only after the
+removed or disabled. The sandbox grants `allow-same-origin` (never `allow-scripts`) so the reader
+can measure the body and size the iframe to it; the iframe's Content-Security-Policy still sets
+`script-src 'none'`. Attachments and inline resources are fetched from Gmail only after the
 corresponding user action and are not persisted by the server.
 
 ## Gmail reads and writes

@@ -101,7 +101,7 @@ The simple username/password gate for the single **App user**. The **App login**
 _Avoid_: Gmail login, signup
 
 **App session**:
-A signed, HttpOnly browser-session cookie for the **App user** created after **App login**. **App sessions** survive API restarts, production cookies are Secure, rotating the server-side signing secret revokes them, and logout clears **Ephemeral mail state** and closes active **Live IMAP sessions**.
+A signed, HttpOnly cookie for the **App user** created after **App login** that lasts for the configured session TTL. **App sessions** survive API restarts and browser restarts, production cookies are Secure, rotating the server-side signing secret revokes them, and logout clears **Ephemeral mail state** and closes active **Live IMAP sessions**.
 _Avoid_: Mail account session, Gmail session
 
 **App configuration**:

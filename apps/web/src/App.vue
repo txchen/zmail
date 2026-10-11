@@ -36,6 +36,7 @@ import {
   type LiveBrowserMessageListView,
 } from "./live-mail-memory";
 import { createInlineMessageResourceController } from "./inline-message-resource-controller";
+import { fitMessageFrame } from "./message-frame";
 import { renderReadableMessage } from "./message-rendering";
 import {
   applyConfirmedAccountCounts,
@@ -44,6 +45,7 @@ import {
 } from "./mailbox-action-controller";
 import { confirmedRenderedMessageKey, createReadDwellController } from "./read-dwell";
 import { readSavedReaderLayout, saveReaderLayout } from "./reader-layout";
+import { usePullToRefresh, useSwipeRows } from "./touch-gestures";
 import {
   defaultReaderPath,
   listPath,
@@ -66,6 +68,8 @@ const password = ref("");
 const loginError = ref("");
 const remoteImagesAllowedMessageKeys = ref(new Set<string>());
 const mobilePane = ref<"nav" | "list" | "message">("nav");
+const paneMotion = ref<"none" | "forward" | "back">("none");
+const messageFrame = ref<HTMLIFrameElement | null>(null);
 const lastListRouteByAccount = ref(new Map<string, string>());
 const searchDraft = ref("");
 const loggedOut = ref(false);
@@ -100,6 +104,7 @@ const refreshingMailboxKeys = ref(new Set<string>());
 const attachmentDownloadError = ref<AttachmentDownloadRequest | null>(null);
 const failedLoadMore = ref<LoadMoreRequest | null>(null);
 const liveMessageListPageSize = 50;
+const mobileToolbarButtonUi = { base: "max-lg:p-3", leadingIcon: "max-lg:size-6" };
 let resizeStartX = 0;
 let resizeStartWidth = 0;
 let attachmentDownloadAbortController: AbortController | undefined;
@@ -201,6 +206,32 @@ const messageListQuery = useQuery({
 });
 
 const messages = computed(() => messageListQuery.data.value?.messages ?? []);
+const messageListTitle = computed(() => {
+  const current = readerRoute.value;
+  if (current.kind === "unread") {
+    return "Unread Messages";
+  }
+  if (current.kind === "mailbox" && selectedAccount.value) {
+    return mailboxLabel(selectedAccount.value, current.mailboxId);
+  }
+  if (current.kind === "search") {
+    return `Search results for "${current.query}"`;
+  }
+  return "Select a Mail account";
+});
+const {
+  distance: pullDistance,
+  armed: pullArmed,
+  handlers: pullHandlers,
+} = usePullToRefresh({
+  enabled: () => compactLayout() && readerRoute.value.kind === "mailbox",
+  refresh: () => {
+    if (readerRoute.value.kind === "mailbox") {
+      requestMailboxRefresh(readerRoute.value.accountId, readerRoute.value.mailboxId);
+    }
+  },
+});
+const swipeRows = useSwipeRows({ enabled: compactLayout });
 const messageListNextCursor = computed(() => messageListQuery.data.value?.nextCursor);
 
 type LoadMoreRequest = {
@@ -487,6 +518,12 @@ watch(
   { immediate: true },
 );
 
+watch(mobilePane, (next, previous) => {
+  const depth = { nav: 0, list: 1, message: 2 };
+  paneMotion.value = depth[next] > depth[previous] ? "forward" : "back";
+  swipeRows.close();
+});
+
 watch([navColumnWidth, listColumnWidth], ([nextNavWidth, nextListWidth]) => {
   saveReaderLayout(nextNavWidth, nextListWidth);
 });
@@ -536,6 +573,7 @@ onBeforeUnmount(() => {
   document.removeEventListener("visibilitychange", updateDocumentVisible);
   window.removeEventListener("focus", updateWindowFocus);
   window.removeEventListener("blur", updateWindowFocus);
+  window.removeEventListener("resize", refitMessageFrame);
   readDwellController.cancel();
 });
 
@@ -560,6 +598,7 @@ onMounted(() => {
   document.addEventListener("visibilitychange", updateDocumentVisible);
   window.addEventListener("focus", updateWindowFocus);
   window.addEventListener("blur", updateWindowFocus);
+  window.addEventListener("resize", refitMessageFrame);
 });
 
 async function submitLogin() {
@@ -576,6 +615,26 @@ async function selectMessage(messageId: string) {
   accountOpenDestinationId.value = "";
   await router.push(messagePath(readerRoute.value, messageId, route.fullPath));
   mobilePane.value = "message";
+}
+
+function openListMessage(messageId: string) {
+  if (swipeRows.consumeClick()) {
+    return;
+  }
+  void selectMessage(messageId);
+}
+
+async function returnToMessageList() {
+  const target = listPath(readerRoute.value, route.fullPath);
+  if (router.options.history.state.back === target) {
+    router.back();
+    return;
+  }
+  await router.replace(target);
+}
+
+function compactLayout(): boolean {
+  return window.matchMedia("(max-width: 63.999rem)").matches;
 }
 
 async function submitSearch() {
@@ -604,6 +663,11 @@ function runMailboxAction(action: MailboxAction) {
   });
 }
 
+function runListMessageAction(message: LiveMessageSummary, action: MailboxAction) {
+  swipeRows.close();
+  mailboxActionMutation.mutate(mailboxActionVariables(message.accountId, message.id, action));
+}
+
 function mailboxActionVariables(
   accountId: string,
   messageId: string,
@@ -619,6 +683,9 @@ function mailboxActionVariables(
 }
 
 function markMessageBodyRendered(event: Event) {
+  if (event.currentTarget instanceof HTMLIFrameElement) {
+    fitMessageFrame(event.currentTarget);
+  }
   const renderedKey =
     event.currentTarget instanceof HTMLIFrameElement
       ? event.currentTarget.dataset.messageKey
@@ -626,6 +693,12 @@ function markMessageBodyRendered(event: Event) {
   const confirmedKey = confirmedRenderedMessageKey(renderedKey, selectedMessageKey.value);
   if (confirmedKey && renderedMessage.value) {
     renderedBodyMessageKey.value = confirmedKey;
+  }
+}
+
+function refitMessageFrame() {
+  if (messageFrame.value) {
+    fitMessageFrame(messageFrame.value);
   }
 }
 
@@ -852,6 +925,21 @@ function formatDate(value: string): string {
   return `${year}-${month}-${day} ${hour}:${minute}`;
 }
 
+function formatListDate(value: string): string {
+  const date = new Date(value);
+  const now = new Date();
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  if (date.toDateString() === now.toDateString()) {
+    return `${hour}:${minute}`;
+  }
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return date.getFullYear() === now.getFullYear()
+    ? `${month}-${day}`
+    : `${date.getFullYear()}-${month}-${day}`;
+}
+
 function mailboxLabel(account: LiveMailAccount, mailboxId: string): string {
   return account.mailboxes.find((mailbox) => mailbox.id === mailboxId)?.name ?? mailboxId;
 }
@@ -1035,10 +1123,10 @@ function loadMoreMessages(): void {
 </script>
 
 <template>
-  <main class="reader-theme min-h-screen">
+  <main class="reader-theme min-h-dvh">
     <section
       v-if="!authenticated"
-      class="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6"
+      class="reader-safe-x mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-6"
     >
       <div class="mb-8">
         <h1 class="text-3xl font-semibold tracking-normal">ZMail</h1>
@@ -1078,9 +1166,9 @@ function loadMoreMessages(): void {
       </form>
     </section>
 
-    <section v-else class="reader-panel flex h-screen min-h-0 flex-col">
+    <section v-else class="reader-panel reader-safe-x flex h-dvh min-h-0 flex-col">
       <header
-        class="reader-border reader-chrome flex h-10 shrink-0 items-center justify-between border-b px-3"
+        class="reader-border reader-chrome flex h-10 shrink-0 items-center justify-between border-b px-3 max-lg:hidden"
       >
         <div class="min-w-0">
           <button class="text-sm font-semibold" type="button" @click="router.push('/')">
@@ -1099,30 +1187,53 @@ function loadMoreMessages(): void {
         </div>
       </header>
 
-      <div class="reader-grid grid min-h-0 flex-1 grid-cols-1" :style="readerGridStyle">
+      <div
+        class="reader-grid grid min-h-0 flex-1 grid-cols-1 max-lg:overflow-hidden"
+        :data-pane-motion="paneMotion"
+        :style="readerGridStyle"
+      >
         <aside
-          class="reader-border reader-panel min-h-0 border-r"
+          class="reader-pane reader-border reader-panel min-h-0 border-r"
           :class="mobilePane === 'nav' ? 'block' : 'hidden lg:block'"
           aria-label="Account mailbox tree"
         >
           <div class="flex h-full flex-col">
-            <div class="min-h-0 flex-1 overflow-y-auto p-2">
-              <p v-if="readerShellMailAccounts.length === 0" class="reader-muted px-2 py-3 text-xs">
+            <div class="flex shrink-0 items-end justify-between px-4 pt-4 pb-1 lg:hidden">
+              <h1 class="text-[32px] leading-tight font-bold">Mailboxes</h1>
+              <UButton
+                color="neutral"
+                icon="i-lucide-log-out"
+                size="lg"
+                square
+                variant="ghost"
+                aria-label="Log out"
+                @click="logoutMutation.mutate()"
+              />
+            </div>
+            <div
+              class="reader-scroll reader-safe-bottom min-h-0 flex-1 overflow-y-auto p-2 max-lg:px-3"
+            >
+              <p
+                v-if="readerShellMailAccounts.length === 0"
+                class="reader-muted px-2 py-3 text-xs max-lg:text-base"
+              >
                 No Mail accounts are configured.
               </p>
               <div v-for="account in readerShellMailAccounts" :key="account.id" class="mb-3">
                 <div class="flex items-start justify-between gap-1">
                   <button
-                    class="reader-muted reader-hover mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded max-lg:mt-0 max-lg:h-10 max-lg:w-10"
+                    class="reader-muted reader-hover mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded max-lg:mt-0 max-lg:h-11 max-lg:w-11"
                     type="button"
                     :disabled="accountOpening(account.id)"
                     :aria-label="accountCollapsed(account) ? 'Expand account' : 'Collapse account'"
                     @click="toggleAccount(account)"
                   >
-                    <span class="text-[10px]">{{ accountCollapsed(account) ? ">" : "v" }}</span>
+                    <span class="text-[10px] max-lg:text-sm">{{
+                      accountCollapsed(account) ? ">" : "v"
+                    }}</span>
                   </button>
                   <button
-                    class="min-w-0 flex-1 text-left max-lg:min-h-10"
+                    class="min-w-0 flex-1 text-left max-lg:min-h-11"
                     type="button"
                     :disabled="accountOpening(account.id)"
                     :aria-label="
@@ -1132,13 +1243,16 @@ function loadMoreMessages(): void {
                     "
                     @click="selectReaderShellAccount(account)"
                   >
-                    <span class="block min-w-0 truncate text-xs font-semibold">
+                    <span class="block min-w-0 truncate text-xs font-semibold max-lg:text-[17px]">
                       {{ account.id }}
                     </span>
-                    <span class="reader-muted block truncate text-[11px]">{{
+                    <span class="reader-muted block truncate text-[11px] max-lg:text-sm">{{
                       account.emailAddress
                     }}</span>
-                    <span v-if="accountOpening(account.id)" class="reader-muted block text-[11px]">
+                    <span
+                      v-if="accountOpening(account.id)"
+                      class="reader-muted block text-[11px] max-lg:text-sm"
+                    >
                       Opening...
                     </span>
                   </button>
@@ -1173,7 +1287,7 @@ function loadMoreMessages(): void {
                 </UAlert>
                 <div v-if="account.opened && !accountCollapsed(account)" class="mt-1 space-y-0.5">
                   <button
-                    class="reader-hover flex w-full items-center justify-between rounded-md px-6 py-1 text-left text-xs max-lg:min-h-10"
+                    class="reader-hover flex w-full items-center justify-between rounded-md px-6 py-1 text-left text-xs max-lg:min-h-11 max-lg:pl-12 max-lg:text-[17px]"
                     :class="
                       readerRoute.kind === 'unread' && readerRoute.accountId === account.id
                         ? 'reader-selected'
@@ -1199,7 +1313,7 @@ function loadMoreMessages(): void {
                   >
                     <div>
                       <div
-                        class="reader-hover group flex items-center gap-1 rounded-md py-1 text-xs max-lg:min-h-10 max-lg:py-0"
+                        class="reader-hover group flex items-center gap-1 rounded-md py-1 text-xs max-lg:min-h-11 max-lg:py-0 max-lg:text-[17px]"
                         :class="
                           readerRoute.kind === 'mailbox' &&
                           readerRoute.accountId === account.id &&
@@ -1212,18 +1326,20 @@ function loadMoreMessages(): void {
                       >
                         <button
                           v-if="row.hasChildren"
-                          class="reader-muted reader-hover grid h-4 w-4 shrink-0 place-items-center rounded max-lg:h-10 max-lg:w-10"
+                          class="reader-muted reader-hover grid h-4 w-4 shrink-0 place-items-center rounded max-lg:h-11 max-lg:w-11"
                           type="button"
                           :aria-label="
                             row.collapsed ? 'Expand mailbox group' : 'Collapse mailbox group'
                           "
                           @click.stop="toggleMailboxGroup(account.id, row.id)"
                         >
-                          <span class="text-[9px]">{{ row.collapsed ? ">" : "v" }}</span>
+                          <span class="text-[9px] max-lg:text-sm">{{
+                            row.collapsed ? ">" : "v"
+                          }}</span>
                         </button>
-                        <span v-else class="h-4 w-4 shrink-0 max-lg:h-10 max-lg:w-10"></span>
+                        <span v-else class="h-4 w-4 shrink-0 max-lg:h-11 max-lg:w-11"></span>
                         <button
-                          class="flex min-w-0 flex-1 items-center gap-2 truncate text-left max-lg:min-h-10"
+                          class="flex min-w-0 flex-1 items-center gap-2 truncate text-left max-lg:min-h-11"
                           :class="row.mailbox ? '' : 'reader-muted font-medium'"
                           type="button"
                           :aria-label="
@@ -1240,7 +1356,7 @@ function loadMoreMessages(): void {
                           <span class="truncate">{{ row.label }}</span>
                           <span
                             v-if="row.mailbox && mailboxRefreshing(account.id, row.mailbox.id)"
-                            class="reader-muted shrink-0 text-[11px]"
+                            class="reader-muted shrink-0 text-[11px] max-lg:text-sm"
                           >
                             Refreshing...
                           </span>
@@ -1255,7 +1371,7 @@ function loadMoreMessages(): void {
                       </div>
                       <div
                         v-if="row.mailbox && failedMailboxRefresh(account.id, row.mailbox.id)"
-                        class="ml-6 flex items-center gap-2 px-1 pb-1 text-[11px] text-red-700"
+                        class="ml-6 flex items-center gap-2 px-1 pb-1 text-[11px] text-red-700 max-lg:text-sm"
                       >
                         <span>Refresh failed.</span>
                         <button
@@ -1285,43 +1401,58 @@ function loadMoreMessages(): void {
         ></div>
 
         <section
-          class="reader-border reader-panel min-h-0 border-r"
+          class="reader-pane reader-border reader-panel min-h-0 border-r"
           :class="mobilePane === 'list' ? 'block' : 'hidden lg:block'"
           aria-label="Message list"
         >
           <div class="flex h-full flex-col">
-            <div class="reader-border reader-panel space-y-2 border-b p-2">
-              <div class="flex items-center gap-2 lg:hidden">
+            <div class="reader-border reader-panel space-y-2 border-b p-2 max-lg:px-4 max-lg:pb-3">
+              <div class="-mx-2 flex items-center gap-2 lg:hidden">
                 <UButton
                   aria-label="Account mailbox tree"
+                  class="text-[17px]"
                   color="neutral"
-                  icon="i-lucide-menu"
-                  square
+                  icon="i-lucide-chevron-left"
+                  size="lg"
                   variant="ghost"
                   @click="mobilePane = 'nav'"
-                />
-                <span class="flex-1 text-sm font-medium">Messages</span>
+                >
+                  Mailboxes
+                </UButton>
+                <span class="flex-1"></span>
                 <UButton
                   v-if="readerRoute.kind === 'mailbox'"
                   aria-label="Refresh current mailbox"
                   color="neutral"
                   icon="i-lucide-refresh-cw"
                   :loading="mailboxRefreshing(readerRoute.accountId, readerRoute.mailboxId)"
+                  size="lg"
                   square
                   variant="ghost"
                   @click="requestMailboxRefresh(readerRoute.accountId, readerRoute.mailboxId)"
                 />
+              </div>
+              <div class="lg:hidden">
+                <h1 class="truncate text-[28px] leading-tight font-bold">
+                  {{ messageListTitle }}
+                </h1>
+                <p v-if="selectedAccount" class="reader-muted truncate text-sm">
+                  {{ selectedAccount.emailAddress }}
+                </p>
               </div>
               <form class="flex gap-2" @submit.prevent="submitSearch">
                 <UInput
                   v-model="searchDraft"
                   class="reader-search-input min-w-0 flex-1"
                   :disabled="!selectedAccount"
+                  enterkeyhint="search"
                   icon="i-lucide-search"
                   placeholder="Search this account"
+                  type="search"
+                  :ui="{ base: 'max-lg:h-10 max-lg:text-base' }"
                 />
                 <button
-                  class="reader-button h-8 rounded-md px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                  class="reader-button h-8 rounded-md px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 max-lg:h-10 max-lg:text-base"
                   :disabled="!selectedAccount"
                   type="submit"
                 >
@@ -1342,31 +1473,39 @@ function loadMoreMessages(): void {
                   readerRoute.kind === 'mailbox' &&
                   failedMailboxRefresh(readerRoute.accountId, readerRoute.mailboxId)
                 "
-                class="text-left text-xs font-medium text-red-700 lg:hidden"
+                class="text-left text-xs font-medium text-red-700 lg:hidden max-lg:text-sm"
                 type="button"
                 :disabled="mailboxRefreshing(readerRoute.accountId, readerRoute.mailboxId)"
                 @click="retryMailboxRefresh(readerRoute.accountId, readerRoute.mailboxId)"
               >
                 Refresh failed. Retry
               </button>
-              <div class="reader-muted flex min-w-0 items-center gap-2 text-xs">
-                <p class="min-w-0 flex-1 truncate">
-                  <template v-if="readerRoute.kind === 'unread'">Unread Messages</template>
-                  <template v-else-if="readerRoute.kind === 'mailbox' && selectedAccount">
-                    {{ mailboxLabel(selectedAccount, readerRoute.mailboxId) }}
-                  </template>
-                  <template v-else-if="readerRoute.kind === 'search'"
-                    >Search results for "{{ readerRoute.query }}"</template
-                  >
-                  <template v-else>Select a Mail account</template>
-                </p>
+              <div class="reader-muted flex min-w-0 items-center gap-2 text-xs max-lg:hidden">
+                <p class="min-w-0 flex-1 truncate">{{ messageListTitle }}</p>
                 <p v-if="selectedAccount" class="max-w-[45%] shrink-0 truncate text-right">
                   {{ selectedAccount.emailAddress }}
                 </p>
               </div>
             </div>
 
-            <div class="min-h-0 flex-1 overflow-y-auto">
+            <div
+              class="reader-scroll reader-safe-bottom min-h-0 flex-1 overflow-y-auto"
+              v-on="pullHandlers"
+            >
+              <div
+                v-if="pullDistance > 0"
+                class="reader-muted flex items-end justify-center overflow-hidden text-sm lg:hidden"
+                :style="{ height: `${pullDistance}px` }"
+              >
+                <span class="flex items-center gap-2 pb-2">
+                  <UIcon
+                    class="size-4 transition-transform"
+                    :class="pullArmed ? 'rotate-180' : ''"
+                    name="i-lucide-arrow-down"
+                  />
+                  {{ pullArmed ? "Release to refresh" : "Pull to refresh" }}
+                </span>
+              </div>
               <div v-if="messageListQuery.isLoading.value" class="reader-muted p-4 text-sm">
                 Loading messages...
               </div>
@@ -1394,45 +1533,97 @@ function loadMoreMessages(): void {
                     : "Select a Mail account from the left."
                 }}
               </div>
-              <button
+              <div
                 v-for="message in messages"
                 v-else
                 :key="message.id"
-                class="reader-border reader-hover block w-full border-b px-3 py-2 text-left"
-                :class="[
-                  message.unread
-                    ? 'reader-message-unread border-l-4'
-                    : 'reader-message-read border-l-4',
-                  message.starred ? 'reader-message-starred' : '',
-                  selectedMessageId === message.id ? 'reader-selected' : '',
-                ]"
-                type="button"
-                @click="selectMessage(message.id)"
+                class="reader-border relative overflow-hidden border-b"
               >
-                <div class="flex items-center justify-between gap-2">
-                  <div class="flex min-w-0 items-center gap-1">
-                    <span v-if="message.starred" class="shrink-0 text-amber-500">★</span>
-                    <span
-                      class="truncate text-xs"
-                      :class="message.unread ? 'font-bold' : 'font-medium'"
+                <div
+                  v-if="swipeRows.revealed(message.id)"
+                  class="absolute inset-0 flex justify-between text-xs font-medium text-white lg:hidden"
+                >
+                  <button
+                    class="reader-button flex w-20 flex-col items-center justify-center gap-1"
+                    type="button"
+                    @click="
+                      runListMessageAction(message, message.unread ? 'markRead' : 'markUnread')
+                    "
+                  >
+                    <UIcon
+                      class="size-5"
+                      :name="message.unread ? 'i-lucide-mail-open' : 'i-lucide-mail'"
+                    />
+                    {{ message.unread ? "Read" : "Unread" }}
+                  </button>
+                  <div class="flex">
+                    <button
+                      class="flex w-20 flex-col items-center justify-center gap-1 bg-[#8a7a5c]"
+                      type="button"
+                      @click="runListMessageAction(message, 'archive')"
                     >
-                      {{ senderLabel(message) }}
+                      <UIcon class="size-5" name="i-lucide-archive" />
+                      Archive
+                    </button>
+                    <button
+                      class="flex w-20 flex-col items-center justify-center gap-1 bg-red-700"
+                      type="button"
+                      @click="runListMessageAction(message, 'delete')"
+                    >
+                      <UIcon class="size-5" name="i-lucide-trash-2" />
+                      Delete
+                    </button>
+                  </div>
+                </div>
+                <button
+                  class="reader-border reader-hover reader-swipe-row relative block w-full px-3 py-2 text-left max-lg:border-l-0 max-lg:px-4 max-lg:py-3"
+                  :class="[
+                    message.unread
+                      ? 'reader-message-unread border-l-4'
+                      : 'reader-message-read border-l-4',
+                    message.starred ? 'reader-message-starred' : '',
+                    selectedMessageId === message.id ? 'reader-selected' : '',
+                    swipeRows.dragRowId.value === message.id ? '' : 'reader-swipe-settle',
+                  ]"
+                  :style="
+                    swipeRows.revealed(message.id)
+                      ? { transform: `translateX(${swipeRows.offsetFor(message.id)}px)` }
+                      : undefined
+                  "
+                  type="button"
+                  v-on="swipeRows.handlers(message.id)"
+                  @click="openListMessage(message.id)"
+                >
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="flex min-w-0 items-center gap-1">
+                      <span
+                        class="reader-unread-dot size-2.5 shrink-0 rounded-full lg:hidden"
+                        :class="message.unread ? '' : 'invisible'"
+                      ></span>
+                      <span v-if="message.starred" class="shrink-0 text-amber-500">★</span>
+                      <span
+                        class="truncate text-xs max-lg:text-[17px]"
+                        :class="message.unread ? 'font-bold' : 'font-medium'"
+                      >
+                        {{ senderLabel(message) }}
+                      </span>
+                    </div>
+                    <span class="reader-muted shrink-0 text-[11px] max-lg:text-[15px]">
+                      <span class="max-lg:hidden">{{ formatDate(message.receivedAt) }}</span>
+                      <span class="lg:hidden">{{ formatListDate(message.receivedAt) }}</span>
                     </span>
                   </div>
-                  <span class="reader-muted shrink-0 text-[11px]">{{
-                    formatDate(message.receivedAt)
-                  }}</span>
-                </div>
-                <p
-                  class="mt-0.5 truncate text-xs"
-                  :class="message.unread ? 'font-bold' : 'reader-muted'"
-                >
-                  {{ message.subject || "(No subject)" }}
-                </p>
-              </button>
+                  <p
+                    class="mt-0.5 truncate text-xs max-lg:pl-3.5 max-lg:text-[15px]"
+                    :class="message.unread ? 'font-bold' : 'reader-muted'"
+                  >
+                    {{ message.subject || "(No subject)" }}
+                  </p>
+                </button>
+              </div>
               <div v-if="messageListNextCursor" class="p-3">
                 <button
-                  class="reader-border reader-paper reader-hover reader-muted h-8 w-full rounded-md border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+                  class="reader-border reader-paper reader-hover reader-muted h-8 w-full rounded-md border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 max-lg:h-11 max-lg:text-base"
                   type="button"
                   :disabled="loadMoreMessagesMutation.isPending.value"
                   @click="loadMoreMessages"
@@ -1462,56 +1653,71 @@ function loadMoreMessages(): void {
         ></div>
 
         <article
-          class="reader-paper min-h-0"
+          class="reader-pane reader-paper min-h-0"
           :class="mobilePane === 'message' ? 'block' : 'hidden lg:block'"
           aria-label="Message content"
         >
           <div class="flex h-full flex-col">
             <div
-              class="reader-border reader-panel flex h-12 shrink-0 items-center gap-2 border-b px-3"
+              class="reader-border reader-panel flex h-12 shrink-0 items-center border-b px-1 lg:hidden"
             >
               <UButton
-                class="lg:hidden"
                 aria-label="Back to message list"
+                class="max-w-full text-[17px]"
                 color="neutral"
-                icon="i-lucide-arrow-left"
-                square
+                icon="i-lucide-chevron-left"
+                size="lg"
                 variant="ghost"
-                @click="mobilePane = 'list'"
-              />
+                @click="returnToMessageList"
+              >
+                <span class="truncate">{{ messageListTitle }}</span>
+              </UButton>
+            </div>
+            <div
+              class="reader-border reader-panel flex h-12 shrink-0 items-center gap-2 border-b px-3 max-lg:order-last max-lg:h-auto max-lg:justify-around max-lg:border-t max-lg:border-b-0 max-lg:pt-1 max-lg:pb-[max(0.25rem,env(safe-area-inset-bottom))]"
+              :class="selectedMessage ? '' : 'max-lg:hidden'"
+            >
               <template v-if="selectedMessage">
                 <UButton
                   color="neutral"
                   :icon="selectedMessage.unread ? 'i-lucide-mail-open' : 'i-lucide-mail'"
                   :loading="mailboxActionMutation.isPending.value"
+                  :ui="mobileToolbarButtonUi"
                   variant="ghost"
                   @click="runMailboxAction(selectedMessage.unread ? 'markRead' : 'markUnread')"
                 >
-                  {{ selectedMessage.unread ? "Mark read" : "Mark unread" }}
+                  <span class="max-lg:sr-only">{{
+                    selectedMessage.unread ? "Mark read" : "Mark unread"
+                  }}</span>
                 </UButton>
                 <UButton
                   color="neutral"
                   icon="i-lucide-archive"
+                  :ui="mobileToolbarButtonUi"
                   variant="ghost"
                   @click="runMailboxAction('archive')"
                 >
-                  Archive
+                  <span class="max-lg:sr-only">Archive</span>
                 </UButton>
                 <UButton
                   color="neutral"
                   icon="i-lucide-trash-2"
+                  :ui="mobileToolbarButtonUi"
                   variant="ghost"
                   @click="runMailboxAction('delete')"
                 >
-                  Delete
+                  <span class="max-lg:sr-only">Delete</span>
                 </UButton>
                 <UButton
                   color="neutral"
                   :icon="selectedMessage.starred ? 'i-lucide-star-off' : 'i-lucide-star'"
+                  :ui="mobileToolbarButtonUi"
                   variant="ghost"
                   @click="runMailboxAction(selectedMessage.starred ? 'unstar' : 'star')"
                 >
-                  {{ selectedMessage.starred ? "Unstar" : "Star" }}
+                  <span class="max-lg:sr-only">{{
+                    selectedMessage.starred ? "Unstar" : "Star"
+                  }}</span>
                 </UButton>
               </template>
             </div>
@@ -1525,7 +1731,7 @@ function loadMoreMessages(): void {
               />
             </div>
 
-            <div class="min-h-0 flex-1 overflow-y-auto">
+            <div class="reader-scroll min-h-0 flex-1 overflow-y-auto">
               <div v-if="messageDetailQuery.isLoading.value" class="reader-muted p-6 text-sm">
                 Loading message...
               </div>
@@ -1553,11 +1759,16 @@ function loadMoreMessages(): void {
               >
                 Select a Message to read.
               </div>
-              <div v-else-if="renderedMessage" class="mx-auto max-w-4xl px-5 py-6">
+              <div
+                v-else-if="renderedMessage"
+                class="mx-auto max-w-4xl px-5 py-6 max-lg:px-4 max-lg:py-4"
+              >
                 <h1 class="text-2xl font-semibold tracking-normal">
                   {{ selectedMessage.subject || "(No subject)" }}
                 </h1>
-                <div class="reader-muted mt-3 flex flex-wrap items-center gap-2 text-sm">
+                <div
+                  class="reader-muted mt-3 flex flex-wrap items-center gap-2 text-sm max-lg:text-[15px]"
+                >
                   <span>{{ senderLabel(selectedMessage) }}</span>
                   <span>{{ selectedMessage.sender.address }}</span>
                   <span>{{ formatDate(selectedMessage.receivedAt) }}</span>
@@ -1616,8 +1827,9 @@ function loadMoreMessages(): void {
                 </UAlert>
                 <iframe
                   :key="selectedMessageKey"
+                  ref="messageFrame"
                   class="message-body mt-6 block w-full"
-                  sandbox="allow-popups"
+                  sandbox="allow-popups allow-same-origin"
                   :data-message-key="selectedMessageKey"
                   :srcdoc="renderedMessage.srcdoc"
                   title="Message body"

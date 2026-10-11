@@ -20,8 +20,8 @@ describe("Live reader UI", () => {
 
   it("keeps mobile navigation controls accessible and touchable", () => {
     expect(appVue).toContain('aria-label="Back to message list"');
-    expect(appVue).toContain("max-lg:h-10 max-lg:w-10");
-    expect(appVue).toContain("max-lg:min-h-10");
+    expect(appVue).toContain("max-lg:h-11 max-lg:w-11");
+    expect(appVue).toContain("max-lg:min-h-11");
   });
 
   it("contains the Mailbox action error without overflowing the mobile viewport", () => {
@@ -55,7 +55,7 @@ describe("Live reader UI", () => {
     expect(appVue).toContain("message.starred ? 'reader-message-starred' : ''");
     expect(appVue).toContain('v-if="message.starred"');
     expect(appVue).toContain("selectedMessage.starred ? 'i-lucide-star-off' : 'i-lucide-star'");
-    expect(appVue).toContain('{{ selectedMessage.starred ? "Unstar" : "Star" }}');
+    expect(appVue).toContain('selectedMessage.starred ? "Unstar" : "Star"');
   });
 
   it("persists only layout dimensions and starts Mailbox collapse state empty on reload", () => {
@@ -70,5 +70,22 @@ describe("Live reader UI", () => {
 
   it("starts the Gmail system Mailbox group collapsed when an account opens", () => {
     expect(appVue).toContain('mailboxKey(openedAccount.id, "[Gmail]")');
+  });
+
+  it("keeps mobile navigation in history so leaving a Message stops read dwell", () => {
+    expect(appVue).toContain('@click="returnToMessageList"');
+    expect(appVue).not.toContain("mobilePane = 'list'");
+  });
+
+  it("measures the sandboxed Message body without allowing scripts", () => {
+    expect(appVue).toContain('sandbox="allow-popups allow-same-origin"');
+    expect(appVue).not.toContain("allow-scripts");
+  });
+
+  it("uses iOS-sized type and dynamic viewport height on mobile", () => {
+    expect(appVue).toContain("h-dvh");
+    expect(appVue).not.toContain("h-screen");
+    expect(appVue).toContain("max-lg:text-[17px]");
+    expect(appVue).toContain("max-lg:text-base");
   });
 });

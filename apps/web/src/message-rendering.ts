@@ -144,7 +144,7 @@ function frameDocument(
 <meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy}">
 <meta charset="utf-8">
 <style>
-html { color-scheme: light; }
+html { color-scheme: light; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body {
   margin: 0;
   background: #f1eee6;
@@ -155,6 +155,7 @@ body {
 img, video { max-width: 100%; height: auto; }
 table { max-width: 100%; }
 a { color: #416b86; }
+@media (max-width: 40rem) { body { font-size: 16px; } }
 </style>
 </head>
 <body>${body}</body>

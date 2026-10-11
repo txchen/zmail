@@ -17,6 +17,15 @@ Search results, or cursors, and Gmail remains authoritative. Use **Manual refres
 selected account and **Manual retry** to repeat a failed operation. There is no polling, background
 refresh, or automatic retry while the UI is idle.
 
+## On a phone
+
+Below 1024px the Reader steps through Mailboxes, Message list, and Message, sized for touch. Pull
+down on a Mailbox to run Manual refresh. Swipe a Message left for Archive and Delete, or right to
+toggle read. On iPhone, open Zmail in Safari, choose Share, then Add to Home Screen to install it
+as a standalone web app. The home screen app keeps its own cookies, so log in once inside it. The
+App session then lasts `session_ttl_days`. If Zmail sits behind Cloudflare Access, the Access
+session duration also limits how often you re-authenticate.
+
 ## Security model
 
 One App login protects the web UI and API. Gmail app passwords stay in server-side configuration

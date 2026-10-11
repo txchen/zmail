@@ -350,7 +350,7 @@ describe("App login and configured Mail accounts", () => {
     expect(logoutResponse.headers.get("set-cookie")).toContain("Max-Age=0");
   });
 
-  it("uses a session-only secure cookie in production", async () => {
+  it("uses a persistent secure cookie that lasts for the App session TTL", async () => {
     const app = createApp({
       appLogin: {
         username: "reader",
@@ -371,8 +371,7 @@ describe("App login and configured Mail accounts", () => {
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("SameSite=Lax");
     expect(cookie).toContain("Secure");
-    expect(cookie).not.toContain("Expires=");
-    expect(cookie).not.toContain("Max-Age=");
+    expect(cookie).toContain(`Max-Age=${365 * 24 * 60 * 60}`);
   });
 
   it("rejects sessions signed with an old secret or an invalid signature", async () => {

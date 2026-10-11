@@ -17,4 +17,14 @@ describe("static file serving", () => {
     expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
     expect(await response.text()).toContain('<div id="app"></div>');
   });
+
+  it("serves the web app manifest with its manifest content type", async () => {
+    const distDir = mkdtempSync(join(tmpdir(), "zmail-web-dist-"));
+    writeFileSync(join(distDir, "index.html"), "<!doctype html>");
+    writeFileSync(join(distDir, "manifest.webmanifest"), '{"name":"ZMail"}');
+
+    const response = await serveStaticFile(distDir, "/manifest.webmanifest");
+
+    expect(response.headers.get("content-type")).toBe("application/manifest+json; charset=utf-8");
+  });
 });

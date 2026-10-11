@@ -21,9 +21,25 @@ body,
   min-height: 100%;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
   margin: 0;
   background: var(--reader-canvas);
+  overscroll-behavior: none;
+}
+
+.reader-safe-x {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+.reader-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .reader-theme {
@@ -93,6 +109,49 @@ body {
   }
 }
 
+.reader-unread-dot {
+  background: var(--reader-accent);
+}
+
+@media (max-width: 63.999rem) {
+  .reader-scroll {
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .reader-swipe-row {
+    touch-action: pan-y;
+  }
+}
+
+@media (max-width: 63.999rem) and (prefers-reduced-motion: no-preference) {
+  .reader-grid[data-pane-motion="forward"] > .reader-pane {
+    animation: reader-pane-forward 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .reader-grid[data-pane-motion="back"] > .reader-pane {
+    animation: reader-pane-back 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .reader-swipe-settle {
+    transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
+@keyframes reader-pane-forward {
+  from {
+    transform: translateX(32%);
+    opacity: 0.4;
+  }
+}
+
+@keyframes reader-pane-back {
+  from {
+    transform: translateX(-24%);
+    opacity: 0.4;
+  }
+}
+
 @media (min-width: 64rem) {
   .reader-grid {
     grid-template-columns:
@@ -124,7 +183,7 @@ body {
 }
 
 .message-body {
-  min-height: 70vh;
+  height: 70vh;
   border: 0;
   color: var(--reader-text);
   line-height: 1.6;
